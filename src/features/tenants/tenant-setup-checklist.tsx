@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useT } from '@/lib/i18n/use-translation';
+import { cn } from '@/lib/utils';
 import type { Tenant, TenantHealth } from '@/types';
 
 import { tenantMessages } from './messages';
@@ -187,7 +188,7 @@ function ChecklistRow({ step, number }: { step: ChecklistStep; number: number })
   return (
     <li className="flex items-start gap-3">
       {/* Never mirrored: a tick and a dashed ring mean the same thing in both directions. */}
-      <Icon className={`mt-0.5 size-4 shrink-0 ${STATE_COLORS[step.state]}`} aria-hidden="true" />
+      <Icon className={cn('mt-0.5 size-4 shrink-0', STATE_COLORS[step.state])} aria-hidden="true" />
       <div className="min-w-0 flex-1 space-y-1">
         <p className="flex flex-wrap items-center gap-2 text-sm font-medium">
           <span className="text-[var(--muted-foreground)] tabular">{number}.</span>

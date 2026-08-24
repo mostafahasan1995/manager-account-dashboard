@@ -18,13 +18,13 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet';
-import { formatCount } from '@/lib/format';
 import { useTenant } from '@/lib/api/queries';
 import { useT } from '@/lib/i18n/use-translation';
 import type { Tenant } from '@/types';
 
 import { AddMeAsAdminAction } from './add-me-admin-dialog';
 import { tenantMessages } from './messages';
+import { TenantOperations } from './tenant-operations';
 import { TenantStatusActions } from './tenant-status-actions';
 
 /**
@@ -127,21 +127,6 @@ function TenantDetails({ tenant }: { tenant: Tenant }) {
           <DetailRow label={t('tenants.field.id')}>
             <CopyableValue value={tenant.id} />
           </DetailRow>
-          <DetailRow label={t('tenants.field.bot')}>
-            {tenant.botUsername === null ? (
-              <span className="text-[var(--muted-foreground)]">
-                {t('tenants.noBotUsernameYet')}
-              </span>
-            ) : (
-              <span className="font-mono text-xs">@{tenant.botUsername}</span>
-            )}
-          </DetailRow>
-          <DetailRow label={t('tenants.field.players')}>
-            <CountValue value={tenant.counts?.players} />
-          </DetailRow>
-          <DetailRow label={t('tenants.field.deposits')}>
-            <CountValue value={tenant.counts?.deposits} />
-          </DetailRow>
           <DetailRow label={t('field.created')}>
             <TimeAgo value={tenant.createdAt} />
           </DetailRow>
@@ -174,20 +159,17 @@ function TenantDetails({ tenant }: { tenant: Tenant }) {
         </DetailList>
       </section>
 
-      <section aria-labelledby="tenant-wiring-heading" className="space-y-2">
-        <h3 id="tenant-wiring-heading" className="text-sm font-semibold">
-          {t('tenants.section.wiring')}
+      {/*
+       * The Ichancy triple is NOT repeated here. It is on the operations panel below, beside the
+       * verdict on whether that agent actually answered — a base URL and a username are worth
+       * reading only next to the answer to "does this sign in", and printing them twice invites an
+       * operator to compare two copies of the same field for a difference that cannot exist.
+       */}
+      <section aria-labelledby="tenant-chats-heading" className="space-y-2">
+        <h3 id="tenant-chats-heading" className="text-sm font-semibold">
+          {t('tenants.section.chats')}
         </h3>
         <DetailList>
-          <DetailRow label={t('tenants.field.ichancyBaseUrl')}>
-            <span className="font-mono text-xs break-all">{tenant.ichancyBaseUrl}</span>
-          </DetailRow>
-          <DetailRow label={t('tenants.field.ichancyUsername')}>
-            <span className="font-mono text-xs">{tenant.ichancyUsername}</span>
-          </DetailRow>
-          <DetailRow label={t('tenants.field.ichancyAgentId')}>
-            <CopyableValue value={tenant.ichancyAgentId} />
-          </DetailRow>
           <DetailRow label={t('tenants.field.adminChatId')}>
             <CopyableValue value={tenant.adminChatId} />
           </DetailRow>
@@ -198,24 +180,25 @@ function TenantDetails({ tenant }: { tenant: Tenant }) {
               <CopyableValue value={tenant.feedChatId} />
             )}
           </DetailRow>
-          <DetailRow label={t('tenants.field.webhook')}>
-            <Badge tone={tenant.hasWebhookPath ? 'success' : 'warning'}>
+          {/*
+            The path token in the DATABASE, which every operator has from the moment it is created —
+            not Telegram's registration, which is the thing that decides whether the bot receives
+            anything. A green "webhook configured" here read as delivery working and flatly
+            contradicted the setup checklist below, which is the panel that actually knows. Neutral
+            tone, and wording that says which of the two this is.
+          */}
+          <DetailRow label={t('tenants.field.webhookPath')}>
+            <Badge tone="muted">
               {tenant.hasWebhookPath
-                ? t('tenants.webhook.configured')
-                : t('tenants.webhook.missing')}
+                ? t('tenants.webhook.pathGenerated')
+                : t('tenants.webhook.noPath')}
             </Badge>
           </DetailRow>
         </DetailList>
         <p className="text-xs text-[var(--muted-foreground)]">{t('tenants.secretsNote')}</p>
       </section>
+
+      <TenantOperations tenant={tenant} />
     </div>
   );
-}
-
-function CountValue({ value }: { value: number | undefined }) {
-  const t = useT(tenantMessages);
-  if (value === undefined) {
-    return <span className="text-[var(--muted-foreground)]">{t('tenants.notCounted')}</span>;
-  }
-  return <span className="tabular">{formatCount(value)}</span>;
 }

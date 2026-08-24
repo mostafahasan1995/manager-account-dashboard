@@ -24,14 +24,21 @@ import { LanguageToggle } from './language-toggle';
 import { TenantSwitcher } from './tenant-switcher';
 
 /**
- * The session countdown is not decoration. Admin tokens have NO refresh — when this reaches zero
- * the console signs out, and a reviewer who is ten minutes into a difficult deposit deserves to
- * have seen it coming.
+ * How much session is left before the countdown is worth showing at all.
+ *
+ * Admin tokens have NO refresh, so when the clock reaches zero the console signs out — a reviewer
+ * ten minutes into a difficult deposit deserves to have seen that coming. But the warning only
+ * carries weight while it is rare. Admin sessions now last for days (ADMIN_JWT_ACCESS_TTL), and a
+ * permanent "29d" pill is a countdown to nothing: it trains people to ignore the one badge that
+ * matters on the afternoon it says eight minutes.
  */
+const SESSION_CLOCK_VISIBLE_BELOW_MS = 2 * 60 * 60 * 1000;
+
 function SessionClock() {
-  const { session, expiringSoon } = useAuth();
+  const { session, expiringSoon, expiresInMs } = useAuth();
   const t = useT();
   if (session === null) return null;
+  if (expiresInMs > SESSION_CLOCK_VISIBLE_BELOW_MS) return null;
 
   return (
     <Tooltip content={t('account.sessionEnds')}>

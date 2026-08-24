@@ -1,7 +1,11 @@
 # Adding and running an operator (tenant)
 
-What actually happens under the hood, what the console has to offer, and the three things in the
-backend that have to change for a second operator to work at all.
+What actually happens under the hood, what the console offers, and the state of the backend work.
+
+> **Status, 2026-08-22.** Sections 3, 4 (rows 1–2) and 5 described things that were broken; all of
+> them are now fixed and covered by tests. The Ichancy session is keyed by agent identity, proof
+> downloads use the operator's own bot token, the adapter reads the operator's currency, and the six
+> endpoints in section 6 exist. What is still open is listed in section 8.
 
 ---
 
@@ -9,7 +13,13 @@ backend that have to change for a second operator to work at all.
 
 `POST /v1/admin/tenants` does five things, in this order:
 
-1. Refuses a `slug` that is taken (globally unique).
+1. Resolves the optional half of the request. Only four fields are required — `displayName`,
+   `botToken`, `ichancyUsername`, `ichancyPassword` — and everything else comes from the
+   **PlatformDefaults** settings row, from the caller (`adminChatId`), or from the display name
+   (`slug`, slugified and de-duplicated with `-2`, `-3`, …). A slug the caller *chose* is still
+   refused when it is taken; a derived one cannot collide. `ichancyAgentId` falls back
+   PlatformDefaults → tenant zero → **400 naming the field**: Ichancy `signin()` returns only a
+   token pair, so it cannot be looked up from the credentials.
 2. **Verifies the bot token you supplied** with a real `getMe()`, and records the `@username`. A bad
    token never reaches the database.
 3. Seals the bot token and the Ichancy password (`sealBotToken` / `sealIchancyPassword`, keyed off
@@ -137,7 +147,9 @@ All `PLATFORM_ADMIN`. Shapes:
 
 ```ts
 // POST/DELETE /webhook
-{ url: string; registered: boolean; pendingUpdateCount: number;
+// `url` is NULLABLE: DELETE has no URL to report, and rendering an empty string would read as
+// "delivery is still configured", which is the one thing this screen exists to say clearly.
+{ url: string | null; registered: boolean; pendingUpdateCount: number;
   lastErrorMessage: string | null; lastErrorDate: string | null }
 
 // POST /bot-setup
@@ -162,14 +174,93 @@ All `PLATFORM_ADMIN`. Shapes:
 orphans them from the tree their balances live in. `PATCH /bot` verifies with `getMe` and, because
 the bot changed, invalidates the cached bot and asks for the webhook to be registered again.
 
+**Both PATCHes answer the full `TenantView`**, the same as `PATCH /v1/admin/tenants/:id`, so a screen
+can refresh its row straight from the response.
+
+### Six details settled while building the console half
+
+These were ambiguous above and are now decided. The console is built against them.
+
+1. **`sharesAgentWith` holds SLUGS**, of the other operators only (never the operator itself), matched
+   on `ichancyBaseUrl + '|' + ichancyUsername` — **not** on `ichancyAgentId`. That is the trap: two
+   operators signing in with one login but carrying different agent ids still share one Ichancy
+   session, because the session belongs to the login.
+2. **`bot.ok`** means the bot username is known **and** `webhookMatches` **and** there is no last
+   delivery error. A webhook that is registered but points at another deployment is `ok: false` —
+   which is the entire reason `webhookMatches` exists rather than a bare `registered` boolean.
+3. **`floatMinor` is `null` when the sign-in failed**, and `belowWatermark` is then `false`. A `false`
+   there means "no comparison was possible", never "healthy". Do not let a screen read it as the
+   latter.
+4. **The agent-id refusal is `TENANT_AGENT_HAS_PLAYERS`, 422**, with `details: { players: number }`
+   so the dialog can say how many players would be orphaned.
+5. **A bad bot token is `VALIDATION_FAILED`, 400**, with the message in `details.fields[]`, matching
+   every other validation failure in the API.
+6. **`hasWebhookPath` on `TenantView` is not delivery status.** It only says a path token exists,
+   which is true for a brand-new operator Telegram has never heard of. Delivery is
+   `health.bot.webhookMatches`, always.
+
 ---
 
 ## 7. The loop this gives you, with one Telegram account
 
+### First: you need a PLATFORM_ADMIN, and the seed does not make one
+
+Everything below is on the Operators screen, and that screen is `PLATFORM_ADMIN` only. Nothing in
+the normal setup path produces one: `prisma/seed/admin.seed.ts` seeds a `SUPER_ADMIN`, and
+`POST /v1/admin/admins` refuses to grant `PLATFORM_ADMIN` unless the caller already holds it. A
+fresh install therefore has no platform admin and no way to reach one from inside the product — the
+console correctly hides Operators from every role that exists, which reads as a missing feature.
+
+```
+npm run admin:platform                        # list tenant zero's staff
+npm run admin:platform -- <telegram-id>        # make that account a PLATFORM_ADMIN
+```
+
+**One Telegram account cannot hold both roles in tenant zero.** `admin_users` is keyed on
+`(tenant_id, telegram_user_id)`, so promoting REPLACES `SUPER_ADMIN` rather than adding to it, and
+`prisma/sql/006` forbids a `PLATFORM_ADMIN` row anywhere but tenant zero. With one Telegram account
+the shape is:
+
+| Tenant | Role | What you do there |
+| --- | --- | --- |
+| tenant zero | `PLATFORM_ADMIN` | create, configure, activate and suspend operators |
+| each operator | `SUPER_ADMIN` | everything about that operator's money |
+
+which is the intended shape of a platform, not a workaround. `npm run seed` puts the role back.
+
+When the account is tenant zero's last active `SUPER_ADMIN` the script refuses and asks for the
+promotion to be spelled out, because it leaves nobody there able to decide a deposit:
+
+```
+npm run admin:platform -- <telegram-id> --replace-super-admin
+```
+
+> **In PowerShell, quote the separator: `'--'`.** PowerShell 5.1 consumes a bare `--` itself, so npm
+> never receives it and keeps everything after it as its own configuration. Measured on npm 10.9.0:
+>
+> ```
+> npm run admin:platform -- 912911246 --replace-super-admin    ->  argv ["912911246"]
+> npm run admin:platform '--' 912911246 --replace-super-admin  ->  argv ["912911246","--replace-super-admin"]
+> ```
+>
+> The flag's NAME is irrelevant — `--force`, `--yes` and a bespoke name are all lost identically,
+> and Git Bash and cmd.exe pass all of them through. The first version of this guard used `--force`,
+> which made the failure look like npm claiming its own config (npm warns loudly about that one) and
+> sent the diagnosis in the wrong direction.
+>
+> `admin:platform` therefore also accepts the confirmation from `npm_config_replace_super_admin`,
+> which npm sets from the stripped flag. That key exists only because the flag was typed on that
+> invocation, so it is still an act of consent — unlike `npm_config_force`, which any `~/.npmrc` may
+> carry and which is deliberately **not** accepted.
+
+### Then, per operator
+
 1. **@BotFather** → `/newbot` → copy the token.
-2. Console → Operators → **New operator**: slug, name, that bot token, your own chat id as the admin
-   chat, the Ichancy base URL / username / password / agent id, currency, thresholds. It lands
-   **suspended**.
+2. Console → Operators → **New operator**: a name, that bot token, the Ichancy username and
+   password. That is the whole form — the slug comes from the name, the admin chat from your own
+   Telegram id, and the base URL, agent id, currency, thresholds and expiry from the platform
+   defaults. "Advanced" holds all of those for the operator that has to differ, each labelled with
+   what it gets when left blank. It lands **suspended**.
 3. **Register webhook** — Telegram now delivers that bot's updates to this deployment.
 4. **Push command menus** so `/console` and `/start` appear in the bot.
 5. **Add me as an admin here** — creates a `SUPER_ADMIN` row for your own Telegram id inside the new
@@ -181,3 +272,38 @@ the bot changed, invalidates the cached bot and asks for the webhook to be regis
 For testing you may point several operators at the same Ichancy agent. Once section 3's change is
 in, they will share one session correctly; the console shows which operators share an agent so the
 coupling is never a surprise.
+
+---
+
+## 8. What is still open
+
+Everything above is done. These are not, and each is named rather than left to be rediscovered.
+
+**The Cloudflare and cookie layer is still process-global while the URL is per operator.**
+`IchancyCookieStore` uses a single key `ichancy:cookies:v1`; `FetchIchancyTransport` keeps a
+process-wide in-memory cookie jar seeded once from `ICHANCY_COOKIE` and derives `Origin`/`Referer`
+from `config.ichancy.baseUrl` — the env value, not the operator's row; `BrowserIchancyTransport`
+parks one Chromium on the env origin behind an unkeyed memo; `CookieHarvesterService.inFlight` is
+likewise unkeyed.
+
+Harmless **while every operator shares one Ichancy host**, which is the case today. But
+`TenantIchancyConfigService` deliberately reads `baseUrl` per operator, on the stated grounds that
+"a tenant on a different Ichancy deployment must not be sent to this one's" — so the design
+contradicts itself. Point one operator at a second Ichancy host and its calls carry the first
+operator's `PHPSESSID`/`__cf_bm` and announce the wrong origin. The fix is the same shape as the
+session fix: key the cookie state by ORIGIN, because a cookie belongs to a host.
+
+**`loginWithInitData` is still tenant zero.** The mini-app's `initData` is HMAC'd with the
+operator's bot token, so choosing an operator for an *unauthenticated* request is a separate design
+with its own threat model. A second operator's mini-app players cannot sign in until it is done;
+its Telegram bot players can.
+
+**`POST /v1/auth/refresh` is still tenant zero.** It carries no bearer token, so the middleware
+cannot know the operator, and `playerSession.findUnique` is scoped by the Prisma extension. A second
+operator's player who signs in with a bot code gets a session that path cannot rotate. Nothing
+regressed — such a player could not sign in at all before — but it is a gap, and it is the same
+unauthenticated-request problem as `initData`.
+
+**RLS.** Postgres row-level security is the backstop that would make all of the above correct even
+when the code is wrong, including raw SQL. Stage 5 of `plan-multitenant.md`, still unstarted. The
+Prisma extension plus the raw-SQL guard spec are what stand in for it today.

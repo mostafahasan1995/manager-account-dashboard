@@ -1,5 +1,6 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useMemo, type ReactNode } from 'react';
+import { ChevronDown } from 'lucide-react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { useForm, useWatch, type UseFormRegisterReturn } from 'react-hook-form';
 import { toast } from 'sonner';
 import { z } from 'zod';
@@ -29,6 +30,17 @@ import { tenantMessages } from './messages';
  * the same form. Creating asks for three secrets and two values that can never be changed again;
  * editing must not even appear to offer those.
  *
+ * ── FOUR FIELDS, AND A DISCLOSURE FOR THE REST ────────────────────────────────────────────────
+ * `POST /v1/admin/tenants` requires a display name, a bot token and the Ichancy login. Every other
+ * value has a server-side default — the slug from the display name, the admin chat from whoever is
+ * signed in, the rest from the platform settings row — so the form asks for four things and puts
+ * the nine that have defaults behind "Advanced", each labelled with what it gets when left blank.
+ *
+ * An omitted optional field is ABSENT from the request body, never `""` and never `null`: an empty
+ * string is a value, and a backend that stores it has silently overwritten the default it was
+ * supposed to resolve. `toCreateBody` is the single place that decides this, and it spreads a field
+ * in only when it holds something.
+ *
  * Every number here stays a string all the way to the wire. Chat ids are 64-bit Telegram ids and
  * the thresholds are minor units, both of which lose their last digits as JavaScript numbers. The
  * one `Number()` in this file is the deposit expiry, which is genuinely a small integer.
@@ -47,6 +59,8 @@ const HTTPS_RE = /^https:\/\/\S+$/;
 
 const MIN_EXPIRY_MINUTES = 5;
 const MAX_EXPIRY_MINUTES = 1440;
+/** The API caps the display name at 120 characters, so the form says so before the API has to. */
+const MAX_DISPLAY_NAME = 120;
 
 type TenantTranslator = Translator<(typeof tenantMessages)['en']>;
 
@@ -65,31 +79,67 @@ const expiryFieldFor = (t: TenantTranslator) =>
 const minorFieldFor = (t: TenantTranslator) =>
   z.string().regex(DIGITS_RE, t('tenants.validation.minorUnits'));
 
+/**
+ * An optional field on the create form: blank is not a failure, it is the request to let the server
+ * decide. Anything actually typed is held to the same shape the required version would be.
+ */
+const optionalFieldFor = (pattern: RegExp, message: string) =>
+  z.string().refine((value) => value.trim() === '' || pattern.test(value.trim()), message);
+
 const optionalChatIdFieldFor = (t: TenantTranslator) =>
-  z
-    .string()
-    .refine(
-      (value) => value.trim() === '' || CHAT_ID_RE.test(value.trim()),
-      t('tenants.validation.chatId'),
-    );
+  optionalFieldFor(CHAT_ID_RE, t('tenants.validation.chatId'));
+
+/** Blank, or whole minutes inside the range — reported as two different sentences. */
+const optionalExpiryFieldFor = (t: TenantTranslator) =>
+  optionalFieldFor(DIGITS_RE, t('tenants.validation.wholeMinutes')).refine(
+    (value) => {
+      const trimmed = value.trim();
+      if (trimmed === '' || !DIGITS_RE.test(trimmed)) return true;
+      const minutes = Number(trimmed);
+      return minutes >= MIN_EXPIRY_MINUTES && minutes <= MAX_EXPIRY_MINUTES;
+    },
+    t('tenants.validation.expiryRange', { min: MIN_EXPIRY_MINUTES, max: MAX_EXPIRY_MINUTES }),
+  );
 
 const createSchemaFor = (t: TenantTranslator) =>
   z.object({
-    slug: z.string().regex(SLUG_RE, t('tenants.validation.slug')),
-    displayName: z.string().trim().min(1, t('tenants.validation.displayName')),
+    // The four the API cannot supply for you.
+    displayName: z
+      .string()
+      .trim()
+      .min(1, t('tenants.validation.displayName'))
+      .max(MAX_DISPLAY_NAME, t('tenants.validation.displayNameLong')),
     botToken: z.string().regex(BOT_TOKEN_RE, t('tenants.validation.botToken')),
-    adminChatId: z.string().regex(CHAT_ID_RE, t('tenants.validation.chatId')),
-    feedChatId: optionalChatIdFieldFor(t),
-    ichancyBaseUrl: z.string().regex(HTTPS_RE, t('tenants.validation.httpsUrl')),
     ichancyUsername: z.string().trim().min(1, t('tenants.validation.required')),
     ichancyPassword: z.string().min(1, t('tenants.validation.required')),
-    ichancyAgentId: z.string().regex(DIGITS_RE, t('tenants.validation.agentId')),
-    currencyCode: z.string().regex(CURRENCY_RE, t('tenants.validation.currencyCode')),
-    dualApprovalThresholdMinor: minorFieldFor(t),
-    agentFloatLowWatermarkMinor: minorFieldFor(t),
-    depositExpiryMinutes: expiryFieldFor(t),
+    // Advanced: every one of these is omitted from the body when blank.
+    slug: optionalFieldFor(SLUG_RE, t('tenants.validation.slug')),
+    adminChatId: optionalChatIdFieldFor(t),
+    feedChatId: optionalChatIdFieldFor(t),
+    ichancyBaseUrl: optionalFieldFor(HTTPS_RE, t('tenants.validation.httpsUrl')),
+    ichancyAgentId: optionalFieldFor(DIGITS_RE, t('tenants.validation.agentId')),
+    currencyCode: optionalFieldFor(CURRENCY_RE, t('tenants.validation.currencyCode')),
+    dualApprovalThresholdMinor: optionalFieldFor(DIGITS_RE, t('tenants.validation.minorUnits')),
+    agentFloatLowWatermarkMinor: optionalFieldFor(DIGITS_RE, t('tenants.validation.minorUnits')),
+    depositExpiryMinutes: optionalExpiryFieldFor(t),
   });
 type CreateFormValues = z.infer<ReturnType<typeof createSchemaFor>>;
+
+/**
+ * The fields behind the disclosure. A validation message inside a collapsed section is a form that
+ * refuses to submit and says nothing, so submitting with an error in here opens it.
+ */
+const ADVANCED_FIELDS = [
+  'slug',
+  'adminChatId',
+  'feedChatId',
+  'ichancyBaseUrl',
+  'ichancyAgentId',
+  'currencyCode',
+  'dualApprovalThresholdMinor',
+  'agentFloatLowWatermarkMinor',
+  'depositExpiryMinutes',
+] as const satisfies readonly (keyof CreateFormValues)[];
 
 const editSchemaFor = (t: TenantTranslator) =>
   z.object({
@@ -141,6 +191,7 @@ function CreateTenantForm({
   const createTenant = useCreateTenant();
   const t = useT(tenantMessages);
   const schema = useMemo(() => createSchemaFor(t), [t]);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const {
     register,
     handleSubmit,
@@ -149,20 +200,21 @@ function CreateTenantForm({
     formState: { errors },
   } = useForm<CreateFormValues>({
     resolver: zodResolver(schema),
+    // Every optional field starts empty, and empty is what keeps it out of the request entirely.
     defaultValues: {
-      slug: '',
       displayName: '',
       botToken: '',
-      adminChatId: '',
-      feedChatId: '',
-      ichancyBaseUrl: 'https://',
       ichancyUsername: '',
       ichancyPassword: '',
+      slug: '',
+      adminChatId: '',
+      feedChatId: '',
+      ichancyBaseUrl: '',
       ichancyAgentId: '',
       currencyCode: '',
       dualApprovalThresholdMinor: '',
       agentFloatLowWatermarkMinor: '',
-      depositExpiryMinutes: '30',
+      depositExpiryMinutes: '',
     },
   });
 
@@ -170,19 +222,26 @@ function CreateTenantForm({
   const dualApprovalThresholdMinor = useWatch({ control, name: 'dualApprovalThresholdMinor' });
   const agentFloatLowWatermarkMinor = useWatch({ control, name: 'agentFloatLowWatermarkMinor' });
 
-  const submit = handleSubmit(async (values) => {
-    try {
-      const created = await createTenant.mutateAsync(toCreateBody(values));
-      // Clears the bot token and the Ichancy password before anything can re-render holding them.
-      reset();
-      toast.success(t('tenants.create.successTitle', { name: created.displayName }), {
-        description: t('tenants.create.successBody'),
-      });
-      onSaved(created);
-    } catch (error) {
-      toast.error(t('tenants.create.errorTitle'), { description: errorMessage(error) });
-    }
-  });
+  const submit = handleSubmit(
+    async (values) => {
+      try {
+        const created = await createTenant.mutateAsync(toCreateBody(values));
+        // Clears the bot token and the Ichancy password before anything can re-render holding them.
+        reset();
+        setShowAdvanced(false);
+        toast.success(t('tenants.create.successTitle', { name: created.displayName }), {
+          description: t('tenants.create.successBody'),
+        });
+        onSaved(created);
+      } catch (error) {
+        toast.error(t('tenants.create.errorTitle'), { description: errorMessage(error) });
+      }
+    },
+    (fieldErrors) => {
+      // Somebody typed into an advanced field and closed the section: show them what it says.
+      if (ADVANCED_FIELDS.some((name) => fieldErrors[name] !== undefined)) setShowAdvanced(true);
+    },
+  );
 
   return (
     <form
@@ -197,120 +256,167 @@ function CreateTenantForm({
         <DialogDescription>{t('tenants.create.description')}</DialogDescription>
       </DialogHeader>
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        <TextField
-          id="tenant-create-slug"
-          label={t('tenants.field.slug')}
-          registration={register('slug')}
-          error={errors.slug?.message}
-          hint={t('tenants.hint.slug')}
-          // The sample values below are formats, not prose: a slug, a Telegram chat id, an https
-          // URL, an agent id, a currency code. They read the same in either language.
-          placeholder="northern-branch"
-          className="font-mono"
-        />
-        <TextField
-          id="tenant-create-display-name"
-          label={t('field.displayName')}
-          registration={register('displayName')}
-          error={errors.displayName?.message}
-          placeholder={t('tenants.placeholder.displayName')}
-        />
-        <TextField
-          id="tenant-create-bot-token"
-          label={t('tenants.field.botToken')}
-          registration={register('botToken')}
-          error={errors.botToken?.message}
-          type="password"
-          autoComplete="off"
-          hint={t('tenants.hint.botToken')}
-          wide
-        />
-        <TextField
-          id="tenant-create-admin-chat-id"
-          label={t('tenants.field.adminChatId')}
-          registration={register('adminChatId')}
-          error={errors.adminChatId?.message}
-          placeholder="-1001234567890"
-          className="font-mono"
-        />
-        <TextField
-          id="tenant-create-feed-chat-id"
-          label={`${t('tenants.field.feedChatId')} (${t('common.optional')})`}
-          registration={register('feedChatId')}
-          error={errors.feedChatId?.message}
-          placeholder="-1009876543210"
-          className="font-mono"
-        />
-        <TextField
-          id="tenant-create-ichancy-base-url"
-          label={t('tenants.field.ichancyBaseUrl')}
-          registration={register('ichancyBaseUrl')}
-          error={errors.ichancyBaseUrl?.message}
-          placeholder="https://agent.ichancy.example"
-          wide
-        />
-        <TextField
-          id="tenant-create-ichancy-username"
-          label={t('tenants.field.ichancyUsername')}
-          registration={register('ichancyUsername')}
-          error={errors.ichancyUsername?.message}
-          autoComplete="off"
-        />
-        <TextField
-          id="tenant-create-ichancy-password"
-          label={t('tenants.field.ichancyPassword')}
-          registration={register('ichancyPassword')}
-          error={errors.ichancyPassword?.message}
-          type="password"
-          autoComplete="new-password"
-        />
-        <TextField
-          id="tenant-create-ichancy-agent-id"
-          label={t('tenants.field.ichancyAgentId')}
-          registration={register('ichancyAgentId')}
-          error={errors.ichancyAgentId?.message}
-          hint={t('tenants.hint.agentId')}
-          placeholder="10045"
-          className="font-mono"
-        />
-        <TextField
-          id="tenant-create-currency-code"
-          label={t('tenants.field.currencyCode')}
-          registration={register('currencyCode')}
-          error={errors.currencyCode?.message}
-          hint={t('tenants.hint.currencyCode')}
-          placeholder="NSP"
-          className="font-mono uppercase"
-        />
-        <MinorField
-          id="tenant-create-dual-approval"
-          label={t('tenants.field.dualApproval')}
-          registration={register('dualApprovalThresholdMinor')}
-          error={errors.dualApprovalThresholdMinor?.message}
-          raw={dualApprovalThresholdMinor}
-          currencyCode={currencyCode}
-        />
-        <MinorField
-          id="tenant-create-float-watermark"
-          label={t('tenants.field.floatWatermark')}
-          registration={register('agentFloatLowWatermarkMinor')}
-          error={errors.agentFloatLowWatermarkMinor?.message}
-          raw={agentFloatLowWatermarkMinor}
-          currencyCode={currencyCode}
-        />
-        <TextField
-          id="tenant-create-deposit-expiry"
-          label={t('tenants.field.depositExpiryMinutes')}
-          registration={register('depositExpiryMinutes')}
-          error={errors.depositExpiryMinutes?.message}
-          hint={t('tenants.hint.expiryRange', {
-            min: MIN_EXPIRY_MINUTES,
-            max: MAX_EXPIRY_MINUTES,
-          })}
-          inputMode="numeric"
-        />
-      </div>
+      <section aria-labelledby="tenant-create-required-heading" className="space-y-3">
+        <div className="space-y-1">
+          <h3 id="tenant-create-required-heading" className="text-sm font-semibold">
+            {t('tenants.create.required')}
+          </h3>
+          <p className="text-xs text-[var(--muted-foreground)]">
+            {t('tenants.create.requiredHint')}
+          </p>
+        </div>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <TextField
+            id="tenant-create-display-name"
+            label={t('field.displayName')}
+            registration={register('displayName')}
+            error={errors.displayName?.message}
+            placeholder={t('tenants.placeholder.displayName')}
+            wide
+          />
+          <TextField
+            id="tenant-create-bot-token"
+            label={t('tenants.field.botToken')}
+            registration={register('botToken')}
+            error={errors.botToken?.message}
+            type="password"
+            autoComplete="off"
+            hint={t('tenants.hint.botToken')}
+            wide
+          />
+          <TextField
+            id="tenant-create-ichancy-username"
+            label={t('tenants.field.ichancyUsername')}
+            registration={register('ichancyUsername')}
+            error={errors.ichancyUsername?.message}
+            autoComplete="off"
+          />
+          <TextField
+            id="tenant-create-ichancy-password"
+            label={t('tenants.field.ichancyPassword')}
+            registration={register('ichancyPassword')}
+            error={errors.ichancyPassword?.message}
+            type="password"
+            autoComplete="new-password"
+          />
+        </div>
+      </section>
+
+      <section className="space-y-3">
+        <Button
+          type="button"
+          variant={showAdvanced ? 'secondary' : 'ghost'}
+          size="sm"
+          aria-expanded={showAdvanced}
+          // Only while the section exists: aria-controls pointing at nothing is worse than absent.
+          {...(showAdvanced ? { 'aria-controls': 'tenant-create-advanced' } : {})}
+          onClick={() => {
+            setShowAdvanced(!showAdvanced);
+          }}
+        >
+          {/* Collapsed, the chevron points the way the language reads: right in English, left in Arabic. */}
+          <ChevronDown className={showAdvanced ? 'size-4' : 'size-4 -rotate-90 rtl:rotate-90'} />
+          {t('tenants.create.advanced')}
+        </Button>
+
+        {showAdvanced ? (
+          <div id="tenant-create-advanced" className="space-y-3">
+            <p className="text-xs text-[var(--muted-foreground)]">
+              {t('tenants.create.advancedHint')}
+            </p>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <TextField
+                id="tenant-create-slug"
+                label={t('tenants.field.slug')}
+                registration={register('slug')}
+                error={errors.slug?.message}
+                hint={t('tenants.default.slug')}
+                // The sample values below are formats, not prose: a slug, a Telegram chat id, an
+                // https URL, an agent id, a currency code. They read the same in either language.
+                placeholder="northern-branch"
+                className="font-mono"
+              />
+              <TextField
+                id="tenant-create-admin-chat-id"
+                label={t('tenants.field.adminChatId')}
+                registration={register('adminChatId')}
+                error={errors.adminChatId?.message}
+                hint={t('tenants.default.adminChatId')}
+                placeholder="-1001234567890"
+                className="font-mono"
+              />
+              <TextField
+                id="tenant-create-feed-chat-id"
+                label={`${t('tenants.field.feedChatId')} (${t('common.optional')})`}
+                registration={register('feedChatId')}
+                error={errors.feedChatId?.message}
+                hint={t('tenants.default.feedChatId')}
+                placeholder="-1009876543210"
+                className="font-mono"
+              />
+              <TextField
+                id="tenant-create-ichancy-base-url"
+                label={t('tenants.field.ichancyBaseUrl')}
+                registration={register('ichancyBaseUrl')}
+                error={errors.ichancyBaseUrl?.message}
+                hint={t('tenants.default.ichancyBaseUrl')}
+                placeholder="https://agent.ichancy.example"
+                wide
+              />
+              <TextField
+                id="tenant-create-ichancy-agent-id"
+                label={t('tenants.field.ichancyAgentId')}
+                registration={register('ichancyAgentId')}
+                error={errors.ichancyAgentId?.message}
+                hint={t('tenants.default.ichancyAgentId')}
+                placeholder="10045"
+                className="font-mono"
+                wide
+              />
+              <TextField
+                id="tenant-create-currency-code"
+                label={t('tenants.field.currencyCode')}
+                registration={register('currencyCode')}
+                error={errors.currencyCode?.message}
+                hint={t('tenants.default.currencyCode')}
+                placeholder="NSP"
+                className="font-mono uppercase"
+              />
+              <TextField
+                id="tenant-create-deposit-expiry"
+                label={t('tenants.field.depositExpiryMinutes')}
+                registration={register('depositExpiryMinutes')}
+                error={errors.depositExpiryMinutes?.message}
+                hint={t('tenants.default.depositExpiryMinutes', {
+                  min: MIN_EXPIRY_MINUTES,
+                  max: MAX_EXPIRY_MINUTES,
+                })}
+                inputMode="numeric"
+              />
+              <MinorField
+                id="tenant-create-dual-approval"
+                label={t('tenants.field.dualApproval')}
+                registration={register('dualApprovalThresholdMinor')}
+                error={errors.dualApprovalThresholdMinor?.message}
+                raw={dualApprovalThresholdMinor}
+                currencyCode={currencyCode}
+                blankHint={t('tenants.default.dualApproval')}
+              />
+              <MinorField
+                id="tenant-create-float-watermark"
+                label={t('tenants.field.floatWatermark')}
+                registration={register('agentFloatLowWatermarkMinor')}
+                error={errors.agentFloatLowWatermarkMinor?.message}
+                raw={agentFloatLowWatermarkMinor}
+                currencyCode={currencyCode}
+                blankHint={t('tenants.default.floatWatermark')}
+              />
+            </div>
+          </div>
+        ) : null}
+      </section>
 
       <Alert tone="warning" title={t('tenants.create.suspendedTitle')}>
         {t('tenants.create.suspendedBody')}
@@ -521,7 +627,13 @@ function TextField({
   );
 }
 
-/** A minor-unit amount with its decimal reading underneath, so nobody counts zeroes by eye. */
+/**
+ * A minor-unit amount with its decimal reading underneath, so nobody counts zeroes by eye.
+ *
+ * `blankHint` is what an empty field says on the create form: that field is optional there and the
+ * platform default is the thing worth knowing while it is empty. The reading takes over the moment
+ * there is something to read.
+ */
 function MinorField({
   id,
   label,
@@ -529,6 +641,7 @@ function MinorField({
   error,
   raw,
   currencyCode,
+  blankHint,
 }: {
   id: string;
   label: string;
@@ -536,20 +649,24 @@ function MinorField({
   error: string | undefined;
   raw: string;
   currencyCode: string;
+  blankHint?: string;
 }) {
   const t = useT(tenantMessages);
   const preview = minorPreview(raw, currencyCode);
+
+  const hint = (): string => {
+    if (preview !== null) return t('tenants.hint.minorPreview', { preview });
+    if (blankHint !== undefined && raw.trim() === '') return blankHint;
+    return t('tenants.hint.minorUnits');
+  };
+
   return (
     <TextField
       id={id}
       label={label}
       registration={registration}
       error={error}
-      hint={
-        preview === null
-          ? t('tenants.hint.minorUnits')
-          : t('tenants.hint.minorPreview', { preview })
-      }
+      hint={hint()}
       inputMode="numeric"
       className="font-mono"
     />
@@ -598,22 +715,39 @@ function ReadOnlyField({
   );
 }
 
+/**
+ * The four required fields, plus only those optional ones that were actually filled in.
+ *
+ * A blank field is spread in as `{}`, so the key never appears in the JSON at all. That is the
+ * whole contract: the server resolves a MISSING field from the platform defaults, and would store
+ * an empty string as a value — a tenant with no currency rather than the platform's.
+ */
 function toCreateBody(values: CreateFormValues): CreateTenantBody {
+  const slug = values.slug.trim();
+  const adminChatId = values.adminChatId.trim();
   const feedChatId = values.feedChatId.trim();
+  const ichancyBaseUrl = values.ichancyBaseUrl.trim();
+  const ichancyAgentId = values.ichancyAgentId.trim();
+  const currencyCode = values.currencyCode.trim().toUpperCase();
+  const dualApprovalThresholdMinor = values.dualApprovalThresholdMinor.trim();
+  const agentFloatLowWatermarkMinor = values.agentFloatLowWatermarkMinor.trim();
+  const depositExpiryMinutes = values.depositExpiryMinutes.trim();
+
   return {
-    slug: values.slug.trim(),
     displayName: values.displayName.trim(),
     botToken: values.botToken.trim(),
-    adminChatId: values.adminChatId.trim(),
-    ...(feedChatId === '' ? {} : { feedChatId }),
-    ichancyBaseUrl: values.ichancyBaseUrl.trim(),
     ichancyUsername: values.ichancyUsername.trim(),
     ichancyPassword: values.ichancyPassword,
-    ichancyAgentId: values.ichancyAgentId.trim(),
-    currencyCode: values.currencyCode.trim().toUpperCase(),
-    dualApprovalThresholdMinor: values.dualApprovalThresholdMinor.trim(),
-    agentFloatLowWatermarkMinor: values.agentFloatLowWatermarkMinor.trim(),
-    depositExpiryMinutes: Number(values.depositExpiryMinutes),
+    ...(slug === '' ? {} : { slug }),
+    ...(adminChatId === '' ? {} : { adminChatId }),
+    ...(feedChatId === '' ? {} : { feedChatId }),
+    ...(ichancyBaseUrl === '' ? {} : { ichancyBaseUrl }),
+    ...(ichancyAgentId === '' ? {} : { ichancyAgentId }),
+    ...(currencyCode === '' ? {} : { currencyCode }),
+    ...(dualApprovalThresholdMinor === '' ? {} : { dualApprovalThresholdMinor }),
+    ...(agentFloatLowWatermarkMinor === '' ? {} : { agentFloatLowWatermarkMinor }),
+    // The only Number() on this form: minutes are a small integer, unlike every other value here.
+    ...(depositExpiryMinutes === '' ? {} : { depositExpiryMinutes: Number(depositExpiryMinutes) }),
   };
 }
 

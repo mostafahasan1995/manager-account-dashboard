@@ -67,12 +67,40 @@ export class ApiError extends Error {
 /** Raised when the browser could not reach the API at all (DNS, CORS, offline, connection reset). */
 export const NETWORK_ERROR_CODE = 'NETWORK_UNREACHABLE';
 
+/**
+ * The message NAMES THE BROWSER'S OWN ORIGIN, and that is the whole point of it.
+ *
+ * A blocked CORS request and an unreachable server are indistinguishable to `fetch` — both reject
+ * with the same opaque TypeError, and the browser deliberately withholds the reason. The one fact
+ * that separates them is the origin the request was made FROM, which the operator cannot see and
+ * which the backend's allow-list is matched against character for character.
+ *
+ * `http://localhost:5173` and `http://127.0.0.1:5173` are DIFFERENT ORIGINS to a browser. An
+ * allow-list holding one while the address bar holds the other produces this exact error, and
+ * without the origin printed here there is nothing on screen to suggest looking at it. That has cost
+ * real time; the sentence is longer than it wants to be for that reason.
+ */
 export function networkError(baseUrl: string, cause?: unknown): ApiError {
+  // Guarded: this module is also imported by node-side tests, where there is no document.
+  const origin = typeof window === 'undefined' ? null : window.location.origin;
+
+  const message =
+    `Could not reach the API at ${baseUrl}. Either the backend is not running, or it is refusing ` +
+    (origin === null
+      ? 'this origin — check its CORS allow-list (MINI_APP_ORIGIN).'
+      : `this origin: ${origin}. Add exactly that to the backend's MINI_APP_ORIGIN — note that ` +
+        'http://localhost and http://127.0.0.1 are different origins to a browser, as are two ' +
+        'different ports.');
+
   return new ApiError({
     status: 0,
     code: NETWORK_ERROR_CODE,
-    message: `Could not reach the API at ${baseUrl}. Check that the backend is running and that this origin is allowed by its CORS configuration.`,
-    details: cause instanceof Error ? { cause: cause.message } : undefined,
+    message,
+    details: {
+      ...(origin === null ? {} : { origin }),
+      baseUrl,
+      ...(cause instanceof Error ? { cause: cause.message } : {}),
+    },
   });
 }
 

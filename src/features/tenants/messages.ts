@@ -17,6 +17,165 @@ import { defineMessages } from '@/lib/i18n/messages';
  */
 export const tenantMessages = defineMessages({
   en: {
+    // ── Setup and health: the webhook, the command menus, the agent ──────────────────────────
+    'tenants.ops.title': 'Setup and health',
+    'tenants.ops.description':
+      'What stands between this operator and answering somebody: its bot, the webhook Telegram delivers to, and the Ichancy agent it signs in as.',
+    'tenants.ops.recheck': 'Check again',
+    'tenants.ops.counts': 'What this operator holds',
+
+    // ── The checklist ────────────────────────────────────────────────────────────────────────
+    'tenants.checklist.title': 'Setup checklist',
+    'tenants.checklist.remaining': {
+      one: '{count} step still to do.',
+      other: '{count} steps still to do.',
+    },
+    'tenants.checklist.allDone': 'Every step this console can check is done.',
+    'tenants.checklist.stateDone': 'done',
+    'tenants.checklist.stateTodo': 'still to do',
+    'tenants.checklist.stateUnknown': 'cannot be checked here',
+
+    'tenants.checklist.botToken': 'Bot token verified',
+    'tenants.checklist.botTokenDone': 'Telegram answered for the stored token: the bot is @{bot}.',
+    'tenants.checklist.botTokenTodo':
+      'Telegram did not answer for the stored token, so this operator has no working bot at all. Create one in @BotFather and put its token in here.',
+
+    'tenants.checklist.webhook': 'Webhook registered',
+    'tenants.checklist.webhookDone':
+      'Telegram delivers this bot’s updates to this deployment, so its staff can sign in.',
+    'tenants.checklist.webhookTodo':
+      'Creating an operator generates a webhook path but never tells Telegram about it. Until this is done the bot receives nothing at all.',
+
+    'tenants.checklist.commands': 'Command menus pushed',
+    'tenants.checklist.commandsUnknown':
+      'Telegram is never asked what a bot’s menu holds, so nothing here can tell you whether this was done. Push them once — repeating it costs nothing, and it is what puts /start and /console in the bot’s menu.',
+    'tenants.checklist.commandsDone': {
+      one: '{count} command pushed from here.',
+      other: '{count} commands pushed from here.',
+    },
+
+    'tenants.checklist.admin': 'An admin who can sign in',
+    'tenants.checklist.adminUnknown':
+      'Staff belong to one operator, and this operator’s staff list is not readable from the platform screen — so this is the step you confirm yourself. Use “{action}” at the bottom of this panel, then send /console to this operator’s own bot.',
+
+    'tenants.checklist.agent': 'Ichancy agent verified',
+    'tenants.checklist.agentDone': 'Agent {agent} answered a real sign-in.',
+    'tenants.checklist.agentTodo':
+      'Ichancy did not accept the stored credentials, so no player can be registered under this operator and no deposit can be credited.',
+
+    'tenants.checklist.active': 'Activated',
+    'tenants.checklist.activeDone': 'The operator is serving.',
+    'tenants.checklist.activeTodo':
+      'A new operator lands suspended and answers nobody. “{action}” is the last step, and the moment the backend signs in to Ichancy for real.',
+
+    // ── Telegram ─────────────────────────────────────────────────────────────────────────────
+    'tenants.telegram.title': 'Telegram',
+    'tenants.telegram.deliveringTo': 'Delivering to',
+    'tenants.telegram.noWebhookUrl': 'Telegram holds no webhook for this bot',
+    'tenants.telegram.pending': 'Updates waiting at Telegram',
+    'tenants.telegram.pendingTitle': {
+      one: 'Telegram is holding {count} update for this bot',
+      other: 'Telegram is holding {count} updates for this bot',
+    },
+    'tenants.telegram.pendingBody':
+      'Telegram keeps what it could not deliver and replays it as soon as delivery works. A backlog that stays high while the webhook matches means this deployment is refusing them, not that Telegram is slow.',
+    'tenants.telegram.lastErrorTitle': 'The last thing Telegram could not do',
+
+    // ── The webhook, which is the whole operator ─────────────────────────────────────────────
+    'tenants.webhook.register': 'Register webhook',
+    'tenants.webhook.remove': 'Unregister',
+    'tenants.webhook.deliveringTitle': 'Telegram is delivering to this deployment',
+    'tenants.webhook.deliveringBody':
+      'This bot’s updates reach this console, so /console mints a code scoped to this operator and its staff can sign in.',
+    'tenants.webhook.silentTitle': '{name} receives nothing from Telegram',
+    'tenants.webhook.silentNoneBody':
+      'No webhook is registered for this bot, so every message sent to it is dropped: /console does nothing, no deposit can be started, and nobody can sign in to this operator. Registering the webhook is what starts delivery.',
+    'tenants.webhook.silentElsewhereBody':
+      'Telegram delivers this bot’s updates to {url}, which is not this deployment’s path for this operator — so nothing reaches this console: /console does nothing and nobody can sign in. Registering the webhook repoints Telegram here, and whatever is listening at that address stops receiving them.',
+    'tenants.webhook.whichOne':
+      'Register is the one you almost always want: it is what makes a new operator’s bot answer. Unregister stops delivery without suspending the operator — its books stay open and its deposits keep expiring on their own clocks while its bot goes silent — which is what you want only when you are moving this bot to another deployment. To stop the operator trading, suspend it instead.',
+    'tenants.webhook.registeredTitle': '{name} is receiving updates',
+    'tenants.webhook.registeredBody':
+      'Telegram now delivers this bot’s updates to this deployment.',
+    'tenants.webhook.registerErrorTitle': 'Could not register the webhook',
+    'tenants.webhook.removeConfirmTitle': 'Stop Telegram delivering to {name}?',
+    'tenants.webhook.removeConfirmBody':
+      'The operator stays exactly as it is — active, with its books open and its deposits still expiring on their own clocks — but its bot stops answering: /console does nothing and nobody can sign in. If what you want is for the operator to stop trading, suspend it instead.',
+    'tenants.webhook.removeConfirmLabel': 'Unregister webhook',
+    'tenants.webhook.removedTitle': 'Delivery to {name} stopped',
+    'tenants.webhook.removedBody':
+      'Its bot no longer reaches this deployment. Register the webhook again whenever you want it back.',
+    'tenants.webhook.removeErrorTitle': 'Could not unregister the webhook',
+
+    // ── Command menus ────────────────────────────────────────────────────────────────────────
+    'tenants.commands.push': 'Push command menus',
+    'tenants.commands.pushedTitle': {
+      one: '{count} command set in the bot’s menu',
+      other: '{count} commands set in the bot’s menu',
+    },
+    'tenants.commands.pushedBody': {
+      one: '{count} command pushed, in these scopes: {scopes}.',
+      other: '{count} commands pushed, in these scopes: {scopes}.',
+    },
+    'tenants.commands.errorTitle': 'Could not push the command menus',
+
+    // ── Replacing the bot token ──────────────────────────────────────────────────────────────
+    'tenants.bot.replace': 'Replace bot token',
+    'tenants.bot.title': 'Replace the bot token for {name}',
+    'tenants.bot.description':
+      'The token is verified with a real getMe before anything is stored, so a bad one never reaches the database. It is sealed on arrival and never returned: this field can replace it, nothing can read it.',
+    'tenants.bot.noWebhookTitle': 'The new bot will receive nothing until you register its webhook',
+    'tenants.bot.noWebhookBody':
+      'Telegram permits one webhook URL per bot, and the new bot has never been told where to deliver. The moment this saves, the operator is as silent as a brand-new one — /console does nothing and nobody can sign in — until you register the webhook again.',
+    'tenants.bot.submit': 'Replace token',
+    'tenants.bot.replacedTitle': 'New bot token stored for {name}',
+    'tenants.bot.replacedBody': 'Register the webhook now, or this operator stays silent.',
+    'tenants.bot.errorTitle': 'Telegram refused this bot token',
+
+    // ── Ichancy ──────────────────────────────────────────────────────────────────────────────
+    'tenants.ichancy.title': 'Ichancy',
+    'tenants.ichancy.answeredTitle': 'The agent answered',
+    'tenants.ichancy.answeredBody':
+      'A real sign-in with this operator’s stored credentials succeeded, so players can be registered and deposits credited.',
+    'tenants.ichancy.refusedTitle': 'Ichancy did not accept this agent',
+    'tenants.ichancy.refusedNoReason':
+      'Ichancy refused the sign-in and gave no reason. Nothing can be credited until it answers.',
+    'tenants.ichancy.belowTitle': 'The agent float is below the low watermark',
+    'tenants.ichancy.belowBody':
+      'Player credits start failing when the agent runs out. Top it up before the next approval.',
+    'tenants.ichancy.float': 'Agent float',
+    'tenants.ichancy.floatUnread': 'not read',
+    'tenants.ichancy.aboveWatermark': 'above the watermark',
+    'tenants.ichancy.belowWatermark': 'below the watermark',
+    'tenants.ichancy.checkedAt': 'Checked',
+    'tenants.ichancy.test': 'Test connection',
+    'tenants.ichancy.edit': 'Edit credentials',
+    'tenants.ichancy.notShared':
+      'No other operator is pointed at this Ichancy agent, so this one has its session to itself.',
+    'tenants.ichancy.sharedTitle': {
+      one: 'This Ichancy agent is shared with {count} other operator',
+      other: 'This Ichancy agent is shared with {count} other operators',
+    },
+    'tenants.ichancy.sharedBody':
+      'Ichancy allows one login per agent account, so these operators share ONE session: signing in for one signs in for all of them, and changing the password here changes it for all of them. Pointing several operators at one agent is a legitimate way to test — this notice is here so the coupling is never a surprise.',
+
+    // ── Editing the Ichancy credentials ──────────────────────────────────────────────────────
+    'tenants.ichancyEdit.title': 'Ichancy credentials for {name}',
+    'tenants.ichancyEdit.description':
+      'Saving signs in to Ichancy for real with these values and refuses them if the agent does not answer. Only the fields you change are sent.',
+    'tenants.ichancyEdit.passwordHint':
+      'Leave empty to keep the stored password. It is sealed and never returned, so it cannot be shown here — only replaced.',
+    'tenants.ichancyEdit.agentIdWarning':
+      'Cannot be changed once this operator has players: repointing the agent orphans them from the tree their balances live in. The API refuses it, and this is the one field here that can be refused after everything else was accepted.',
+    'tenants.ichancyEdit.submit': 'Save and verify',
+    'tenants.ichancyEdit.successTitle': 'Ichancy credentials saved for {name}',
+    'tenants.ichancyEdit.successBody': 'Ichancy accepted a real sign-in with them.',
+    'tenants.ichancyEdit.refusedTitle': 'The API refused this change',
+    'tenants.ichancyEdit.errorTitle': 'Could not save the Ichancy credentials',
+    'tenants.ichancyEdit.unchangedTitle': 'Nothing to save',
+    'tenants.ichancyEdit.unchangedBody':
+      'Every field still holds the value it had. Change one, or leave the form.',
+
     // ── The screen ───────────────────────────────────────────────────────────────────────────
     'tenants.title': 'Tenants',
     'tenants.description':
@@ -42,7 +201,6 @@ export const tenantMessages = defineMessages({
     },
     'tenants.notCounted': 'not counted',
     'tenants.noBotYet': 'no bot yet',
-    'tenants.noBotUsernameYet': 'no bot username yet',
     'tenants.minutesShort': {
       one: '{count} min',
       other: '{count} min',
@@ -72,7 +230,7 @@ export const tenantMessages = defineMessages({
     'tenants.field.ichancyUsername': 'Ichancy username',
     'tenants.field.ichancyPassword': 'Ichancy password',
     'tenants.field.ichancyAgentId': 'Ichancy agent id',
-    'tenants.field.webhook': 'Webhook',
+    'tenants.field.webhookPath': 'Webhook path',
 
     // ── The detail panel ─────────────────────────────────────────────────────────────────────
     'tenants.detail.fallbackTitle': 'Tenant',
@@ -81,9 +239,9 @@ export const tenantMessages = defineMessages({
     'tenants.editSettings': 'Edit settings',
     'tenants.section.identity': 'Identity',
     'tenants.section.money': 'Money and review rules',
-    'tenants.section.wiring': 'Ichancy and Telegram wiring',
-    'tenants.webhook.configured': 'webhook configured',
-    'tenants.webhook.missing': 'no webhook yet',
+    'tenants.section.chats': 'Telegram chats and stored secrets',
+    'tenants.webhook.pathGenerated': 'path token generated',
+    'tenants.webhook.noPath': 'no path token',
     'tenants.secretsNote':
       'The webhook path token, the bot token and the Ichancy password are never returned by the API, so they cannot be shown or copied here — only replaced.',
 
@@ -157,11 +315,17 @@ export const tenantMessages = defineMessages({
 
     // ── Create ───────────────────────────────────────────────────────────────────────────────
     'tenants.create.description':
-      'One operator: one Telegram bot, one Ichancy agent, one currency.',
+      'One operator: one Telegram bot, one Ichancy agent, one currency. Four fields are yours; the platform fills in the rest.',
     'tenants.create.submit': 'Create tenant',
+    'tenants.create.required': 'What only you can supply',
+    'tenants.create.requiredHint':
+      'A name, the bot token from BotFather, and the Ichancy login this operator signs in with. Nothing else is needed to create it.',
+    'tenants.create.advanced': 'Advanced',
+    'tenants.create.advancedHint':
+      'Every field in here is left out of the request when it is blank, and the platform resolves it. Open this only for an operator that has to differ from the defaults — each field says what it would otherwise get.',
     'tenants.create.suspendedTitle': 'This tenant will be created suspended',
     'tenants.create.suspendedBody':
-      'Nothing on this form can prove the agent id belongs to the username above it, and a correct username paired with the wrong agent id registers real players under another operator. So a new tenant lands suspended and serves nobody until you activate it — which is the moment the backend actually signs in to Ichancy and finds out.',
+      'Nothing on this form can prove the agent id belongs to the Ichancy username, and a correct username paired with the wrong agent id registers real players under another operator. So a new tenant lands suspended and serves nobody until you activate it — which is the moment the backend actually signs in to Ichancy and finds out.',
     'tenants.create.successTitle': '{name} created',
     'tenants.create.successBody': 'It is suspended until you activate it.',
     'tenants.create.errorTitle': 'Could not create the tenant',
@@ -180,12 +344,8 @@ export const tenantMessages = defineMessages({
       'Immutable: every amount already recorded is denominated in it. Changing it would reinterpret that history rather than convert it.',
 
     // ── Helper text ──────────────────────────────────────────────────────────────────────────
-    'tenants.hint.slug': 'Lowercase, hyphenated, permanent. It appears in every log line.',
     'tenants.hint.botToken':
       'Stored write-only. It is never returned again, here or anywhere else.',
-    'tenants.hint.agentId': 'Checked for the first time when you activate the tenant.',
-    'tenants.hint.currencyCode':
-      'Permanent: it is the unit of every amount this tenant will ever record.',
     'tenants.hint.feedChatId':
       'Leaving this empty keeps the current one: the API has no way to unset a feed chat.',
     'tenants.hint.expiryRange': '{min} to {max}.',
@@ -193,10 +353,28 @@ export const tenantMessages = defineMessages({
     'tenants.hint.minorPreview': '= {preview}',
     'tenants.placeholder.displayName': 'Northern branch',
 
+    // ── What each optional field gets when it is left blank ──────────────────────────────────
+    'tenants.default.slug':
+      'Left blank: made from the display name — “Northern branch” becomes northern-branch, with -2 added if that one is taken. Permanent either way: it appears in every log line.',
+    'tenants.default.adminChatId':
+      'Left blank: your own Telegram id, since you are the platform admin creating this operator.',
+    'tenants.default.feedChatId':
+      'Left blank: no feed chat. This is the one optional field with no platform default, and it can be set later.',
+    'tenants.default.ichancyBaseUrl': 'Left blank: the platform default Ichancy URL.',
+    'tenants.default.ichancyAgentId':
+      'Left blank: the platform default agent id, or tenant zero’s if the platform has none. Ichancy sign-in returns only a token pair, so an agent id cannot be looked up from the credentials — if neither exists the API refuses this create and names this field. Checked for the first time when you activate the tenant.',
+    'tenants.default.currencyCode':
+      'Left blank: the platform default currency. Permanent: it is the unit of every amount this tenant will ever record.',
+    'tenants.default.dualApproval': 'Left blank: the platform default threshold.',
+    'tenants.default.floatWatermark': 'Left blank: the platform default watermark.',
+    'tenants.default.depositExpiryMinutes':
+      'Left blank: the platform default expiry. {min} to {max} if you set one.',
+
     // ── Validation ───────────────────────────────────────────────────────────────────────────
     'tenants.validation.slug':
       'Lowercase letters, digits and hyphens; 3 to 32 characters, starting with a letter and ending with a letter or digit.',
     'tenants.validation.displayName': 'Give the operator a name people will recognise.',
+    'tenants.validation.displayNameLong': 'Keep it to 120 characters or fewer.',
     'tenants.validation.botToken':
       'A bot token looks like 123456789:AA… — digits, a colon, then the key.',
     'tenants.validation.chatId':
@@ -211,6 +389,179 @@ export const tenantMessages = defineMessages({
   },
 
   ar: {
+    'tenants.ops.title': 'الإعداد والحالة',
+    'tenants.ops.description':
+      'ما يفصل هذا المشغّل عن أن يردّ على أحد: بوته، والـ webhook الذي يسلّم إليه Telegram، ووكيل Ichancy الذي يسجّل الدخول باسمه.',
+    'tenants.ops.recheck': 'افحص من جديد',
+    'tenants.ops.counts': 'ما يملكه هذا المشغّل',
+
+    'tenants.checklist.title': 'قائمة خطوات الإعداد',
+    'tenants.checklist.remaining': {
+      zero: 'لم تبقَ أي خطوة.',
+      one: 'بقيت خطوة واحدة.',
+      two: 'بقيت خطوتان.',
+      few: 'بقيت {count} خطوات.',
+      many: 'بقيت {count} خطوة.',
+      other: 'بقيت {count} خطوة.',
+    },
+    'tenants.checklist.allDone': 'تمّت كل خطوة تستطيع هذه اللوحة التحقق منها.',
+    'tenants.checklist.stateDone': 'تمّت',
+    'tenants.checklist.stateTodo': 'ما زالت مطلوبة',
+    'tenants.checklist.stateUnknown': 'لا يمكن التحقق منها هنا',
+
+    'tenants.checklist.botToken': 'التحقق من رمز البوت',
+    'tenants.checklist.botTokenDone': 'ردّ Telegram على الرمز المحفوظ: البوت هو @{bot}.',
+    'tenants.checklist.botTokenTodo':
+      'لم يردّ Telegram على الرمز المحفوظ، أي أن هذا المشغّل بلا بوت عامل أصلاً. أنشئ بوتاً في @BotFather وضَع رمزه هنا.',
+
+    'tenants.checklist.webhook': 'تسجيل الـ webhook',
+    'tenants.checklist.webhookDone':
+      'يسلّم Telegram تحديثات هذا البوت إلى هذا الخادم، فيستطيع موظفوه تسجيل الدخول.',
+    'tenants.checklist.webhookTodo':
+      'إنشاء المشغّل يولّد مسار webhook لكنه لا يخبر Telegram به أبداً. وحتى تتم هذه الخطوة لا يصل البوت شيء إطلاقاً.',
+
+    'tenants.checklist.commands': 'إرسال قوائم الأوامر',
+    'tenants.checklist.commandsUnknown':
+      'لا يُسأل Telegram أبداً عمّا في قائمة أوامر البوت، فلا شيء هنا يستطيع أن يخبرك إن كانت هذه الخطوة قد تمّت. أرسلها مرة واحدة — تكرارها لا يكلّف شيئاً، وهي ما يُظهر /start و/console في قائمة البوت.',
+    'tenants.checklist.commandsDone': {
+      zero: 'لم يُرسل أي أمر من هنا.',
+      one: 'أُرسل أمر واحد من هنا.',
+      two: 'أُرسل أمران من هنا.',
+      few: 'أُرسلت {count} أوامر من هنا.',
+      many: 'أُرسل {count} أمراً من هنا.',
+      other: 'أُرسل {count} أمر من هنا.',
+    },
+
+    'tenants.checklist.admin': 'مدير يستطيع تسجيل الدخول',
+    'tenants.checklist.adminUnknown':
+      'الموظفون يتبعون مشغّلاً واحداً، وقائمة موظفي هذا المشغّل غير مقروءة من شاشة المنصّة — لذلك هذه الخطوة تؤكّدها بنفسك. استخدم «{action}» في أسفل هذه اللوحة، ثم أرسل /console إلى بوت هذا المشغّل نفسه.',
+
+    'tenants.checklist.agent': 'التحقق من وكيل Ichancy',
+    'tenants.checklist.agentDone': 'الوكيل {agent} قبِل تسجيل دخول حقيقياً.',
+    'tenants.checklist.agentTodo':
+      'لم يقبل Ichancy البيانات المحفوظة، فلا يمكن تسجيل أي لاعب تحت هذا المشغّل ولا إضافة أي إيداع.',
+
+    'tenants.checklist.active': 'التفعيل',
+    'tenants.checklist.activeDone': 'المشغّل يعمل ويخدم.',
+    'tenants.checklist.activeTodo':
+      'المشغّل الجديد يُنشأ موقوفاً ولا يردّ على أحد. «{action}» هي الخطوة الأخيرة، وعندها يسجّل الخادم الدخول إلى Ichancy فعلياً.',
+
+    'tenants.telegram.title': 'Telegram',
+    'tenants.telegram.deliveringTo': 'يسلّم إلى',
+    'tenants.telegram.noWebhookUrl': 'لا يحتفظ Telegram بأي webhook لهذا البوت',
+    'tenants.telegram.pending': 'تحديثات منتظرة عند Telegram',
+    'tenants.telegram.pendingTitle': {
+      zero: 'لا يحتفظ Telegram بأي تحديث لهذا البوت',
+      one: 'يحتفظ Telegram بتحديث واحد لهذا البوت',
+      two: 'يحتفظ Telegram بتحديثين لهذا البوت',
+      few: 'يحتفظ Telegram بـ{count} تحديثات لهذا البوت',
+      many: 'يحتفظ Telegram بـ{count} تحديثاً لهذا البوت',
+      other: 'يحتفظ Telegram بـ{count} تحديث لهذا البوت',
+    },
+    'tenants.telegram.pendingBody':
+      'يحتفظ Telegram بما عجز عن تسليمه ويعيد إرساله فور نجاح التسليم. وبقاء العدد مرتفعاً بينما الـ webhook مطابق يعني أن هذا الخادم يرفضها، لا أن Telegram بطيء.',
+    'tenants.telegram.lastErrorTitle': 'آخر ما عجز Telegram عن فعله',
+
+    'tenants.webhook.register': 'تسجيل الـ webhook',
+    'tenants.webhook.remove': 'إلغاء التسجيل',
+    'tenants.webhook.deliveringTitle': 'Telegram يسلّم إلى هذا الخادم',
+    'tenants.webhook.deliveringBody':
+      'تصل تحديثات هذا البوت إلى هذه اللوحة، فيصدر /console رمزاً خاصاً بهذا المشغّل ويستطيع موظفوه تسجيل الدخول.',
+    'tenants.webhook.silentTitle': '{name} لا يصله شيء من Telegram',
+    'tenants.webhook.silentNoneBody':
+      'لا يوجد webhook مسجّل لهذا البوت، فتُهمَل كل رسالة تُرسل إليه: /console لا يفعل شيئاً، ولا يمكن بدء أي إيداع، ولا يستطيع أحد تسجيل الدخول إلى هذا المشغّل. تسجيل الـ webhook هو ما يبدأ التسليم.',
+    'tenants.webhook.silentElsewhereBody':
+      'يسلّم Telegram تحديثات هذا البوت إلى {url}، وهو ليس مسار هذا الخادم لهذا المشغّل — فلا يصل هذه اللوحة شيء: /console لا يفعل شيئاً ولا يستطيع أحد تسجيل الدخول. تسجيل الـ webhook يعيد توجيه Telegram إلى هنا، ويتوقف ما يستمع على ذلك العنوان عن استقبالها.',
+    'tenants.webhook.whichOne':
+      'التسجيل هو ما تريده في كل الأحوال تقريباً: هو ما يجعل بوت المشغّل الجديد يردّ. أما إلغاء التسجيل فيوقف التسليم دون إيقاف المشغّل — تبقى دفاتره مفتوحة وتبقى مهل إيداعاته تجري بينما يصمت بوته — وهو ما تريده فقط حين تنقل هذا البوت إلى خادم آخر. وإن كنت تريد أن يتوقف المشغّل عن العمل، فأوقفه مؤقتاً بدل ذلك.',
+    'tenants.webhook.registeredTitle': '{name} يستقبل التحديثات',
+    'tenants.webhook.registeredBody': 'صار Telegram يسلّم تحديثات هذا البوت إلى هذا الخادم.',
+    'tenants.webhook.registerErrorTitle': 'تعذّر تسجيل الـ webhook',
+    'tenants.webhook.removeConfirmTitle': 'إيقاف تسليم Telegram إلى {name}؟',
+    'tenants.webhook.removeConfirmBody':
+      'يبقى المشغّل كما هو تماماً — نشطاً، بدفاتر مفتوحة ومهل إيداعات تجري — لكن بوته يتوقف عن الرد: /console لا يفعل شيئاً ولا يستطيع أحد تسجيل الدخول. وإن كان مرادك أن يتوقف المشغّل عن العمل، فأوقفه مؤقتاً بدل ذلك.',
+    'tenants.webhook.removeConfirmLabel': 'إلغاء تسجيل الـ webhook',
+    'tenants.webhook.removedTitle': 'توقّف التسليم إلى {name}',
+    'tenants.webhook.removedBody':
+      'لم يعد بوته يصل إلى هذا الخادم. سجّل الـ webhook من جديد متى أردت عودته.',
+    'tenants.webhook.removeErrorTitle': 'تعذّر إلغاء تسجيل الـ webhook',
+
+    'tenants.commands.push': 'إرسال قوائم الأوامر',
+    'tenants.commands.pushedTitle': {
+      zero: 'لم يُضبط أي أمر في قائمة البوت',
+      one: 'ضُبط أمر واحد في قائمة البوت',
+      two: 'ضُبط أمران في قائمة البوت',
+      few: 'ضُبطت {count} أوامر في قائمة البوت',
+      many: 'ضُبط {count} أمراً في قائمة البوت',
+      other: 'ضُبط {count} أمر في قائمة البوت',
+    },
+    'tenants.commands.pushedBody': {
+      zero: 'لم يُرسل أي أمر. النطاقات: {scopes}.',
+      one: 'أُرسل أمر واحد، في هذه النطاقات: {scopes}.',
+      two: 'أُرسل أمران، في هذه النطاقات: {scopes}.',
+      few: 'أُرسلت {count} أوامر، في هذه النطاقات: {scopes}.',
+      many: 'أُرسل {count} أمراً، في هذه النطاقات: {scopes}.',
+      other: 'أُرسل {count} أمر، في هذه النطاقات: {scopes}.',
+    },
+    'tenants.commands.errorTitle': 'تعذّر إرسال قوائم الأوامر',
+
+    'tenants.bot.replace': 'استبدال رمز البوت',
+    'tenants.bot.title': 'استبدال رمز البوت لـ{name}',
+    'tenants.bot.description':
+      'يُتحقق من الرمز بنداء getMe حقيقي قبل حفظ أي شيء، فلا يصل رمز خاطئ إلى قاعدة البيانات. ويُختم عند وصوله ولا يُعاد أبداً: هذا الحقل يستبدله، ولا شيء يقرأه.',
+    'tenants.bot.noWebhookTitle': 'لن يصل البوت الجديد شيء حتى تسجّل الـ webhook له',
+    'tenants.bot.noWebhookBody':
+      'يسمح Telegram بعنوان webhook واحد لكل بوت، والبوت الجديد لم يُخبر قط بمكان التسليم. ولحظة الحفظ يصبح المشغّل صامتاً كمشغّل جديد تماماً — /console لا يفعل شيئاً ولا يستطيع أحد تسجيل الدخول — إلى أن تسجّل الـ webhook من جديد.',
+    'tenants.bot.submit': 'استبدال الرمز',
+    'tenants.bot.replacedTitle': 'حُفظ رمز بوت جديد لـ{name}',
+    'tenants.bot.replacedBody': 'سجّل الـ webhook الآن، وإلا بقي هذا المشغّل صامتاً.',
+    'tenants.bot.errorTitle': 'رفض Telegram رمز البوت هذا',
+
+    'tenants.ichancy.title': 'Ichancy',
+    'tenants.ichancy.answeredTitle': 'الوكيل ردّ',
+    'tenants.ichancy.answeredBody':
+      'نجح تسجيل دخول حقيقي ببيانات هذا المشغّل المحفوظة، فيمكن تسجيل اللاعبين وإضافة الإيداعات.',
+    'tenants.ichancy.refusedTitle': 'لم يقبل Ichancy هذا الوكيل',
+    'tenants.ichancy.refusedNoReason':
+      'رفض Ichancy تسجيل الدخول دون أن يذكر سبباً. لا يمكن إضافة أي مبلغ حتى يردّ.',
+    'tenants.ichancy.belowTitle': 'رصيد الوكيل تحت الحد الأدنى',
+    'tenants.ichancy.belowBody':
+      'تبدأ إضافات اللاعبين بالفشل حين ينفد رصيد الوكيل. اشحنه قبل الموافقة التالية.',
+    'tenants.ichancy.float': 'رصيد الوكيل',
+    'tenants.ichancy.floatUnread': 'لم يُقرأ',
+    'tenants.ichancy.aboveWatermark': 'فوق الحد الأدنى',
+    'tenants.ichancy.belowWatermark': 'تحت الحد الأدنى',
+    'tenants.ichancy.checkedAt': 'آخر فحص',
+    'tenants.ichancy.test': 'اختبار الاتصال',
+    'tenants.ichancy.edit': 'تعديل البيانات',
+    'tenants.ichancy.notShared':
+      'لا مشغّل آخر موجَّه إلى وكيل Ichancy هذا، فجلسته له وحده.',
+    'tenants.ichancy.sharedTitle': {
+      zero: 'لا مشغّل آخر يستخدم وكيل Ichancy هذا',
+      one: 'وكيل Ichancy هذا مشترك مع مشغّل آخر واحد',
+      two: 'وكيل Ichancy هذا مشترك مع مشغّلَين آخرين',
+      few: 'وكيل Ichancy هذا مشترك مع {count} مشغّلين آخرين',
+      many: 'وكيل Ichancy هذا مشترك مع {count} مشغّلاً آخر',
+      other: 'وكيل Ichancy هذا مشترك مع {count} مشغّل آخر',
+    },
+    'tenants.ichancy.sharedBody':
+      'يسمح Ichancy بتسجيل دخول واحد لكل حساب وكيل، لذلك يتشارك هؤلاء المشغّلون جلسة واحدة: تسجيل الدخول لأحدهم تسجيل لهم جميعاً، وتغيير كلمة المرور هنا يغيّرها لهم جميعاً. وتوجيه عدة مشغّلين إلى وكيل واحد أسلوب اختبار مشروع — وهذا التنبيه موجود كي لا يكون هذا الترابط مفاجأة.',
+
+    'tenants.ichancyEdit.title': 'بيانات Ichancy لـ{name}',
+    'tenants.ichancyEdit.description':
+      'الحفظ يسجّل الدخول إلى Ichancy فعلياً بهذه القيم ويرفضها إن لم يردّ الوكيل. ولا يُرسل إلا ما غيّرته.',
+    'tenants.ichancyEdit.passwordHint':
+      'اتركه فارغاً للإبقاء على كلمة المرور المحفوظة. هي مختومة ولا تُعاد أبداً، فلا يمكن عرضها هنا — يمكن استبدالها فقط.',
+    'tenants.ichancyEdit.agentIdWarning':
+      'لا يمكن تغييره بعد أن يصبح للمشغّل لاعبون: إعادة توجيه الوكيل تفصلهم عن الشجرة التي تعيش فيها أرصدتهم. الخادم يرفض ذلك، وهذا هو الحقل الوحيد هنا الذي يمكن أن يُرفض بعد قبول كل ما عداه.',
+    'tenants.ichancyEdit.submit': 'حفظ وتحقق',
+    'tenants.ichancyEdit.successTitle': 'حُفظت بيانات Ichancy لـ{name}',
+    'tenants.ichancyEdit.successBody': 'قبِل Ichancy تسجيل دخول حقيقياً بها.',
+    'tenants.ichancyEdit.refusedTitle': 'رفض الخادم هذا التغيير',
+    'tenants.ichancyEdit.errorTitle': 'تعذّر حفظ بيانات Ichancy',
+    'tenants.ichancyEdit.unchangedTitle': 'لا شيء لحفظه',
+    'tenants.ichancyEdit.unchangedBody': 'كل حقل ما زال يحمل قيمته. غيّر واحداً أو أغلق الاستمارة.',
+
     'tenants.title': 'المشغّلون',
     'tenants.description': 'كل مشغّل على المنصّة: بوته، ووكيله على Ichancy، وحدود المراجعة عنده.',
     'tenants.new': 'مشغّل جديد',
@@ -237,7 +588,6 @@ export const tenantMessages = defineMessages({
     },
     'tenants.notCounted': 'غير محسوب',
     'tenants.noBotYet': 'لا يوجد بوت بعد',
-    'tenants.noBotUsernameYet': 'لا يوجد اسم مستخدم للبوت بعد',
     'tenants.minutesShort': {
       zero: 'بلا مهلة',
       one: 'دقيقة واحدة',
@@ -274,7 +624,7 @@ export const tenantMessages = defineMessages({
     'tenants.field.ichancyUsername': 'اسم المستخدم على Ichancy',
     'tenants.field.ichancyPassword': 'كلمة المرور على Ichancy',
     'tenants.field.ichancyAgentId': 'معرّف الوكيل على Ichancy',
-    'tenants.field.webhook': 'الـ webhook',
+    'tenants.field.webhookPath': 'مسار الـ webhook',
 
     'tenants.detail.fallbackTitle': 'المشغّل',
     'tenants.detail.loading': 'جارٍ تحميل بيانات هذا المشغّل.',
@@ -282,9 +632,9 @@ export const tenantMessages = defineMessages({
     'tenants.editSettings': 'تعديل الإعدادات',
     'tenants.section.identity': 'التعريف',
     'tenants.section.money': 'المبالغ وقواعد المراجعة',
-    'tenants.section.wiring': 'الربط مع Ichancy وTelegram',
-    'tenants.webhook.configured': 'تم ضبط الـ webhook',
-    'tenants.webhook.missing': 'لا يوجد webhook بعد',
+    'tenants.section.chats': 'محادثات Telegram والأسرار المحفوظة',
+    'tenants.webhook.pathGenerated': 'تم توليد مسار الـ webhook',
+    'tenants.webhook.noPath': 'لا يوجد مسار webhook',
     'tenants.secretsNote':
       'رمز مسار الـ webhook ورمز البوت وكلمة مرور Ichancy لا يعيدها الخادم أبداً، لذا لا يمكن عرضها أو نسخها هنا — يمكن استبدالها فقط.',
 
@@ -351,11 +701,18 @@ export const tenantMessages = defineMessages({
       'يطّلع على اللاعبين والإيداعات وقنوات الدفع للإجابة على الأسئلة. لا يقرّر شيئاً.',
     'tenants.role.VIEWER': 'اطّلاع فقط على قائمة الإيداعات والتسوية.',
 
-    'tenants.create.description': 'مشغّل واحد: بوت Telegram واحد، ووكيل Ichancy واحد، وعملة واحدة.',
+    'tenants.create.description':
+      'مشغّل واحد: بوت Telegram واحد، ووكيل Ichancy واحد، وعملة واحدة. أربعة حقول منك، والباقي تملؤه المنصّة.',
     'tenants.create.submit': 'إنشاء المشغّل',
+    'tenants.create.required': 'ما لا يستطيع أحد سواك تقديمه',
+    'tenants.create.requiredHint':
+      'اسم، ورمز البوت من BotFather، وبيانات دخول Ichancy التي يسجّل بها هذا المشغّل. لا يلزم غير ذلك لإنشائه.',
+    'tenants.create.advanced': 'إعدادات متقدمة',
+    'tenants.create.advancedHint':
+      'كل حقل هنا يُحذف من الطلب إن تُرك فارغاً، وتتولى المنصّة تحديد قيمته. لا تفتح هذا القسم إلا لمشغّل يجب أن يختلف عن القيم الافتراضية — وكل حقل يذكر ما سيحصل عليه لو تُرك.',
     'tenants.create.suspendedTitle': 'سيُنشأ هذا المشغّل موقوفاً',
     'tenants.create.suspendedBody':
-      'لا شيء في هذه الاستمارة يثبت أن معرّف الوكيل يخص اسم المستخدم الذي فوقه، واسم مستخدم صحيح مع معرّف وكيل خاطئ يسجّل لاعبين حقيقيين تحت مشغّل آخر. لذلك يُنشأ المشغّل الجديد موقوفاً ولا يخدم أحداً حتى تفعّله — وعندها فقط يسجّل الخادم الدخول فعلياً إلى Ichancy ويتبيّن الأمر.',
+      'لا شيء في هذه الاستمارة يثبت أن معرّف الوكيل يخص اسم المستخدم على Ichancy، واسم مستخدم صحيح مع معرّف وكيل خاطئ يسجّل لاعبين حقيقيين تحت مشغّل آخر. لذلك يُنشأ المشغّل الجديد موقوفاً ولا يخدم أحداً حتى تفعّله — وعندها فقط يسجّل الخادم الدخول فعلياً إلى Ichancy ويتبيّن الأمر.',
     'tenants.create.successTitle': 'تم إنشاء {name}',
     'tenants.create.successBody': 'يبقى موقوفاً حتى تفعّله.',
     'tenants.create.errorTitle': 'تعذّر إنشاء المشغّل',
@@ -372,10 +729,7 @@ export const tenantMessages = defineMessages({
     'tenants.immutable.currencyCode':
       'غير قابل للتغيير: كل مبلغ مسجّل مقوّم بهذه العملة. تغييره يعيد تفسير ما مضى بدل أن يحوّله.',
 
-    'tenants.hint.slug': 'حروف إنجليزية صغيرة وشرطات، ودائم. يظهر في كل سطر سجل.',
     'tenants.hint.botToken': 'يُحفظ للكتابة فقط. لا يُعاد إظهاره مرة أخرى، لا هنا ولا في أي مكان.',
-    'tenants.hint.agentId': 'يُتحقق منه لأول مرة عند تفعيل المشغّل.',
-    'tenants.hint.currencyCode': 'دائم: هو وحدة كل مبلغ سيسجّله هذا المشغّل.',
     'tenants.hint.feedChatId':
       'ترك الحقل فارغاً يبقي القناة الحالية: الخادم لا يوفّر طريقة لإزالتها.',
     'tenants.hint.expiryRange': 'من {min} إلى {max}.',
@@ -383,9 +737,26 @@ export const tenantMessages = defineMessages({
     'tenants.hint.minorPreview': '= {preview}',
     'tenants.placeholder.displayName': 'الفرع الشمالي',
 
+    'tenants.default.slug':
+      'إن تُرك فارغاً: يُشتق من الاسم الظاهر — «الفرع الشمالي» يصبح northern-branch، ويُضاف ‎-2‎ إن كان مأخوذاً. وهو دائم في الحالتين: يظهر في كل سطر سجل.',
+    'tenants.default.adminChatId':
+      'إن تُرك فارغاً: معرّف حسابك على Telegram، فأنت مدير المنصّة الذي ينشئ هذا المشغّل.',
+    'tenants.default.feedChatId':
+      'إن تُرك فارغاً: لا توجد قناة إشعارات. هذا هو الحقل الاختياري الوحيد بلا قيمة افتراضية على المنصّة، ويمكن ضبطه لاحقاً.',
+    'tenants.default.ichancyBaseUrl': 'إن تُرك فارغاً: رابط Ichancy الافتراضي للمنصّة.',
+    'tenants.default.ichancyAgentId':
+      'إن تُرك فارغاً: معرّف الوكيل الافتراضي للمنصّة، أو معرّف المشغّل صفر إن لم يكن للمنصّة واحد. تسجيل الدخول إلى Ichancy لا يعيد سوى زوج رموز، فلا يمكن استنتاج معرّف الوكيل من بيانات الدخول — وإن لم يوجد أي منهما رفض الخادم الإنشاء وسمّى هذا الحقل. ويُتحقق منه لأول مرة عند تفعيل المشغّل.',
+    'tenants.default.currencyCode':
+      'إن تُرك فارغاً: عملة المنصّة الافتراضية. وهي دائمة: وحدة كل مبلغ سيسجّله هذا المشغّل.',
+    'tenants.default.dualApproval': 'إن تُرك فارغاً: الحد الافتراضي على المنصّة.',
+    'tenants.default.floatWatermark': 'إن تُرك فارغاً: الحد الأدنى الافتراضي على المنصّة.',
+    'tenants.default.depositExpiryMinutes':
+      'إن تُرك فارغاً: المهلة الافتراضية على المنصّة. ومن {min} إلى {max} إن ضبطتها بنفسك.',
+
     'tenants.validation.slug':
       'حروف إنجليزية صغيرة وأرقام وشرطات؛ من 3 إلى 32 خانة، تبدأ بحرف وتنتهي بحرف أو رقم.',
     'tenants.validation.displayName': 'أعطِ المشغّل اسماً يعرفه الناس.',
+    'tenants.validation.displayNameLong': 'أبقِه في حدود 120 خانة أو أقل.',
     'tenants.validation.botToken': 'رمز البوت يشبه 123456789:AA… — أرقام، ثم نقطتان، ثم المفتاح.',
     'tenants.validation.chatId':
       'معرّف محادثة Telegram رقم صحيح، ومعرّفات المجموعات تبدأ بإشارة ناقص.',

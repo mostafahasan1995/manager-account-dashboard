@@ -115,6 +115,31 @@ export function canAny(role: AdminRole | null | undefined, capabilities: Capabil
   return capabilities.some((capability) => can(role, capability));
 }
 
+/**
+ * May the signed-in admin hand out this role? A mirror of `AdminUserService.assertMayGrant`.
+ *
+ * `admins.write` is not enough on its own, because one role is not like the others. PLATFORM_ADMIN
+ * reaches ACROSS tenants, so the backend restricts granting it twice over: the actor must already
+ * hold it, AND must be operating in tenant zero — a platform admin who has switched into an
+ * operator is refused, because `admin_users` is keyed on (tenant, telegram id) and the row would
+ * land inside that operator as a tenant-scoped login holding platform authority.
+ *
+ * `tenantOverride` is the `X-Tenant-Id` the console is currently sending; `null` means none, which
+ * is the only state in which the backend is in tenant zero.
+ *
+ * Without this the picker offers every role to everyone and the server answers 403 — a form that
+ * invites a choice it cannot honour, which is exactly what the mirror exists to prevent.
+ */
+export function mayGrantRole(
+  actorRole: AdminRole | null | undefined,
+  role: AdminRole,
+  tenantOverride: string | null,
+): boolean {
+  if (!can(actorRole, 'admins.write')) return false;
+  if (role !== 'PLATFORM_ADMIN') return true;
+  return actorRole === 'PLATFORM_ADMIN' && tenantOverride === null;
+}
+
 /** Everything this role can do, for the "your access" panel on the profile screen. */
 export function capabilitiesOf(role: AdminRole | null | undefined): Capability[] {
   if (role == null) return [];

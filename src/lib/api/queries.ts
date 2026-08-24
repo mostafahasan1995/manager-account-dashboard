@@ -18,6 +18,8 @@ import type {
   CreatePaymentDestinationBody,
   CreatePaymentMethodBody,
   CreateTenantBody,
+  CreditPlayerBody,
+  DebitPlayerBody,
   DepositQueueQuery,
   PaymentMethodListQuery,
   PlayerListQuery,
@@ -237,6 +239,98 @@ export function useCreateIchancyAccount() {
       await queryClient.invalidateQueries({ queryKey: playerKeys.all });
     },
   });
+}
+
+/**
+ * A manual debit: money taken back out of the player's Ichancy account.
+ *
+ * Invalidates the whole player namespace on ANY outcome, not only a successful one — a refusal and
+ * an unconfirmed debit both mean the console's picture of that account is now older than the
+ * account is, and the screen that fired it re-reads the player rather than keeping what it had.
+ *
+ * There is no retry here and there must never be one. Mutations already default to `retry: false`
+ * (see `createQueryClient`), and this is the endpoint that default exists for: Ichancy has no
+ * idempotency key, so an automatic second attempt is a second debit of a real person's money.
+ */
+export function useDebitPlayer() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { playerId: string; body: DebitPlayerBody }) =>
+      playersApi.debit(input.playerId, input.body),
+    retry: false,
+    onSettled: async () => {
+      await queryClient.invalidateQueries({ queryKey: playerKeys.all });
+    },
+  });
+}
+
+/**
+ * A manual credit: money sent out of the agent float and into the player's Ichancy account.
+ *
+ * Identical in every respect to `useDebitPlayer`, including `retry: false` and the invalidation on
+ * ANY outcome. The direction of the money changes who is out of pocket when it goes wrong; it
+ * changes nothing about whether the console may quietly send it twice. It may not.
+ */
+export function useCreditPlayer() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { playerId: string; body: CreditPlayerBody }) =>
+      playersApi.credit(input.playerId, input.body),
+    retry: false,
+    onSettled: async () => {
+      await queryClient.invalidateQueries({ queryKey: playerKeys.all });
+    },
+  });
+}
+
+/**
+ * How long a balance is worth showing before it is worth paying for again.
+ *
+ * Sixty seconds. Long enough that paging back and forth, opening a dialog, or re-rendering the
+ * table costs nothing; short enough that a number an operator is about to act on was measured
+ * within the last minute. The `gcTime` matches so the answer survives the round trip to the next
+ * page and back — dropping it there would make a page-turn cost a full page of upstream calls.
+ */
+export const PLAYER_BALANCE_STALE_MS = 60_000;
+
+/**
+ * ONE player's Ichancy balance, with its own loading, error and retry.
+ *
+ * Per player rather than per page on purpose. There is no bulk endpoint, so a page of balances is a
+ * page of independent requests: one row failing must leave the other nine showing their numbers,
+ * and the row that failed must be retryable on its own without re-reading the nine that worked.
+ * `useQueries` with a combined result would collapse all of that into one status.
+ *
+ * `retry: false` for the same reason: a failed balance is one line of the table saying "unknown",
+ * not a broken screen, and silently retrying it three times triples the load on the rate limit that
+ * probably caused it.
+ */
+export function usePlayerBalance(playerId: string, options: { enabled: boolean }) {
+  return useQuery({
+    queryKey: playerKeys.balance(playerId),
+    queryFn: ({ signal }) => playersApi.balance(playerId, signal),
+    enabled: options.enabled && playerId.length > 0,
+    staleTime: PLAYER_BALANCE_STALE_MS,
+    gcTime: PLAYER_BALANCE_STALE_MS,
+    retry: false,
+    // A tab-switch is not a reason to spend a page of upstream calls.
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+  });
+}
+
+/**
+ * Re-reads the balances that are ON SCREEN, and only those.
+ *
+ * `invalidateQueries` refetches active observers and merely marks the rest stale, which is exactly
+ * the behaviour wanted here: the rows the operator is looking at are re-measured, and the fifty
+ * rows they scrolled past on earlier pages are not silently re-billed to the rate limit.
+ */
+export function useRefreshPlayerBalances(): () => void {
+  const queryClient = useQueryClient();
+  return useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: playerKeys.balances() });
+  }, [queryClient]);
 }
 
 // ── Payment methods ────────────────────────────────────────────────────────────────────────────
@@ -532,7 +626,7 @@ export const useUpdateTenantIchancy = () =>
     tenantsApi.updateIchancy(input.id, input.body),
   );
 
-/** Replacing the token clears the webhook server-side; the screen must offer to register it again. */
+/** Replacing the token clears the webhook server-side; the screen must offer to register again. */
 export const useUpdateTenantBot = () =>
   useOperatorMutation((input: { id: string; body: UpdateTenantBotBody }) =>
     tenantsApi.updateBot(input.id, input.body),

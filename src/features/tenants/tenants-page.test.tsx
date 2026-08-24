@@ -1,11 +1,11 @@
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import { HttpResponse, http } from 'msw';
 import { describe, expect, it } from 'vitest';
 
 import { tenantSearchSchema } from '@/app/search-schemas';
 import { config } from '@/config';
 import type { Locale } from '@/lib/i18n/locales';
-import { mockTenants } from '@/mocks/fixtures';
+import { mockAdmins, mockPlatformDefaults, mockTenants } from '@/mocks/fixtures';
 import { server } from '@/test/msw-server';
 import { renderWithProviders } from '@/test/utils';
 
@@ -227,6 +227,41 @@ describe('TenantsPage', () => {
       expect(location()).toContain('create=true');
     });
     expect(await screen.findByRole('heading', { name: 'New tenant' })).toBeInTheDocument();
+  });
+
+  /**
+   * The create form asks for four fields; the server resolves the other nine and answers with the
+   * full row. This is the case that proves the console reads the answer rather than echoing the
+   * form: nothing asserted below was typed into it.
+   */
+  it('creates an operator from four fields and shows what the server filled in', async () => {
+    const { user, location } = renderPage();
+
+    await user.click(await screen.findByRole('button', { name: /new tenant/i }));
+    expect(await screen.findByRole('heading', { name: 'New tenant' })).toBeInTheDocument();
+
+    for (const [label, value] of Object.entries({
+      'Display name': 'Harbour kiosk',
+      'Bot token': '8123456789:AAG7hZ2q-Xk_9pLmN4rTvBcD1eFgHiJkLmN',
+      'Ichancy username': 'agent_harbour',
+      'Ichancy password': 'never-returned',
+    })) {
+      await user.click(screen.getByLabelText(label));
+      await user.paste(value);
+    }
+    await user.click(screen.getByRole('button', { name: 'Create tenant' }));
+
+    // The panel opens on the row that was just written, with the resolved values on it.
+    expect(await screen.findByRole('heading', { name: 'Harbour kiosk' })).toBeInTheDocument();
+    const panel = within(screen.getByRole('dialog', { name: /harbour kiosk/i }));
+    expect(panel.getByText('Slug harbour-kiosk')).toBeInTheDocument();
+    expect(panel.getByText(mockAdmins[0]!.telegramUserId)).toBeInTheDocument();
+    expect(panel.getByText(mockPlatformDefaults.currencyCode)).toBeInTheDocument();
+    expect(panel.getByText('500,000.00 NSP')).toBeInTheDocument();
+    expect(panel.getByText('30 minutes')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(location()).toContain('selected=');
+    });
   });
 
   it('hides the create button from a role that cannot manage tenants', async () => {

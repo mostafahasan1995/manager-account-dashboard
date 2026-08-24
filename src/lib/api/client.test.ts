@@ -199,7 +199,11 @@ describe('request', () => {
     expect(error.code).toBe('NETWORK_UNREACHABLE');
     expect(error.status).toBe(0);
     expect(error.isRetryable).toBe(true);
-    expect(error.message).toContain('CORS');
+    // The origin is the one fact that separates a blocked request from a dead server, and the
+    // browser withholds it — so the message has to carry it.
+    expect(error.message).toContain(window.location.origin);
+    expect(error.message).toContain('MINI_APP_ORIGIN');
+    expect(error.details).toMatchObject({ origin: window.location.origin });
   });
 
   it('survives a non-JSON body (a proxy error page) without throwing a parse error', async () => {

@@ -46,6 +46,7 @@ export const railMessages = defineMessages({
     'rails.field.referencePattern': 'Reference pattern',
     'rails.field.instructions': 'Instructions',
     'rails.field.requiresReference': 'Reference required',
+    'rails.field.requiresProof': 'Receipt photo required',
 
     // ── Filters ──────────────────────────────────────────────────────────────────────────────
     'rails.filter.allRails': 'All rails',
@@ -171,6 +172,10 @@ export const railMessages = defineMessages({
       'Transfer to the account shown, then upload the receipt.',
     'rails.form.requiresReferenceHint':
       "The player must type the rail's transaction reference before they can submit.",
+    'rails.form.requiresProofHint':
+      'The player must attach a photo of the receipt. Turn this off only where a reference is ' +
+      'required — a reference can be checked against a statement and cannot be claimed twice, ' +
+      'but a claim with neither leaves a reviewer nothing to look at.',
     'rails.form.methodActiveHint':
       'An inactive method stays on record but is not offered to players.',
     'rails.form.labelHint': 'Internal: how staff will refer to this account.',
@@ -243,6 +248,7 @@ export const railMessages = defineMessages({
     'rails.field.referencePattern': 'نمط المرجع',
     'rails.field.instructions': 'التعليمات',
     'rails.field.requiresReference': 'المرجع مطلوب',
+    'rails.field.requiresProof': 'صورة الإيصال مطلوبة',
 
     'rails.filter.allRails': 'كل القنوات',
     'rails.filter.anyState': 'النشط والموقوف',
@@ -357,6 +363,10 @@ export const railMessages = defineMessages({
     'rails.form.instructionsPlaceholder': 'حوّل إلى الحساب الظاهر، ثم ارفع صورة الإيصال.',
     'rails.form.requiresReferenceHint':
       'على اللاعب كتابة مرجع العملية من القناة قبل أن يتمكن من الإرسال.',
+    'rails.form.requiresProofHint':
+      'على اللاعب إرفاق صورة الإيصال. لا توقف هذا الخيار إلا عندما يكون المرجع مطلوباً — يمكن ' +
+      'مطابقة المرجع مع كشف الحساب ولا يمكن استخدامه مرتين، أما الطلب بلا صورة وبلا مرجع فلا ' +
+      'يترك للمراجع شيئاً يفحصه.',
     'rails.form.methodActiveHint': 'الطريقة الموقوفة تبقى مسجّلة لكنها لا تُعرض على اللاعبين.',
     'rails.form.labelHint': 'للاستخدام الداخلي: هكذا يشير الموظفون إلى هذا الحساب.',
     'rails.form.labelPlaceholder': 'حساب الفرع الرئيسي',

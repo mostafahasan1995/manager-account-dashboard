@@ -80,3 +80,51 @@ describe('PlayerTable', () => {
     expect(screen.getByText('512340001')).toBeInTheDocument();
   });
 });
+
+/**
+ * The balance column.
+ *
+ * There is no bulk balance endpoint — Ichancy's player list carries no balance at all — so each
+ * cell is its own upstream call. That makes the failure of ONE cell an ordinary event rather than
+ * an exceptional one, and the rule below is the one this column lives or dies by.
+ */
+describe('PlayerTable — balances', () => {
+  it('shows a balance for each linked player on the page', async () => {
+    renderTable([linked]);
+
+    // 100001 minor = 1,000.01 in a 2-scale currency.
+    expect(await screen.findByText(/1,000\.01/)).toBeInTheDocument();
+  });
+
+  it('renders a REAL zero as zero — an empty account is a fact', async () => {
+    const newcomer = fixture(PLAYER_IDS.newcomer);
+    renderTable([newcomer]);
+
+    expect(await screen.findByText(/0\.00/)).toBeInTheDocument();
+  });
+
+  /**
+   * THE ASSERTION THIS FILE EXISTS FOR. `0` and "we could not find out" look identical in a table
+   * cell and lead to opposite decisions — one says the account is empty, the other says nothing is
+   * known — and this column sits beside buttons that move real money. So a failed read shows a word
+   * and offers a retry, and must never show a figure.
+   */
+  it('shows a failed balance as unknown, NEVER as a number', async () => {
+    const unreadable = fixture(PLAYER_IDS.suspended);
+    renderTable([unreadable]);
+
+    expect(await screen.findByText('Unknown')).toBeInTheDocument();
+    expect(screen.queryByText(/^0\.00$/)).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /Retry the balance/i }),
+    ).toBeInTheDocument();
+  });
+
+  it('does not ask for a balance a player cannot have', async () => {
+    renderTable([pending]);
+
+    // No Ichancy account: the backend refuses this rather than answering, so asking would spend a
+    // request to be told what the row already says.
+    expect(await screen.findByText('No account')).toBeInTheDocument();
+  });
+});

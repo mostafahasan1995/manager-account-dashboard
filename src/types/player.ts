@@ -1,7 +1,13 @@
 import { z } from 'zod';
 
 import { isoDateTime } from './api';
-import { playerStatusSchema, type PlayerStatus } from './enums';
+import {
+  creditVerifiedBySchema,
+  playerCreditStatusSchema,
+  playerDebitStatusSchema,
+  playerStatusSchema,
+  type PlayerStatus,
+} from './enums';
 
 export const adminPlayerSchema = z.looseObject({
   id: z.string(),
@@ -51,3 +57,107 @@ export function playerDisplayName(player: AdminPlayer): string {
   }
   return `Telegram ${player.telegramUserId}`;
 }
+
+// ── Manual adjustments: debits out, credits in ─────────────────────────────────────────────────
+
+/**
+ * The backend's own limit on the reason field, shared by both directions.
+ *
+ * One constant rather than two, because the two routes are one rule: `reason: string 1..280`. Two
+ * copies would let a future 500 on one side pass a form that the other side still refuses.
+ */
+export const MANUAL_ADJUSTMENT_REASON_MAX_LENGTH = 280;
+
+/** The debit route's name for it. Kept so the older call sites read as they always did. */
+export const DEBIT_REASON_MAX_LENGTH = MANUAL_ADJUSTMENT_REASON_MAX_LENGTH;
+
+/**
+ * `POST /v1/admin/players/:id/debit` — money taken back OUT of a player's Ichancy account.
+ *
+ * The amount is `amountMinor`, a STRING of minor units, in both directions. An NSP figure outruns
+ * `Number.MAX_SAFE_INTEGER` long before it outruns a cashier's day, and a debit rounded by a
+ * float is a debit for the wrong amount of somebody else's money.
+ *
+ * `status` and `verifiedBy` are unions with `string` on purpose, exactly as the deposit schemas
+ * are: a value the backend adds tomorrow must render as itself rather than blank the panel that is
+ * telling an operator whether a live account was just emptied.
+ */
+export const playerDebitSchema = z.looseObject({
+  debitId: z.string(),
+  playerId: z.string(),
+  amountMinor: z.string(),
+  status: z.union([playerDebitStatusSchema, z.string()]),
+  /** What Ichancy held before the call, and what it held after. Minor units, as strings. */
+  playerBalanceBeforeMinor: z.string(),
+  playerBalanceAfterMinor: z.string(),
+  /** Null until something proves it: an unconfirmed debit has verified nothing. */
+  verifiedBy: z.union([creditVerifiedBySchema, z.string()]).nullable(),
+  reason: z.string(),
+  decidedBy: z.string(),
+  createdAt: isoDateTime,
+});
+export type PlayerDebit = z.infer<typeof playerDebitSchema>;
+
+/** The request body. `amountMinor` is minor units as a decimal string — never a JS number. */
+export interface DebitPlayerBody {
+  amountMinor: string;
+  reason: string;
+}
+
+// ── Manual credits ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * `POST /v1/admin/players/:id/credit` — money sent INTO a player's Ichancy account.
+ *
+ * The exact mirror of the debit route, field for field, and mirrored here rather than reused so
+ * that the id keeps the name the backend gives it (`creditId`) and the status keeps its own union.
+ * Everything the debit schema says about `amountMinor` being a STRING and about `status` tolerating
+ * a value this console has never heard of applies here unchanged.
+ *
+ * What is NOT mirrored is the safety of a repeat. It is just as unrepeatable in this direction: the
+ * money comes out of the agent float and lands in a live betting account, and Ichancy has no
+ * idempotency key to make a second attempt harmless.
+ */
+export const playerCreditSchema = z.looseObject({
+  creditId: z.string(),
+  playerId: z.string(),
+  amountMinor: z.string(),
+  status: z.union([playerCreditStatusSchema, z.string()]),
+  playerBalanceBeforeMinor: z.string(),
+  playerBalanceAfterMinor: z.string(),
+  verifiedBy: z.union([creditVerifiedBySchema, z.string()]).nullable(),
+  reason: z.string(),
+  decidedBy: z.string(),
+  createdAt: isoDateTime,
+});
+export type PlayerCredit = z.infer<typeof playerCreditSchema>;
+
+/** The request body. Same shape as a debit, and the same rule: minor units, as a string. */
+export interface CreditPlayerBody {
+  amountMinor: string;
+  reason: string;
+}
+
+// ── Balances ───────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * `GET /v1/admin/players/:id/balance` — what Ichancy holds for ONE player, right now.
+ *
+ * One player, because there is no bulk read to have. Verified against a real logged response:
+ * `getPlayersForCurrentAgent` answers with `playerId, username, currency, affiliateId,
+ * phoneNumber, registerDate` and no balance at all, so every balance on a screen is its own
+ * upstream call through Cloudflare — seconds each, and rate-limited. Any screen that shows a column
+ * of these has to be built around that cost rather than around the convenience of a list.
+ *
+ * `readAt` is when the upstream read happened, not when this response was serialised: a balance is
+ * a measurement with a timestamp, and an operator deciding whether to send money needs to know
+ * whether they are looking at a number from a second ago or from a minute ago.
+ */
+export const playerBalanceSchema = z.looseObject({
+  playerId: z.string(),
+  /** Minor units as a string. A balance can outrun a double as easily as an amount can. */
+  balanceMinor: z.string(),
+  currencyCode: z.string(),
+  readAt: isoDateTime,
+});
+export type PlayerBalance = z.infer<typeof playerBalanceSchema>;

@@ -9,6 +9,8 @@ import type {
   CreatePaymentDestinationBody,
   CreatePaymentMethodBody,
   CreateTenantBody,
+  CreditPlayerBody,
+  DebitPlayerBody,
   DepositQueueQuery,
   PaymentMethodListQuery,
   PlayerListQuery,
@@ -35,6 +37,9 @@ import {
   livenessSchema,
   paymentDestinationSchema,
   paymentMethodSchema,
+  playerBalanceSchema,
+  playerCreditSchema,
+  playerDebitSchema,
   proofUrlSchema,
   railAgeingReportSchema,
   readinessSchema,
@@ -48,6 +53,8 @@ import {
   tenantSchema,
   tenantWebhookSchema,
 } from '@/types';
+
+import { createLimiter } from '@/lib/concurrency';
 
 import { api, type QueryValue } from './client';
 
@@ -123,6 +130,17 @@ export const depositsApi = {
 
 // ── Players ────────────────────────────────────────────────────────────────────────────────────
 
+/**
+ * How many balance reads may be in flight at once, across the entire console.
+ *
+ * Four, not twenty. Each read is an Ichancy `getPlayerBalanceById` behind Cloudflare: seconds of
+ * latency and a rate limit that answers a burst with challenges. Four keeps a page of ten filling
+ * in under a handful of waves while staying well inside what the agent tolerates.
+ */
+export const BALANCE_CONCURRENCY = 4;
+
+const balanceLimiter = createLimiter(BALANCE_CONCURRENCY);
+
 export const playersApi = {
   list: (query: PlayerListQuery = {}, signal?: AbortSignal) =>
     api.page(adminPlayerSchema, '/v1/admin/players', {
@@ -138,6 +156,47 @@ export const playersApi = {
   /** Safe to repeat: `created:false` means the player already had an Ichancy account. */
   createIchancyAccount: (id: string) =>
     api.post(ichancyAccountSchema, `/v1/admin/players/${id}/ichancy-account`),
+
+  /**
+   * Takes funds back OUT of a player's Ichancy account and into the agent float.
+   *
+   * The opposite of `createIchancyAccount` in every way that matters: NOT idempotent, and NOT safe
+   * to repeat. Ichancy has no idempotency key, so a second call is a second debit of a real
+   * person's money. When the server cannot prove which way it went it answers with a status that
+   * demands a human — never with an invitation to try again.
+   */
+  debit: (id: string, body: DebitPlayerBody) =>
+    api.post(playerDebitSchema, `/v1/admin/players/${id}/debit`, { body }),
+
+  /**
+   * Sends funds the other way: out of the agent float and INTO the player's Ichancy account.
+   *
+   * Mirrors `debit` in every respect including the dangerous one — not idempotent, not safe to
+   * repeat. The server refuses before it calls Ichancy when the agent float is smaller than the
+   * amount, which is the one refusal a caller may safely offer to try again after fixing.
+   */
+  credit: (id: string, body: CreditPlayerBody) =>
+    api.post(playerCreditSchema, `/v1/admin/players/${id}/credit`, { body }),
+
+  /**
+   * What Ichancy holds for one player.
+   *
+   * Routed through a SHARED gate rather than called directly, and the gate is the whole design of
+   * the balance column: there is no bulk read, so a table of balances is one upstream call per row
+   * through Cloudflare, and firing a page of them at once earns challenges and 429s instead of
+   * numbers. Four at a time is four across the whole console, not four per component — which only
+   * works because the limiter lives here, beside the request, rather than in any one screen.
+   */
+  balance: (id: string, signal?: AbortSignal) =>
+    balanceLimiter.run(() => {
+      // Checked after the wait, not before it: a row that scrolled away, a page that was turned, or
+      // a filter that was retyped while this sat in the queue must not spend its slot on an answer
+      // nobody is waiting for any more.
+      if (signal?.aborted === true) throw new DOMException('Aborted', 'AbortError');
+      return api.get(playerBalanceSchema, `/v1/admin/players/${id}/balance`, {
+        ...(signal === undefined ? {} : { signal }),
+      });
+    }),
 };
 
 // ── Payment methods and destinations ───────────────────────────────────────────────────────────

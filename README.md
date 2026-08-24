@@ -24,7 +24,7 @@ no backend, no database and no Telegram bot. Sign in with the code `123456`.
 | ------------------ | -------------------------------------------------------------------------------------- |
 | **Overview**       | What is waiting, what is unclaimed, what is stuck, what the books disagree about        |
 | **Deposits**       | The review queue: claim, read the proof, approve or reject, retry a failed credit       |
-| **Players**        | Find an account while the player is on the phone; create their Ichancy account          |
+| **Players**        | Find an account while the player is on the phone; create it, or debit it back            |
 | **Payment rails**  | Methods and the destination accounts players actually send money to                     |
 | **Reconciliation** | Breaks, agent-float sync, rail ageing, ledger invariant checks                          |
 | **Staff**          | Who may decide money, and the versioned approval limits that bound them                 |
@@ -118,8 +118,19 @@ npm run verify       typecheck + lint + coverage — what CI runs
 1. Start the backend (`npm run dev:api` and `npm run dev:worker` in the cashier repo).
 2. Set `VITE_ENABLE_MOCKS=false` and `VITE_API_BASE_URL` to its address.
 3. **Add this origin to the backend's CORS allow-list.** The API only answers browsers whose `Origin`
-   is in `MINI_APP_ORIGIN`; without it every request fails before it reaches a route. Add
-   `http://localhost:5173` for local work.
+   is in `MINI_APP_ORIGIN`; without it every request fails before it reaches a route.
+
+   > **`http://localhost` and `http://127.0.0.1` are different origins to a browser**, and so are two
+   > different ports. Listing one while the address bar holds the other blocks every request, and
+   > `fetch` reports it as an unhelpful "could not reach the API" — indistinguishable from a backend
+   > that is simply down. List every address you actually open the console from:
+   >
+   > ```
+   > MINI_APP_ORIGIN=http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173,http://127.0.0.1:4173
+   > ```
+   >
+   > (5173 is `npm run dev`, 4173 is `npm run preview`.) The console's own error message names the
+   > origin your browser is using, so you can paste it straight in.
 4. Send `/console` to the tenant's Telegram bot and sign in with the code it replies with.
 
 ---

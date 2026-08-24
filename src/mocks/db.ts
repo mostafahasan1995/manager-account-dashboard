@@ -9,6 +9,8 @@ import type {
   DepositStatus,
   PaymentDestination,
   PaymentMethod,
+  PlayerDebit,
+  PlayerDebitStatus,
   ReconciliationBreak,
   Tenant,
   TenantHealth,
@@ -17,6 +19,7 @@ import type {
 
 import {
   MOCK_CURRENCY,
+  MOCK_DEBIT_TIMEOUT_PLAYER_ID,
   TENANT_IDS,
   mockAdmins,
   mockApprovalLimits,
@@ -24,9 +27,12 @@ import {
   mockDeposits,
   mockDestinations,
   mockPaymentMethods,
+  mockPlatformDefaults,
+  mockPlayerBalances,
   mockPlayers,
   mockRailAgeing,
   mockTenants,
+  type PlatformDefaults,
 } from './fixtures';
 
 /**
@@ -100,14 +106,24 @@ export interface MockState {
   admins: AdminUser[];
   approvalLimits: ApprovalLimit[];
   players: AdminPlayer[];
+  /** What Ichancy holds for each player: minor units, keyed by player id, as strings. */
+  playerBalances: Record<string, string>;
+  /** Every manual debit this session has posted, oldest first. */
+  playerDebits: PlayerDebit[];
   methods: PaymentMethod[];
   destinations: PaymentDestination[];
   deposits: AdminDeposit[];
   breaks: ReconciliationBreak[];
   tenants: Tenant[];
-  /** Per-operator webhook and agent state — everything `GET /health` reports. Keyed by tenant id. */
+  /** Per-operator webhook and agent state: everything `GET /health` reports, keyed by tenant id. */
   operatorOps: Record<string, MockOperatorOps>;
   railAgeing: typeof mockRailAgeing;
+  /**
+   * The one settings row every tenant-creation default is resolved from. Read it through
+   * `platformDefaults()` rather than reaching in here, so there is a single place to change when
+   * the backend adds a defaulted field.
+   */
+  platformDefaults: PlatformDefaults;
   /** The admin the mock session belongs to. Switchable so tests can log in as any role. */
   currentAdmin: AdminIdentity;
   /** Ledger side of the agent float, so a float sync produces a believable delta. */
@@ -163,7 +179,8 @@ function seedOperatorOps(): Record<string, MockOperatorOps> {
       pendingUpdateCount: 0,
       lastErrorMessage: null,
       lastErrorDate: null,
-      ichancyError: 'Ichancy sign-in failed for agent_pilot: the agent did not answer (504 after 15s).',
+      ichancyError:
+        'Ichancy sign-in failed for agent_pilot: the agent did not answer (504 after 15s).',
       floatMinor: null,
     },
   };
@@ -177,6 +194,8 @@ function seed(): MockState {
     admins: clone(mockAdmins),
     approvalLimits: clone(mockApprovalLimits),
     players: clone(mockPlayers),
+    playerBalances: clone(mockPlayerBalances),
+    playerDebits: [],
     methods: clone(mockPaymentMethods),
     destinations: clone(mockDestinations),
     deposits: clone(mockDeposits),
@@ -184,6 +203,8 @@ function seed(): MockState {
     tenants: clone(mockTenants),
     operatorOps: seedOperatorOps(),
     railAgeing: clone(mockRailAgeing),
+    // Seeded once, exactly as the backend seeds the settings row from env on first run.
+    platformDefaults: clone(mockPlatformDefaults),
     currentAdmin: {
       id: superAdmin.id,
       telegramUserId: superAdmin.telegramUserId,
@@ -286,6 +307,67 @@ export function releaseDeposit(deposit: AdminDeposit): void {
   deposit.decidedByAdminId = null;
 }
 
+// ── Manual player debits ───────────────────────────────────────────────────────────────────────
+
+/** What Ichancy holds for this player, or null when there is no account to hold anything. */
+export function playerBalanceMinor(playerId: string): bigint | null {
+  const raw = db.playerBalances[playerId];
+  return raw === undefined ? null : minorFromString(raw);
+}
+
+/**
+ * A manual debit, with all three endings the real path has.
+ *
+ * The rules are the backend's, not this file's inventions:
+ *
+ *   - MORE THAN THE ACCOUNT HOLDS -> Ichancy refuses. Nothing moves and nothing is posted.
+ *   - THE TIMEOUT FIXTURE -> the call does not answer, ONE balance re-read does not settle it, and
+ *     it lands in NEEDS_RECONCILIATION rather than being tried a third time. A repeat here would
+ *     take a real player's money twice; Ichancy has no idempotency key to stop it.
+ *   - OTHERWISE -> debited, and the balance really moves, so a second debit of the same account
+ *     sees the smaller number.
+ *
+ * A CONFIRMED debit also moves the float on both sides, because that is what the posting says:
+ * `ICHANCY_AGENT_FLOAT +A` against `PLAYER_LIABILITY -A`. The chips came back to us, so the
+ * reconciliation screen must not go on reporting the float it had before. A refused or unconfirmed
+ * debit posts nothing — the ledger only ever records what Ichancy actually did.
+ */
+export function debitPlayer(player: AdminPlayer, amountMinor: bigint, reason: string): PlayerDebit {
+  const before = playerBalanceMinor(player.id) ?? 0n;
+
+  const status: PlayerDebitStatus =
+    player.id === MOCK_DEBIT_TIMEOUT_PLAYER_ID
+      ? 'NEEDS_RECONCILIATION'
+      : amountMinor > before
+        ? 'REJECTED'
+        : 'DEBITED';
+
+  const after = status === 'DEBITED' ? before - amountMinor : before;
+
+  if (status === 'DEBITED') {
+    db.playerBalances[player.id] = after.toString();
+    db.agentFloatLedgerMinor += amountMinor;
+    db.agentFloatIchancyMinor += amountMinor;
+  }
+
+  const debit: PlayerDebit = {
+    debitId: nextId('77777777'),
+    playerId: player.id,
+    amountMinor: amountMinor.toString(),
+    status,
+    playerBalanceBeforeMinor: before.toString(),
+    playerBalanceAfterMinor: after.toString(),
+    // Never API_OK: Ichancy's debit call carries no idempotency key and its answer is not proof, so
+    // what confirms a debit is re-reading the balance. An unconfirmed one has verified nothing.
+    verifiedBy: status === 'DEBITED' ? 'BALANCE_DELTA' : null,
+    reason,
+    decidedBy: db.currentAdmin.id,
+    createdAt: nowIso(),
+  };
+  db.playerDebits.push(debit);
+  return debit;
+}
+
 // ── Payment methods ────────────────────────────────────────────────────────────────────────────
 
 export function createMethod(body: Record<string, unknown>): PaymentMethod {
@@ -301,6 +383,8 @@ export function createMethod(body: Record<string, unknown>): PaymentMethod {
     feeFixed: str(body.feeFixed, '0.00'),
     feeBps: num(body.feeBps, 0),
     requiresReference: bool(body.requiresReference, false),
+    // Defaults TRUE, matching the column: a new rail asks for a photo unless told not to.
+    requiresProof: bool(body.requiresProof, true),
     referencePattern: optionalStr(body.referencePattern),
     instructions: optionalStr(body.instructions),
     isActive: bool(body.isActive, true),
@@ -380,24 +464,89 @@ export function setApprovalLimit(
 
 // ── Tenants ────────────────────────────────────────────────────────────────────────────────────
 
+/**
+ * The platform settings row, read through one function.
+ *
+ * Everything that defaults during tenant creation comes from here — never from a literal in a
+ * handler and never from `config`, which is this deployment's env rather than the platform's
+ * stored settings. A test can write to it to prove a default really is the source of a value.
+ */
+export const platformDefaults = (): PlatformDefaults => db.platformDefaults;
+
+/**
+ * `slugify(displayName)`, as the backend does it: lowercase, non-alphanumerics collapsed to single
+ * hyphens, trimmed. A name with nothing latin in it (Arabic, say) leaves nothing to slug, so it
+ * falls back to a fixed stem — the de-duplicator below is what keeps that usable.
+ */
+export function slugify(displayName: string): string {
+  const slug = displayName
+    .normalize('NFKD')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return slug === '' ? 'tenant' : slug;
+}
+
+/** `northern-branch`, then `northern-branch-2`, `-3`, … Slugs are globally unique. */
+function uniqueSlug(base: string): string {
+  if (!db.tenants.some((row) => row.slug === base)) return base;
+  let suffix = 2;
+  while (db.tenants.some((row) => row.slug === `${base}-${suffix}`)) suffix += 1;
+  return `${base}-${suffix}`;
+}
+
+/**
+ * The agent id, or null when there is nowhere left to look.
+ *
+ * Ichancy `signin()` returns a token pair and nothing else, so this CANNOT be derived from the
+ * credentials — there is no lookup to add here. Supplied wins, then the platform settings row, then
+ * tenant zero's; null is the caller's cue to refuse with a 400 naming the field. Two operators
+ * sharing one agent id is allowed and is how a second operator gets tested.
+ */
+export function resolveIchancyAgentId(body: Record<string, unknown>): string | null {
+  const supplied = optionalStr(body.ichancyAgentId);
+  if (supplied !== null) return supplied;
+
+  const fromPlatform = platformDefaults().ichancyAgentId;
+  if (fromPlatform !== null && fromPlatform !== '') return fromPlatform;
+
+  const tenantZero = db.tenants.find((row) => row.id === TENANT_IDS.zero);
+  return optionalStr(tenantZero?.ichancyAgentId);
+}
+
+/**
+ * `POST /v1/admin/tenants` with four required fields and nine that default.
+ *
+ * Every `optionalStr(...) ?? …` below is the server-side default the console is relying on: an
+ * ABSENT field is filled in here, and the response carries the resolved value so the detail panel
+ * can show what the operator actually got.
+ */
 export function createTenant(body: Record<string, unknown>): Tenant {
+  const defaults = platformDefaults();
+  const displayName = str(body.displayName, 'New tenant');
+
   const tenant: Tenant = {
     id: nextId('11111111'),
-    slug: str(body.slug, 'new-tenant'),
-    displayName: str(body.displayName, 'New tenant'),
+    slug: optionalStr(body.slug) ?? uniqueSlug(slugify(displayName)),
+    displayName,
     // Always SUSPENDED: the agent id cannot be verified from a form.
     status: 'SUSPENDED',
     hasWebhookPath: true,
-    adminChatId: str(body.adminChatId, '0'),
+    // The platform admin making the request — the account that will send /console to this bot.
+    adminChatId: optionalStr(body.adminChatId) ?? db.currentAdmin.telegramUserId,
+    // The one optional field with no default: no feed chat until somebody sets one.
     feedChatId: optionalStr(body.feedChatId),
     botUsername: null,
-    ichancyBaseUrl: str(body.ichancyBaseUrl, ''),
+    ichancyBaseUrl: optionalStr(body.ichancyBaseUrl) ?? defaults.ichancyBaseUrl,
     ichancyUsername: str(body.ichancyUsername, ''),
-    ichancyAgentId: str(body.ichancyAgentId, ''),
-    currencyCode: str(body.currencyCode, MOCK_CURRENCY),
-    dualApprovalThresholdMinor: str(body.dualApprovalThresholdMinor, '0'),
-    agentFloatLowWatermarkMinor: str(body.agentFloatLowWatermarkMinor, '0'),
-    depositExpiryMinutes: num(body.depositExpiryMinutes, 30),
+    // The handler refuses the create when this is null, so it is resolvable by the time we are here.
+    ichancyAgentId: resolveIchancyAgentId(body) ?? '',
+    currencyCode: optionalStr(body.currencyCode) ?? defaults.currencyCode,
+    dualApprovalThresholdMinor:
+      optionalStr(body.dualApprovalThresholdMinor) ?? defaults.dualApprovalThresholdMinor,
+    agentFloatLowWatermarkMinor:
+      optionalStr(body.agentFloatLowWatermarkMinor) ?? defaults.agentFloatLowWatermarkMinor,
+    depositExpiryMinutes: num(body.depositExpiryMinutes, defaults.depositExpiryMinutes),
     createdAt: nowIso(),
     updatedAt: nowIso(),
     counts: { players: 0, deposits: 0 },
@@ -515,7 +664,10 @@ export function updateTenantIchancy(tenant: Tenant, body: Record<string, unknown
 export function operatorsSharingAgent(tenant: Tenant): string[] {
   const identity = `${tenant.ichancyBaseUrl}|${tenant.ichancyUsername}`;
   return db.tenants
-    .filter((row) => row.id !== tenant.id && `${row.ichancyBaseUrl}|${row.ichancyUsername}` === identity)
+    .filter(
+      (row) =>
+        row.id !== tenant.id && `${row.ichancyBaseUrl}|${row.ichancyUsername}` === identity,
+    )
     .map((row) => row.slug);
 }
 

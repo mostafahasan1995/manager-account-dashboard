@@ -1,9 +1,17 @@
 import { describe, expect, it } from 'vitest';
 
-import { tenantsApi } from '@/lib/api/endpoints';
+import { configureApiClient } from '@/lib/api/client';
+import { playersApi, tenantsApi } from '@/lib/api/endpoints';
 import { isApiError } from '@/lib/api/errors';
 
-import { TENANT_IDS } from './fixtures';
+import { db } from './db';
+import {
+  MOCK_DEBIT_TIMEOUT_PLAYER_ID,
+  PLAYER_IDS,
+  TENANT_IDS,
+  mockPlatformDefaults,
+  mockTenants,
+} from './fixtures';
 
 /**
  * The mock backend's operator operations, tested for the failure modes rather than the happy path.
@@ -26,7 +34,7 @@ describe('operator health', () => {
     expect(health.bot.ok).toBe(false);
   });
 
-  it('reports the Ichancy agent that never answered, which is why that operator is suspended', async () => {
+  it('reports the agent that never answered, which is why that operator is suspended', async () => {
     const health = await tenantsApi.health(TENANT_IDS.suspended);
 
     expect(health.ichancy.ok).toBe(false);
@@ -80,6 +88,97 @@ describe('operator health', () => {
     expect(health.bot.webhookUrl).toBeNull();
     expect(health.bot.ok).toBe(false);
     expect(health.counts).toEqual({ players: 0, deposits: 0 });
+  });
+});
+
+/**
+ * Creating an operator from the four fields the console now asks for.
+ *
+ * Everything else is resolved server-side and answered in the TenantView, which is the whole point:
+ * the console shows the operator what it GOT, not what it typed, so a default that changes on the
+ * platform is visible in the panel rather than baked into a form.
+ */
+describe('tenant creation defaults', () => {
+  const REQUIRED_ONLY = {
+    displayName: 'Harbour kiosk',
+    botToken: A_REAL_LOOKING_BOT_TOKEN,
+    ichancyUsername: 'agent_harbour',
+    ichancyPassword: 'never-returned',
+  };
+
+  it('fills every omitted field from the platform settings row', async () => {
+    const created = await tenantsApi.create(REQUIRED_ONLY);
+
+    expect(created).toMatchObject({
+      status: 'SUSPENDED',
+      slug: 'harbour-kiosk',
+      // The platform admin making the request, not a zero placeholder.
+      adminChatId: db.currentAdmin.telegramUserId,
+      feedChatId: null,
+      ichancyBaseUrl: mockPlatformDefaults.ichancyBaseUrl,
+      ichancyAgentId: mockPlatformDefaults.ichancyAgentId,
+      currencyCode: mockPlatformDefaults.currencyCode,
+      dualApprovalThresholdMinor: mockPlatformDefaults.dualApprovalThresholdMinor,
+      agentFloatLowWatermarkMinor: mockPlatformDefaults.agentFloatLowWatermarkMinor,
+      depositExpiryMinutes: mockPlatformDefaults.depositExpiryMinutes,
+    });
+    // Readable again by id, defaults and all — this is what the detail panel re-reads after create.
+    expect(await tenantsApi.byId(created.id)).toMatchObject({ slug: 'harbour-kiosk' });
+  });
+
+  it('de-duplicates a derived slug instead of refusing the second operator', async () => {
+    const first = await tenantsApi.create(REQUIRED_ONLY);
+    const second = await tenantsApi.create(REQUIRED_ONLY);
+    const third = await tenantsApi.create({ ...REQUIRED_ONLY, displayName: 'Harbour Kiosk!' });
+
+    expect(first.slug).toBe('harbour-kiosk');
+    expect(second.slug).toBe('harbour-kiosk-2');
+    expect(third.slug).toBe('harbour-kiosk-3');
+  });
+
+  it('still refuses a slug the caller chose and somebody else already holds', async () => {
+    const caught = await tenantsApi
+      .create({ ...REQUIRED_ONLY, slug: 'tenant-zero' })
+      .catch((error: unknown) => error);
+
+    expect(isApiError(caught) && caught.code).toBe('DUPLICATE_RESOURCE');
+  });
+
+  it('prefers a supplied value over the platform default, field by field', async () => {
+    const created = await tenantsApi.create({
+      ...REQUIRED_ONLY,
+      currencyCode: 'EUR',
+      depositExpiryMinutes: 45,
+      feedChatId: '-1009876543210',
+    });
+
+    expect(created.currencyCode).toBe('EUR');
+    expect(created.depositExpiryMinutes).toBe(45);
+    expect(created.feedChatId).toBe('-1009876543210');
+    // Untouched fields still come from the platform row.
+    expect(created.agentFloatLowWatermarkMinor).toBe(
+      mockPlatformDefaults.agentFloatLowWatermarkMinor,
+    );
+  });
+
+  it('falls back to tenant zero for an agent id the platform has no default for', async () => {
+    db.platformDefaults.ichancyAgentId = null;
+
+    const created = await tenantsApi.create(REQUIRED_ONLY);
+
+    expect(created.ichancyAgentId).toBe(mockTenants[0]!.ichancyAgentId);
+  });
+
+  it('refuses with a 400 naming the field when no agent id can be resolved at all', async () => {
+    // Ichancy signin() answers with a token pair, so there is no lookup that could rescue this.
+    db.platformDefaults.ichancyAgentId = null;
+    db.tenants = db.tenants.filter((tenant) => tenant.id !== TENANT_IDS.zero);
+
+    const caught = await tenantsApi.create(REQUIRED_ONLY).catch((error: unknown) => error);
+
+    expect(isApiError(caught) && caught.code).toBe('VALIDATION_FAILED');
+    expect(isApiError(caught) && caught.status).toBe(400);
+    expect(isApiError(caught) ? caught.fieldErrors.join(' ') : '').toContain('ichancyAgentId');
   });
 });
 
@@ -151,7 +250,7 @@ describe('replacing an operator bot', () => {
     expect(caught.fieldErrors.join(' ')).toContain('botToken');
   });
 
-  it('clears the webhook on success, because the new bot was never told where to deliver', async () => {
+  it('clears the webhook on success: the new bot was never told where to deliver', async () => {
     const before = await tenantsApi.health(TENANT_IDS.second);
     expect(before.bot.webhookMatches).toBe(true);
 
@@ -179,5 +278,117 @@ describe('bot setup', () => {
       status: 404,
       code: 'TENANT_NOT_FOUND',
     });
+  });
+});
+
+/**
+ * Manual player debits — the endpoint that takes money back OUT of a live casino account.
+ *
+ * Tested here rather than only through the screen because the three endings are the contract: the
+ * console is being built against a mock, and a mock that only ever debits successfully would leave
+ * every panel above it wrong about the two endings that actually cost somebody money.
+ */
+describe('manual player debit', () => {
+  const REASON = 'Chargeback on the original deposit';
+
+  it('takes the money, and moves the float it came back into with it', async () => {
+    const floatBefore = db.agentFloatLedgerMinor;
+
+    const debit = await playersApi.debit(PLAYER_IDS.linkedActive, {
+      amountMinor: '150000',
+      reason: REASON,
+    });
+
+    expect(debit).toMatchObject({
+      status: 'DEBITED',
+      amountMinor: '150000',
+      playerBalanceBeforeMinor: '320000',
+      playerBalanceAfterMinor: '170000',
+      // Never API_OK: Ichancy's answer is not proof, re-reading the balance is.
+      verifiedBy: 'BALANCE_DELTA',
+      reason: REASON,
+    });
+    // ICHANCY_AGENT_FLOAT +A, exactly as the posting rule says.
+    expect(db.agentFloatLedgerMinor - floatBefore).toBe(150_000n);
+    // One call, one debit row. This is the endpoint where a second one is somebody's money.
+    expect(db.playerDebits).toHaveLength(1);
+  });
+
+  it('refuses more than the account holds, and posts nothing at all', async () => {
+    const floatBefore = db.agentFloatLedgerMinor;
+
+    const debit = await playersApi.debit(PLAYER_IDS.newcomer, {
+      amountMinor: '99999999',
+      reason: REASON,
+    });
+
+    expect(debit).toMatchObject({
+      status: 'REJECTED',
+      playerBalanceBeforeMinor: '25000',
+      playerBalanceAfterMinor: '25000',
+      verifiedBy: null,
+    });
+    expect(db.agentFloatLedgerMinor).toBe(floatBefore);
+  });
+
+  it('leaves the unprovable one for a human instead of trying it again', async () => {
+    const floatBefore = db.agentFloatLedgerMinor;
+
+    const debit = await playersApi.debit(MOCK_DEBIT_TIMEOUT_PLAYER_ID, {
+      amountMinor: '10000',
+      reason: 'Self-exclusion settlement',
+    });
+
+    expect(debit.status).toBe('NEEDS_RECONCILIATION');
+    // Nothing proved it either way, so nothing is claimed and nothing is posted.
+    expect(debit.verifiedBy).toBeNull();
+    expect(debit.playerBalanceAfterMinor).toBe(debit.playerBalanceBeforeMinor);
+    expect(db.agentFloatLedgerMinor).toBe(floatBefore);
+  });
+
+  it('answers 403 to a role that may not decide money, and serves one that may', async () => {
+    // The mock reads the role out of the bearer token, exactly as a real access token carries it.
+    configureApiClient({ getToken: () => 'mock:SUPPORT:token' });
+    await expect(
+      playersApi.debit(PLAYER_IDS.linkedActive, { amountMinor: '1000', reason: REASON }),
+    ).rejects.toMatchObject({ status: 403 });
+
+    configureApiClient({ getToken: () => 'mock:REVIEWER:token' });
+    await expect(
+      playersApi.debit(PLAYER_IDS.linkedActive, { amountMinor: '1000', reason: REASON }),
+    ).resolves.toMatchObject({ status: 'DEBITED' });
+  });
+
+  it('refuses a decimal amount, because the field is minor units', async () => {
+    const caught = await playersApi
+      .debit(PLAYER_IDS.linkedActive, { amountMinor: '1500.00', reason: REASON })
+      .catch((error: unknown) => error);
+
+    expect(isApiError(caught) && caught.status).toBe(400);
+    expect(isApiError(caught) ? caught.fieldErrors.join(' ') : '').toContain('amountMinor');
+  });
+
+  it('refuses a debit nobody explained', async () => {
+    const caught = await playersApi
+      .debit(PLAYER_IDS.linkedActive, { amountMinor: '1000', reason: '   ' })
+      .catch((error: unknown) => error);
+
+    expect(isApiError(caught) && caught.status).toBe(400);
+    expect(isApiError(caught) ? caught.fieldErrors.join(' ') : '').toContain('reason');
+  });
+
+  it('refuses a player with no Ichancy account to debit', async () => {
+    await expect(
+      playersApi.debit(PLAYER_IDS.pendingLink, { amountMinor: '1000', reason: REASON }),
+    ).rejects.toMatchObject({ status: 409, code: 'PLAYER_NOT_LINKED' });
+  });
+
+  it('answers 404 for a player that does not exist', async () => {
+    await expect(
+      playersApi.debit('bbbbbbbb-0000-4000-8000-000000009999', {
+        amountMinor: '1000',
+        reason: REASON,
+      }),
+    ).rejects.toMatchObject({ status: 404, code: 'PLAYER_NOT_FOUND' });
   });
 });

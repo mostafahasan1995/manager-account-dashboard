@@ -89,6 +89,7 @@ function methodSchema(t: RailTranslator) {
       feeFixed: amountField,
       feeBps: wholeNumberField(10_000),
       requiresReference: z.boolean(),
+      requiresProof: z.boolean(),
       referencePattern: z.string().trim().max(200, t('rails.validation.tooLong')),
       instructions: z.string().trim().max(2_000, t('rails.validation.tooLong')),
       isActive: z.boolean(),
@@ -120,6 +121,9 @@ const CREATE_DEFAULTS: MethodFormValues = {
   feeFixed: '0.00',
   feeBps: '0',
   requiresReference: false,
+  // Mirrors the column default. A NEW rail asks for a photo unless someone deliberately says
+  // otherwise, so the safe answer is the one you get by not thinking about it.
+  requiresProof: true,
   referencePattern: '',
   instructions: '',
   isActive: true,
@@ -139,6 +143,7 @@ function toFormValues(method: PaymentMethod | null): MethodFormValues {
     feeFixed: method.feeFixed,
     feeBps: String(method.feeBps),
     requiresReference: method.requiresReference,
+    requiresProof: method.requiresProof,
     referencePattern: method.referencePattern ?? '',
     instructions: method.instructions ?? '',
     isActive: method.isActive,
@@ -191,6 +196,7 @@ export function MethodFormDialog({
       feeFixed: normaliseAmount(values.feeFixed),
       feeBps: Number(values.feeBps),
       requiresReference: values.requiresReference,
+      requiresProof: values.requiresProof,
       referencePattern: values.referencePattern,
       instructions: values.instructions,
       isActive: values.isActive,
@@ -511,6 +517,19 @@ export function MethodFormDialog({
                   id="method-requires-reference"
                   label={t('rails.field.requiresReference')}
                   description={t('rails.form.requiresReferenceHint')}
+                  checked={field.value}
+                  onCheckedChange={field.onChange}
+                />
+              )}
+            />
+            <Controller
+              control={control}
+              name="requiresProof"
+              render={({ field }) => (
+                <ToggleField
+                  id="method-requires-proof"
+                  label={t('rails.field.requiresProof')}
+                  description={t('rails.form.requiresProofHint')}
                   checked={field.value}
                   onCheckedChange={field.onChange}
                 />

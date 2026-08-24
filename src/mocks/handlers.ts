@@ -2,7 +2,12 @@ import { HttpResponse, http, type HttpHandler } from 'msw';
 
 import { config } from '@/config';
 import { minorFromString, parseDecimalToMinor } from '@/lib/money';
-import { ADMIN_ROLES, type AdminDeposit, type AdminRole } from '@/types';
+import {
+  ADMIN_ROLES,
+  DEBIT_REASON_MAX_LENGTH,
+  type AdminDeposit,
+  type AdminRole,
+} from '@/types';
 
 import {
   approveDeposit,
@@ -13,6 +18,7 @@ import {
   createMethod,
   createTenant,
   db,
+  debitPlayer,
   findDeposit,
   nextId,
   nowIso,
@@ -21,6 +27,7 @@ import {
   releaseDeposit,
   removeWebhook,
   replaceTenantBot,
+  resolveIchancyAgentId,
   setApprovalLimit,
   setMockAdmin,
   syncAgentFloat,
@@ -28,7 +35,12 @@ import {
   updateTenantIchancy,
 } from './db';
 import { MOCK_SESSION_TTL_MINUTES, mockRoleForCode } from './demo';
-import { TENANT_IDS, TENANT_ZERO_ID } from './fixtures';
+import {
+  mockBalanceAlwaysFailsFor,
+  mockBalanceMinorFor,
+  TENANT_IDS,
+  TENANT_ZERO_ID,
+} from './fixtures';
 
 /**
  * The mock backend.
@@ -160,6 +172,14 @@ const BOT_COMMANDS_PUSHED = 7;
 
 const REVIEWABLE = new Set(['SUBMITTED', 'UNDER_REVIEW', 'PENDING_SECOND_APPROVAL']);
 const DECIDABLE = new Set(['SUBMITTED', 'UNDER_REVIEW', 'PENDING_SECOND_APPROVAL']);
+
+/**
+ * Who may debit a player: the backend's DECIDE_ROLES, unchanged.
+ *
+ * Taking money back out of a live account is a money decision, so it is the same three roles that
+ * are trusted to decide a deposit — not a new list, which is how two lists drift apart.
+ */
+const DEBIT_ROLES = new Set<AdminRole>(['SUPER_ADMIN', 'FINANCE_ADMIN', 'REVIEWER']);
 
 function sortDeposits(rows: AdminDeposit[], sort: string | null): AdminDeposit[] {
   const byCreated = (a: AdminDeposit, b: AdminDeposit) =>
@@ -407,6 +427,43 @@ export const handlers: HttpHandler[] = [
     return player === undefined ? fail(404, 'PLAYER_NOT_FOUND', 'Player not found.') : ok(player);
   }),
 
+  /**
+   * One player's live balance.
+   *
+   * Deliberately models the two failure modes the real endpoint has, because the column is built
+   * around them and a mock that always succeeds would let the "unknown, never zero" rule rot:
+   *   - a player with no Ichancy account is refused rather than answered with 0
+   *   - one specific player always fails, so demo mode and the tests both show a broken cell
+   *     next to working ones
+   */
+  http.get(url('/v1/admin/players/:id/balance'), ({ params }) => {
+    const player = db.players.find((row) => row.id === String(params.id));
+    if (player === undefined) return fail(404, 'PLAYER_NOT_FOUND', 'Player not found.');
+
+    if (!player.ichancyLinked) {
+      return fail(
+        422,
+        'PLAYER_BALANCE_NOT_LINKED',
+        'This player has no Ichancy account, so there is no balance to read.',
+      );
+    }
+
+    if (mockBalanceAlwaysFailsFor(player.id)) {
+      return fail(
+        503,
+        'PLAYER_BALANCE_UNREADABLE',
+        "Could not read this player's balance from Ichancy: getPlayerBalanceById timed out",
+      );
+    }
+
+    return ok({
+      playerId: player.id,
+      balanceMinor: mockBalanceMinorFor(player.id),
+      currencyCode: player.currencyCode,
+      readAt: new Date().toISOString(),
+    });
+  }),
+
   http.post(url('/v1/admin/players/:id/ichancy-account'), ({ params }) => {
     const player = db.players.find((row) => row.id === String(params.id));
     if (player === undefined) return fail(404, 'PLAYER_NOT_FOUND', 'Player not found.');
@@ -427,6 +484,61 @@ export const handlers: HttpHandler[] = [
       created: !alreadyLinked,
       agentId: '10045',
     });
+  }),
+
+  /**
+   * Manual debit: money taken back OUT of a player's Ichancy account.
+   *
+   * Everything here is a mirror of a rule the backend has, and each one is a rule the console has to
+   * be built against rather than told about: 403 for a role that may not decide money, 400 for an
+   * amount that is not minor units or a reason nobody wrote, 409 for a player with no Ichancy
+   * account to debit, and a 200 whose `status` is the only thing that says which of the three
+   * endings actually happened.
+   */
+  http.post(url('/v1/admin/players/:id/debit'), async ({ params, request }) => {
+    const player = db.players.find((row) => row.id === String(params.id));
+    if (player === undefined) return fail(404, 'PLAYER_NOT_FOUND', 'Player not found.');
+
+    // Null when the token carries no role — a test client rather than a signed-in operator. The
+    // real server always knows the role; refusing an unknown one here would break every test.
+    const role = callerRole(request);
+    if (role !== null && !DEBIT_ROLES.has(role)) {
+      return fail(403, 'FORBIDDEN', 'Your role cannot debit a player.');
+    }
+
+    const body = (await request.json().catch(() => ({}))) as {
+      amountMinor?: unknown;
+      reason?: unknown;
+    };
+
+    const fields: string[] = [];
+    // A STRING of minor units, and nothing else: a number here would already have been rounded by
+    // the time it arrived, and "1500.00" is a decimal amount rather than the minor units asked for.
+    const amountMinor = typeof body.amountMinor === 'string' ? body.amountMinor.trim() : '';
+    if (!/^\d{1,18}$/.test(amountMinor)) {
+      fields.push('amountMinor must be minor units as a digits-only string');
+    } else if (BigInt(amountMinor) <= 0n) {
+      fields.push('amountMinor must be greater than zero');
+    }
+
+    const reason = typeof body.reason === 'string' ? body.reason.trim() : '';
+    if (reason.length === 0 || reason.length > DEBIT_REASON_MAX_LENGTH) {
+      fields.push(`reason must be between 1 and ${DEBIT_REASON_MAX_LENGTH} characters`);
+    }
+
+    if (fields.length > 0) {
+      return fail(400, 'VALIDATION_FAILED', 'The request payload is invalid.', { fields });
+    }
+
+    if (!player.ichancyLinked) {
+      return fail(
+        409,
+        'PLAYER_NOT_LINKED',
+        'This player has no Ichancy account, so there is nothing to debit.',
+      );
+    }
+
+    return ok(debitPlayer(player, BigInt(amountMinor), reason));
   }),
 
   // ── Payment methods ──────────────────────────────────────────────────────────────────────────
@@ -651,13 +763,29 @@ export const handlers: HttpHandler[] = [
     return tenant === undefined ? fail(404, 'TENANT_NOT_FOUND', 'Tenant not found.') : ok(tenant);
   }),
 
+  /**
+   * Four required fields; everything else is resolved here and answered in the TenantView, so the
+   * console can show what the operator actually got rather than what it typed.
+   */
   http.post(url('/v1/admin/tenants'), async ({ request }) => {
     const body = (await request.json()) as Record<string, unknown>;
-    if (db.tenants.some((row) => row.slug === body.slug)) {
+
+    // The one field with nowhere left to fall back to. Ichancy signin returns a token pair and
+    // nothing else, so an agent id that is neither supplied, nor in the platform defaults, nor on
+    // tenant zero cannot be invented — 400 naming the field, like every other validation failure.
+    if (resolveIchancyAgentId(body) === null) {
+      return fail(400, 'VALIDATION_FAILED', 'The request payload is invalid.', {
+        fields: ['ichancyAgentId is required: no platform default and no tenant zero to fall back to'],
+      });
+    }
+
+    // Only a slug the caller CHOSE can collide. A derived one is de-duplicated as it is generated.
+    if (typeof body.slug === 'string' && db.tenants.some((row) => row.slug === body.slug)) {
       return fail(409, 'DUPLICATE_RESOURCE', 'A record with these values already exists.', {
         fields: ['slug'],
       });
     }
+
     return ok(createTenant(body), {}, 201);
   }),
 

@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import { describe, expect, it, vi } from 'vitest';
 
 import { config } from '@/config';
-import { mockTenants } from '@/mocks/fixtures';
+import { mockAdmins, mockPlatformDefaults, mockTenants } from '@/mocks/fixtures';
 import { server } from '@/test/msw-server';
 import { renderPlain } from '@/test/utils';
 
@@ -18,38 +18,77 @@ const platformAdmin = { auth: { role: 'PLATFORM_ADMIN' as const } };
 
 const VALID_BOT_TOKEN = '123456789:AAH-abcdefghijklmnopqrstuvwxyz012345';
 
-const CREATE_VALUES: Record<string, string> = {
-  Slug: 'southern-branch',
-  'Display name': 'Southern branch',
-  'Bot token': VALID_BOT_TOKEN,
-  'Admin chat id': '-1001111111111',
-  'Ichancy base URL': 'https://agent.ichancy.example',
-  'Ichancy username': 'agent_south',
-  'Ichancy password': 'a-real-password',
-  'Ichancy agent id': '10099',
-  'Currency code': 'NSP',
-  'Dual approval above': '30000000',
-  'Agent float low watermark': '50000000',
-  'Deposit expiry (minutes)': '45',
-};
+/** Whoever the mock session belongs to — the admin chat id a created operator inherits. */
+const CREATING_ADMIN_TELEGRAM_ID = mockAdmins[0]!.telegramUserId;
 
 /**
- * Fills the whole form by PASTING rather than typing.
+ * The four fields the API cannot fill in for anybody: a name, the bot token from BotFather, and the
+ * Ichancy login. Everything else on this form lives behind "Advanced" and has a server-side default.
+ */
+const REQUIRED_VALUES: Record<string, string> = {
+  'Display name': 'Southern branch',
+  'Bot token': VALID_BOT_TOKEN,
+  'Ichancy username': 'agent_south',
+  'Ichancy password': 'a-real-password',
+};
+
+/** The labels that must NOT be on screen until somebody opens the disclosure. */
+const ADVANCED_LABELS = [
+  'Slug',
+  'Admin chat id',
+  'Ichancy base URL',
+  'Ichancy agent id',
+  'Currency code',
+  'Dual approval above',
+  'Agent float low watermark',
+  'Deposit expiry (minutes)',
+];
+
+/**
+ * Fills the form by PASTING rather than typing.
  *
- * Thirteen fields typed character by character is several hundred simulated keystrokes, each with a
- * react-hook-form re-render behind it — slow enough on its own to blow the per-test timeout once the
- * rest of the suite is competing for the CPU. Pasting is also what a person actually does with a bot
- * token, an IBAN and a chat id, and it fires the same change events the form validates on. The one
- * test that is ABOUT typing — the live minor-unit conversion — still types.
+ * A field typed character by character is dozens of simulated keystrokes, each with a
+ * react-hook-form re-render behind it — slow enough to blow the per-test timeout once the rest of
+ * the suite is competing for the CPU. Pasting is also what a person actually does with a bot token
+ * and a chat id, and it fires the same change events the form validates on. The one test that is
+ * ABOUT typing — the live minor-unit conversion — still types.
+ *
+ * An override is applied only when its field is on screen, so a case that stays on the four
+ * required fields never has to know the disclosure exists.
  */
 async function fillCreateForm(user: UserEvent, overrides: Record<string, string> = {}) {
-  for (const [label, value] of Object.entries({ ...CREATE_VALUES, ...overrides })) {
-    const field = screen.getByLabelText(label);
+  for (const [label, value] of Object.entries({ ...REQUIRED_VALUES, ...overrides })) {
+    const field = screen.queryByLabelText(label);
+    if (field === null) continue;
     await user.clear(field);
     if (value === '') continue;
     await user.click(field);
     await user.paste(value);
   }
+}
+
+const openAdvanced = async (user: UserEvent) => {
+  await user.click(screen.getByRole('button', { name: 'Advanced' }));
+};
+
+/** Captures the JSON the form actually put on the wire, and answers as the API would. */
+function captureCreateBody(): { body: () => Record<string, unknown> } {
+  let sent: Record<string, unknown> = {};
+  server.use(
+    http.post(`${config.apiBaseUrl}/v1/admin/tenants`, async ({ request }) => {
+      sent = (await request.json()) as Record<string, unknown>;
+      return HttpResponse.json(
+        {
+          success: true,
+          data: { ...tenantZero, id: 'created', slug: 'southern-branch' },
+          error: null,
+          meta: { correlationId: 'test', timestamp: '' },
+        },
+        { status: 201 },
+      );
+    }),
+  );
+  return { body: () => sent };
 }
 
 describe('TenantFormDialog — create', () => {
@@ -63,6 +102,44 @@ describe('TenantFormDialog — create', () => {
     expect(screen.getByText(/registers real players under another operator/i)).toBeInTheDocument();
   });
 
+  it('asks for four fields, and hides every field that has a default', () => {
+    renderPlain(
+      <TenantFormDialog open tenant={null} onOpenChange={vi.fn()} onSaved={vi.fn()} />,
+      platformAdmin,
+    );
+
+    for (const label of Object.keys(REQUIRED_VALUES)) {
+      expect(screen.getByLabelText(label)).toBeInTheDocument();
+    }
+    for (const label of ADVANCED_LABELS) {
+      expect(screen.queryByLabelText(label)).not.toBeInTheDocument();
+    }
+    expect(screen.getByRole('button', { name: 'Advanced' })).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    );
+  });
+
+  it('says what each hidden field would default to, once Advanced is opened', async () => {
+    const { user } = renderPlain(
+      <TenantFormDialog open tenant={null} onOpenChange={vi.fn()} onSaved={vi.fn()} />,
+      platformAdmin,
+    );
+
+    await openAdvanced(user);
+
+    for (const label of ADVANCED_LABELS) {
+      expect(screen.getByLabelText(label)).toBeInTheDocument();
+    }
+    expect(screen.getByText(/made from the display name/i)).toBeInTheDocument();
+    expect(screen.getByText(/your own Telegram id/i)).toBeInTheDocument();
+    expect(screen.getByText(/the platform default Ichancy URL/i)).toBeInTheDocument();
+    expect(screen.getByText(/or tenant zero’s if the platform has none/i)).toBeInTheDocument();
+    expect(screen.getByText(/the platform default currency/i)).toBeInTheDocument();
+    expect(screen.getByText('Left blank: the platform default threshold.')).toBeInTheDocument();
+    expect(screen.getByText('Left blank: the platform default watermark.')).toBeInTheDocument();
+  });
+
   it('refuses a slug that is not a slug, without calling the API', async () => {
     const onSaved = vi.fn();
     const { user } = renderPlain(
@@ -70,10 +147,45 @@ describe('TenantFormDialog — create', () => {
       platformAdmin,
     );
 
+    await openAdvanced(user);
     await fillCreateForm(user, { Slug: 'Northern Branch' });
     await user.click(screen.getByRole('button', { name: 'Create tenant' }));
 
     expect(await screen.findByText(/Lowercase letters, digits and hyphens/i)).toBeInTheDocument();
+    expect(onSaved).not.toHaveBeenCalled();
+  });
+
+  it('reopens Advanced when the value that failed is hidden inside it', async () => {
+    const onSaved = vi.fn();
+    const { user } = renderPlain(
+      <TenantFormDialog open tenant={null} onOpenChange={vi.fn()} onSaved={onSaved} />,
+      platformAdmin,
+    );
+
+    await openAdvanced(user);
+    await fillCreateForm(user, { Slug: 'Northern Branch' });
+    // Closed again with a bad value still in it: submitting must not fail silently.
+    await user.click(screen.getByRole('button', { name: 'Advanced' }));
+    expect(screen.queryByLabelText('Slug')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Create tenant' }));
+
+    expect(await screen.findByLabelText('Slug')).toBeInTheDocument();
+    expect(screen.getByText(/Lowercase letters, digits and hyphens/i)).toBeInTheDocument();
+    expect(onSaved).not.toHaveBeenCalled();
+  });
+
+  it('refuses a display name longer than the API accepts', async () => {
+    const onSaved = vi.fn();
+    const { user } = renderPlain(
+      <TenantFormDialog open tenant={null} onOpenChange={vi.fn()} onSaved={onSaved} />,
+      platformAdmin,
+    );
+
+    await fillCreateForm(user, { 'Display name': 'N'.repeat(121) });
+    await user.click(screen.getByRole('button', { name: 'Create tenant' }));
+
+    expect(await screen.findByText('Keep it to 120 characters or fewer.')).toBeInTheDocument();
     expect(onSaved).not.toHaveBeenCalled();
   });
 
@@ -97,6 +209,7 @@ describe('TenantFormDialog — create', () => {
       platformAdmin,
     );
 
+    await openAdvanced(user);
     await user.type(screen.getByLabelText('Currency code'), 'NSP');
     await user.type(screen.getByLabelText('Dual approval above'), '150000');
 
@@ -125,7 +238,7 @@ describe('TenantFormDialog — create', () => {
     expect(screen.getByLabelText('Ichancy password')).toHaveValue('');
   });
 
-  it('creates the tenant and hands back the suspended row the backend answered with', async () => {
+  it('creates the tenant from four fields and hands back the row the server filled in', async () => {
     const onSaved = vi.fn();
     const { user } = renderPlain(
       <TenantFormDialog open tenant={null} onOpenChange={vi.fn()} onSaved={onSaved} />,
@@ -137,13 +250,146 @@ describe('TenantFormDialog — create', () => {
 
     await waitFor(() => {
       expect(onSaved).toHaveBeenCalledWith(
-        expect.objectContaining({ slug: 'southern-branch', status: 'SUSPENDED' }),
+        expect.objectContaining({
+          status: 'SUSPENDED',
+          // Every one of these was resolved by the server, not sent by the form.
+          slug: 'southern-branch',
+          adminChatId: CREATING_ADMIN_TELEGRAM_ID,
+          feedChatId: null,
+          ichancyBaseUrl: mockPlatformDefaults.ichancyBaseUrl,
+          ichancyAgentId: mockPlatformDefaults.ichancyAgentId,
+          currencyCode: mockPlatformDefaults.currencyCode,
+          dualApprovalThresholdMinor: mockPlatformDefaults.dualApprovalThresholdMinor,
+          agentFloatLowWatermarkMinor: mockPlatformDefaults.agentFloatLowWatermarkMinor,
+          depositExpiryMinutes: mockPlatformDefaults.depositExpiryMinutes,
+        }),
       );
     });
     expect(toast.success).toHaveBeenCalledWith(
       'Southern branch created',
       expect.objectContaining({ description: expect.stringContaining('suspended') }),
     );
+  });
+
+  it('sends the four required fields and nothing else when Advanced is left alone', async () => {
+    const captured = captureCreateBody();
+    const { user } = renderPlain(
+      <TenantFormDialog open tenant={null} onOpenChange={vi.fn()} onSaved={vi.fn()} />,
+      platformAdmin,
+    );
+
+    await fillCreateForm(user);
+    await user.click(screen.getByRole('button', { name: 'Create tenant' }));
+
+    await waitFor(() => {
+      expect(Object.keys(captured.body())).toHaveLength(4);
+    });
+    expect(Object.keys(captured.body()).sort()).toEqual([
+      'botToken',
+      'displayName',
+      'ichancyPassword',
+      'ichancyUsername',
+    ]);
+    expect(captured.body()).toMatchObject({
+      displayName: 'Southern branch',
+      botToken: VALID_BOT_TOKEN,
+      ichancyUsername: 'agent_south',
+      ichancyPassword: 'a-real-password',
+    });
+  });
+
+  it('omits an untouched optional field rather than sending it empty', async () => {
+    const captured = captureCreateBody();
+    const { user } = renderPlain(
+      <TenantFormDialog open tenant={null} onOpenChange={vi.fn()} onSaved={vi.fn()} />,
+      platformAdmin,
+    );
+
+    // Opened, read, and left alone — which is the case that would send nine empty strings if the
+    // form serialised its own state instead of deciding field by field.
+    await openAdvanced(user);
+    await fillCreateForm(user);
+    await user.click(screen.getByRole('button', { name: 'Create tenant' }));
+
+    await waitFor(() => {
+      expect(Object.keys(captured.body())).toHaveLength(4);
+    });
+    for (const field of [
+      'slug',
+      'adminChatId',
+      'feedChatId',
+      'ichancyBaseUrl',
+      'ichancyAgentId',
+      'currencyCode',
+      'dualApprovalThresholdMinor',
+      'agentFloatLowWatermarkMinor',
+      'depositExpiryMinutes',
+    ]) {
+      expect(captured.body()).not.toHaveProperty(field);
+    }
+    // Not "no empty keys" by accident: nothing on the wire is an empty string or a null either.
+    expect(Object.values(captured.body())).not.toContain('');
+    expect(Object.values(captured.body())).not.toContain(null);
+  });
+
+  it('sends an Advanced value in place of the default it would have been given', async () => {
+    const captured = captureCreateBody();
+    const { user } = renderPlain(
+      <TenantFormDialog open tenant={null} onOpenChange={vi.fn()} onSaved={vi.fn()} />,
+      platformAdmin,
+    );
+
+    await openAdvanced(user);
+    await fillCreateForm(user, {
+      'Currency code': 'eur',
+      'Deposit expiry (minutes)': '45',
+      'Ichancy agent id': '10099',
+    });
+    await user.click(screen.getByRole('button', { name: 'Create tenant' }));
+
+    await waitFor(() => {
+      expect(Object.keys(captured.body())).toHaveLength(7);
+    });
+    expect(captured.body()).toMatchObject({
+      // Upper-cased on the way out; the API stores a currency code, not what a keyboard produced.
+      currencyCode: 'EUR',
+      ichancyAgentId: '10099',
+      // Minutes are the one value that goes as a number, because that is what they are.
+      depositExpiryMinutes: 45,
+    });
+    expect(captured.body()).not.toHaveProperty('slug');
+    expect(captured.body()).not.toHaveProperty('dualApprovalThresholdMinor');
+  });
+
+  it('takes the overridden values back from the server rather than showing what was typed', async () => {
+    const onSaved = vi.fn();
+    const { user } = renderPlain(
+      <TenantFormDialog open tenant={null} onOpenChange={vi.fn()} onSaved={onSaved} />,
+      platformAdmin,
+    );
+
+    await openAdvanced(user);
+    await fillCreateForm(user, {
+      Slug: 'southern-annex',
+      'Currency code': 'eur',
+      'Dual approval above': '30000000',
+      'Deposit expiry (minutes)': '45',
+    });
+    await user.click(screen.getByRole('button', { name: 'Create tenant' }));
+
+    await waitFor(() => {
+      expect(onSaved).toHaveBeenCalledWith(
+        expect.objectContaining({
+          slug: 'southern-annex',
+          currencyCode: 'EUR',
+          dualApprovalThresholdMinor: '30000000',
+          depositExpiryMinutes: 45,
+          // Still defaulted: overriding one field does not opt the rest out.
+          agentFloatLowWatermarkMinor: mockPlatformDefaults.agentFloatLowWatermarkMinor,
+          adminChatId: CREATING_ADMIN_TELEGRAM_ID,
+        }),
+      );
+    });
   });
 
   it('reports a rejected create as the API worded it', async () => {
@@ -177,6 +423,46 @@ describe('TenantFormDialog — create', () => {
       );
     });
     expect(onSaved).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The Arabic half of the same form. What is being checked is the wiring most likely to be missed:
+ * the disclosure's own label, the sentence that tells an operator what a blank field will get, and
+ * a validation message — all three added with this change, and all three useless in English only.
+ */
+describe('TenantFormDialog — create, in Arabic', () => {
+  const arabicAdmin = { ...platformAdmin, locale: 'ar' as const };
+
+  it('names the disclosure and every default in Arabic', async () => {
+    const { user } = renderPlain(
+      <TenantFormDialog open tenant={null} onOpenChange={vi.fn()} onSaved={vi.fn()} />,
+      arabicAdmin,
+    );
+
+    expect(screen.getByLabelText('الاسم الظاهر')).toBeInTheDocument();
+    const advanced = screen.getByRole('button', { name: 'إعدادات متقدمة' });
+    expect(advanced).toHaveAttribute('aria-expanded', 'false');
+
+    await user.click(advanced);
+
+    expect(screen.getByText(/رابط Ichancy الافتراضي للمنصّة/)).toBeInTheDocument();
+    expect(screen.getByText(/معرّف حسابك على Telegram/)).toBeInTheDocument();
+    // The one field with no default anywhere says so in Arabic too, agent id and all.
+    expect(screen.getByText(/لا يمكن استنتاج معرّف الوكيل من بيانات الدخول/)).toBeInTheDocument();
+  });
+
+  it('refuses an over-long name in Arabic rather than falling back to English', async () => {
+    const { user } = renderPlain(
+      <TenantFormDialog open tenant={null} onOpenChange={vi.fn()} onSaved={vi.fn()} />,
+      arabicAdmin,
+    );
+
+    await user.click(screen.getByLabelText('الاسم الظاهر'));
+    await user.paste('ن'.repeat(121));
+    await user.click(screen.getByRole('button', { name: 'إنشاء المشغّل' }));
+
+    expect(await screen.findByText('أبقِه في حدود 120 خانة أو أقل.')).toBeInTheDocument();
   });
 });
 

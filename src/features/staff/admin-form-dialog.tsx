@@ -19,6 +19,8 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { errorMessage, isApiError } from '@/lib/api/errors';
 import { useCreateAdmin, useUpdateAdmin } from '@/lib/api/queries';
+import { mayGrantRole } from '@/lib/auth/permissions';
+import { useAuth } from '@/lib/auth/use-auth';
 import { useEnumLabel, useT } from '@/lib/i18n/use-translation';
 import type { AdminUser, CreateAdminBody, UpdateAdminBody } from '@/types';
 import { ADMIN_ROLES, adminRoleSchema } from '@/types/enums';
@@ -97,7 +99,26 @@ function AdminForm({ admin, onDone }: { admin: AdminUser | null; onDone: () => v
   const updateAdmin = useUpdateAdmin();
   const t = useT(staffMessages);
   const enumLabel = useEnumLabel();
+  const { role: actorRole, tenantId } = useAuth();
   const [submitError, setSubmitError] = useState<unknown>(null);
+
+  /**
+   * The roles this person may actually hand out — plus, when editing, the role the admin already
+   * holds even if it is not grantable.
+   *
+   * That second half matters: a SUPER_ADMIN cannot grant PLATFORM_ADMIN, but can open the edit
+   * dialog for one (they share tenant zero). Dropping the option outright would leave the radio
+   * group with nothing selected and quietly demote them on save. Shown and disabled says the truth
+   * and cannot act on it.
+   */
+  const roleOptions = useMemo(
+    () =>
+      ADMIN_ROLES.map((role) => ({
+        role,
+        grantable: mayGrantRole(actorRole, role, tenantId),
+      })).filter(({ role, grantable }) => grantable || role === admin?.role),
+    [actorRole, tenantId, admin?.role],
+  );
 
   const schema = useMemo(() => adminFormSchema(creating, t), [creating, t]);
 
@@ -226,14 +247,21 @@ function AdminForm({ admin, onDone }: { admin: AdminUser | null; onDone: () => v
       <fieldset className="space-y-2">
         <legend className="mb-2 text-sm leading-none font-medium">{t('field.role')}</legend>
         <div className="space-y-2">
-          {ADMIN_ROLES.map((role) => (
+          {roleOptions.map(({ role, grantable }) => (
             <label
               key={role}
-              className="flex cursor-pointer items-start gap-3 rounded-md border border-[var(--border)] p-3 text-sm hover:bg-[var(--surface-muted)] has-[:checked]:border-[var(--primary)] has-[:checked]:bg-[var(--primary-muted)]"
+              className={
+                'flex items-start gap-3 rounded-md border border-[var(--border)] p-3 text-sm ' +
+                'has-[:checked]:border-[var(--primary)] has-[:checked]:bg-[var(--primary-muted)] ' +
+                (grantable
+                  ? 'cursor-pointer hover:bg-[var(--surface-muted)]'
+                  : 'cursor-not-allowed opacity-60')
+              }
             >
               <input
                 type="radio"
                 value={role}
+                disabled={!grantable}
                 className="mt-0.5 accent-[var(--primary)]"
                 {...register('role')}
               />

@@ -54,7 +54,10 @@ export function TenantTelegramPanel({
             {t('tenants.webhook.deliveringBody')}
           </Alert>
         ) : (
-          <Alert tone="danger" title={t('tenants.webhook.silentTitle', { name: tenant.displayName })}>
+          <Alert
+            tone="danger"
+            title={t('tenants.webhook.silentTitle', { name: tenant.displayName })}
+          >
             {bot.webhookUrl === null
               ? t('tenants.webhook.silentNoneBody')
               : t('tenants.webhook.silentElsewhereBody', { url: bot.webhookUrl })}
@@ -62,7 +65,10 @@ export function TenantTelegramPanel({
         )}
 
         {bot.pendingUpdateCount > 0 ? (
-          <Alert tone="warning" title={t('tenants.telegram.pendingTitle', { count: bot.pendingUpdateCount })}>
+          <Alert
+            tone="warning"
+            title={t('tenants.telegram.pendingTitle', { count: bot.pendingUpdateCount })}
+          >
             {t('tenants.telegram.pendingBody')}
           </Alert>
         ) : null}

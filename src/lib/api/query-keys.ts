@@ -28,6 +28,16 @@ export const playerKeys = {
   list: (query: PlayerListQuery) => [...playerKeys.lists(), query] as const,
   details: () => [...playerKeys.all, 'detail'] as const,
   detail: (id: string) => [...playerKeys.details(), id] as const,
+  /**
+   * Ichancy balances, one key per player.
+   *
+   * They sit under `players` so that moving money invalidates them along with everything else about
+   * that player — a credit or a debit makes the number in the table wrong the instant it lands.
+   * `balances()` is the prefix the page's own "refresh" control invalidates, which refetches the
+   * rows currently on screen and nothing else: every entry under it costs an upstream call.
+   */
+  balances: () => [...playerKeys.all, 'balance'] as const,
+  balance: (id: string) => [...playerKeys.balances(), id] as const,
 };
 
 export const paymentMethodKeys = {

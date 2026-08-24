@@ -14,8 +14,12 @@ const existing = mockAdmins[0];
 if (existing === undefined) throw new Error('fixtures are empty');
 
 describe('AdminFormDialog — adding', () => {
+  // Rendered as a PLATFORM_ADMIN so that every role is actually on offer: a SUPER_ADMIN is not
+  // shown the PLATFORM_ADMIN option at all, which the "who may grant" block below covers.
   it('explains what each role is allowed to do before it is granted', async () => {
-    renderPlain(<AdminFormDialog open onOpenChange={vi.fn()} admin={null} />);
+    renderPlain(<AdminFormDialog open onOpenChange={vi.fn()} admin={null} />, {
+      auth: { role: 'PLATFORM_ADMIN' },
+    });
 
     expect(
       await screen.findByText(/Runs the platform: creates, configures and suspends tenants/i),
@@ -141,5 +145,54 @@ describe('AdminFormDialog — editing', () => {
     await user.click(await screen.findByRole('button', { name: 'Save changes' }));
 
     expect(await screen.findByText('You cannot change your own admin record.')).toBeInTheDocument();
+  });
+});
+
+/**
+ * PLATFORM_ADMIN is the only role whose grant depends on more than `admins.write`, because it is
+ * the only one that reaches across tenants. Offering it to someone the server will refuse is a
+ * form inviting a choice it cannot honour — and on the edit path, silently dropping it would
+ * demote the very person being edited.
+ */
+describe('AdminFormDialog — who may grant PLATFORM_ADMIN', () => {
+  it('does not offer it to a super admin, who the server would refuse', async () => {
+    renderPlain(<AdminFormDialog open onOpenChange={vi.fn()} admin={null} />, {
+      auth: { role: 'SUPER_ADMIN' },
+    });
+
+    expect(await screen.findByRole('radio', { name: /Super admin/i })).toBeInTheDocument();
+    expect(screen.queryByRole('radio', { name: /Platform admin/i })).not.toBeInTheDocument();
+  });
+
+  it('offers it to a platform admin working in tenant zero', async () => {
+    renderPlain(<AdminFormDialog open onOpenChange={vi.fn()} admin={null} />, {
+      auth: { role: 'PLATFORM_ADMIN', tenantId: null },
+    });
+
+    expect(await screen.findByRole('radio', { name: /Platform admin/i })).toBeEnabled();
+  });
+
+  it('withdraws it once that platform admin switches into an operator', async () => {
+    renderPlain(<AdminFormDialog open onOpenChange={vi.fn()} admin={null} />, {
+      auth: { role: 'PLATFORM_ADMIN', tenantId: 'a3f1c0de-0000-4000-8000-000000000001' },
+    });
+
+    expect(await screen.findByRole('radio', { name: /Super admin/i })).toBeInTheDocument();
+    expect(screen.queryByRole('radio', { name: /Platform admin/i })).not.toBeInTheDocument();
+  });
+
+  it('shows a platform admin being edited their own role, disabled, rather than dropping it', async () => {
+    renderPlain(
+      <AdminFormDialog
+        open
+        onOpenChange={vi.fn()}
+        admin={{ ...existing, role: 'PLATFORM_ADMIN' }}
+      />,
+      { auth: { role: 'SUPER_ADMIN' } },
+    );
+
+    const option = await screen.findByRole('radio', { name: /Platform admin/i });
+    expect(option).toBeDisabled();
+    expect(option).toBeChecked();
   });
 });

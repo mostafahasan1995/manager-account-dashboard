@@ -1,5 +1,5 @@
 import { Link, useParams } from '@tanstack/react-router';
-import { ArrowLeft, UserPlus } from 'lucide-react';
+import { ArrowLeft, Banknote, UserPlus } from 'lucide-react';
 import { useState } from 'react';
 
 import {
@@ -11,12 +11,14 @@ import {
   PlayerStatusBadge,
 } from '@/components/common';
 import { Alert, Button } from '@/components/ui';
-import { isApiError } from '@/lib/api/errors';
+import { errorMessage, isApiError } from '@/lib/api/errors';
 import { usePlayer } from '@/lib/api/queries';
 import { useAuth } from '@/lib/auth/use-auth';
 import { useT } from '@/lib/i18n/use-translation';
-import { playerDisplayName, type IchancyAccount } from '@/types/player';
+import { playerDisplayName, type IchancyAccount, type PlayerDebit } from '@/types/player';
 
+import { DebitOutcomeAlert } from './debit-outcome-alert';
+import { DebitPlayerDialog } from './debit-player-dialog';
 import { LinkIchancyDialog } from './link-ichancy-dialog';
 import { playerMessages } from './messages';
 import { PlayerDeposits } from './player-deposits';
@@ -36,6 +38,10 @@ export function PlayerDetailPage() {
   const query = usePlayer(playerId);
   const [linkOpen, setLinkOpen] = useState(false);
   const [linkResult, setLinkResult] = useState<IchancyAccount | null>(null);
+  const [debitOpen, setDebitOpen] = useState(false);
+  const [debitResult, setDebitResult] = useState<PlayerDebit | null>(null);
+  /** A debit that failed in a way nobody can prove either way. It outlives the dialog. */
+  const [debitUnproven, setDebitUnproven] = useState<unknown>(null);
 
   const backLink = (
     <Button variant="ghost" size="sm" asChild>
@@ -97,6 +103,22 @@ export function PlayerDetailPage() {
         actions={
           <>
             {backLink}
+            {/* A debit is offered whatever the player's state — including a player with no Ichancy
+                account, whose dialog says so rather than leaving the operator wondering where the
+                action went. What DOES hide it is the role: the capability is the deposit-decide
+                one, because taking money out is a money decision and the same people are trusted
+                with it. */}
+            <Can capability="deposits.decide">
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setDebitOpen(true);
+                }}
+              >
+                <Banknote aria-hidden="true" />
+                {t('players.debit.action')}
+              </Button>
+            </Can>
             {player.ichancyLinked ? null : (
               <Can capability="players.link">
                 <Button
@@ -128,6 +150,18 @@ export function PlayerDetailPage() {
         </Alert>
       )}
 
+      {debitResult === null ? null : <DebitOutcomeAlert debit={debitResult} player={player} />}
+
+      {debitUnproven == null ? null : (
+        /* Kept on the page rather than in the dialog the operator just closed: after a failure
+           that may have debited the player anyway, the next person to look at this screen has to
+           see it too. */
+        <Alert tone="danger" title={t('players.debit.maybeLandedTitle')}>
+          <p>{errorMessage(debitUnproven)}</p>
+          <p className="mt-1">{t('players.debit.maybeLandedBody')}</p>
+        </Alert>
+      )}
+
       <div className="grid gap-4 lg:grid-cols-3">
         <div className="lg:col-span-1">
           <PlayerIdentity player={player} />
@@ -142,6 +176,22 @@ export function PlayerDetailPage() {
         open={linkOpen}
         onOpenChange={setLinkOpen}
         onLinked={setLinkResult}
+      />
+
+      <DebitPlayerDialog
+        player={player}
+        open={debitOpen}
+        onOpenChange={setDebitOpen}
+        onDebited={(debit) => {
+          setDebitResult(debit);
+          setDebitUnproven(null);
+          setDebitOpen(false);
+        }}
+        onUnproven={(error) => {
+          // The dialog stays open on this one; the page keeps saying it after it closes.
+          setDebitResult(null);
+          setDebitUnproven(error);
+        }}
       />
     </div>
   );

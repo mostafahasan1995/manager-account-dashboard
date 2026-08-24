@@ -15,6 +15,13 @@ export const paymentMethodSchema = z.looseObject({
   feeFixed: z.string(),
   feeBps: z.number(),
   requiresReference: z.boolean(),
+  /**
+   * Whether a receipt photo is still required.
+   *
+   * Off means this rail takes a reference NUMBER instead — the stronger evidence, since it can be
+   * matched against a statement and the backend refuses the same one twice.
+   */
+  requiresProof: z.boolean(),
   instructions: z.string().nullable(),
   requiredProofFields: z.array(z.unknown()).optional(),
   isActive: z.boolean(),
@@ -56,6 +63,7 @@ export interface CreatePaymentMethodBody {
   feeFixed?: string;
   feeBps?: number;
   requiresReference?: boolean;
+  requiresProof?: boolean;
   referencePattern?: string;
   instructions?: string;
   isActive?: boolean;

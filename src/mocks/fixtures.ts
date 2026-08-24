@@ -62,6 +62,34 @@ export const PLAYER_IDS = {
   closed: uuid(6, 'bbbbbbbb'),
 } as const;
 
+/**
+ * The player whose balance NEVER reads, in demo mode and in tests.
+ *
+ * A mock where every balance succeeds would let the rule this column exists for rot unnoticed: a
+ * failed read must render as a word, never as `0`. Keeping one permanently broken cell next to
+ * working ones means the failure state is on screen every time anyone opens the page, instead of
+ * being a branch only a test remembers.
+ */
+export const BALANCE_UNREADABLE_PLAYER_ID = PLAYER_IDS.suspended;
+
+export function mockBalanceAlwaysFailsFor(playerId: string): boolean {
+  return playerId === BALANCE_UNREADABLE_PLAYER_ID;
+}
+
+/**
+ * A stable balance per player, in MINOR units as a string.
+ *
+ * Derived from the id rather than random so a demo looks the same on every reload and a test can
+ * assert an exact figure. `newcomer` is deliberately 0 — a genuinely empty account, which must
+ * render as `0` and is the case that would be indistinguishable from a failed read if the failure
+ * were ever allowed to show a number.
+ */
+export function mockBalanceMinorFor(playerId: string): string {
+  if (playerId === PLAYER_IDS.newcomer) return '0';
+  const digits = playerId.replace(/\D/g, '').slice(-5);
+  return String(1_000_00 + Number(digits || '0'));
+}
+
 export const METHOD_IDS = {
   bank: uuid(1, 'cccccccc'),
   wallet: uuid(2, 'cccccccc'),
@@ -327,6 +355,30 @@ export const mockPlayers: AdminPlayer[] = [
   },
 ];
 
+/**
+ * What Ichancy holds for each player, in minor units, keyed by player id.
+ *
+ * Strings rather than bigints: the mock state is cloned through JSON on every reset and a bigint
+ * does not survive that. Players with no Ichancy account are ABSENT rather than zero — no account
+ * is a different answer from an empty one, and the debit endpoint has to tell them apart.
+ */
+export const mockPlayerBalances: Record<string, string> = {
+  [PLAYER_IDS.linkedActive]: '320000',
+  [PLAYER_IDS.suspended]: '1500000',
+  [PLAYER_IDS.selfExcluded]: '875025',
+  [PLAYER_IDS.newcomer]: '25000',
+};
+
+/**
+ * The one player whose debit Ichancy will not answer for.
+ *
+ * A self-excluded player is exactly who gets debited in real life — the operator pulls the
+ * remaining chips back and settles in cash — so that is the fixture carrying the ending nobody
+ * wants: a call that times out, a balance re-read that proves nothing, and a row a human has to go
+ * and check by hand. Without it the console only ever gets built against the happy path.
+ */
+export const MOCK_DEBIT_TIMEOUT_PLAYER_ID: string = PLAYER_IDS.selfExcluded;
+
 // ── Payment methods ────────────────────────────────────────────────────────────────────────────
 
 export const mockPaymentMethods: PaymentMethod[] = [
@@ -342,6 +394,7 @@ export const mockPaymentMethods: PaymentMethod[] = [
     feeFixed: '0.00',
     feeBps: 0,
     requiresReference: true,
+    requiresProof: true,
     referencePattern: '^[0-9]{6,20}$',
     instructions: 'Transfer to the account shown, then upload the receipt from your banking app.',
     isActive: true,
@@ -362,6 +415,7 @@ export const mockPaymentMethods: PaymentMethod[] = [
     feeFixed: '500.00',
     feeBps: 150,
     requiresReference: true,
+    requiresProof: true,
     referencePattern: null,
     instructions: 'Send to the wallet number, then paste the transaction reference.',
     isActive: true,
@@ -382,6 +436,7 @@ export const mockPaymentMethods: PaymentMethod[] = [
     feeFixed: '0.00',
     feeBps: 0,
     requiresReference: false,
+    requiresProof: true,
     referencePattern: null,
     instructions: 'Pay at any listed office and photograph the stamped slip.',
     isActive: true,
@@ -402,6 +457,7 @@ export const mockPaymentMethods: PaymentMethod[] = [
     feeFixed: '0.00',
     feeBps: 0,
     requiresReference: false,
+    requiresProof: true,
     referencePattern: null,
     instructions: null,
     isActive: false,
@@ -991,6 +1047,38 @@ export const mockRailAgeing = {
     },
   ],
   staleAccountCodes: ['RAIL_CLEARING:BANK_SYR'],
+};
+
+// ── Platform defaults ──────────────────────────────────────────────────────────────────────────
+
+/**
+ * The single settings row `POST /v1/admin/tenants` resolves an omitted field against.
+ *
+ * The backend seeds this from the deployment's env values on first run and reads it through ONE
+ * service afterwards, so tenant creation stops depending on what `.env` happened to hold at the
+ * moment somebody filled in the form. The mock keeps one copy for the same reason: every default a
+ * screen can see comes from here, not from a literal scattered through a handler.
+ *
+ * `ichancyAgentId` is nullable on purpose — it is the one value with no safe default. Ichancy
+ * `signin()` answers with a token pair and nothing else, so an agent id can never be derived from
+ * the credentials; the fallback chain is supplied → this row → tenant zero's → 400.
+ */
+export interface PlatformDefaults {
+  ichancyBaseUrl: string;
+  ichancyAgentId: string | null;
+  currencyCode: string;
+  dualApprovalThresholdMinor: string;
+  agentFloatLowWatermarkMinor: string;
+  depositExpiryMinutes: number;
+}
+
+export const mockPlatformDefaults: PlatformDefaults = {
+  ichancyBaseUrl: 'https://agent.ichancy.example',
+  ichancyAgentId: '10500',
+  currencyCode: MOCK_CURRENCY,
+  dualApprovalThresholdMinor: '50000000',
+  agentFloatLowWatermarkMinor: '100000000',
+  depositExpiryMinutes: 30,
 };
 
 // ── Tenants ────────────────────────────────────────────────────────────────────────────────────

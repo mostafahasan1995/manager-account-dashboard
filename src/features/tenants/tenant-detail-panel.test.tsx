@@ -40,7 +40,7 @@ describe('TenantDetailPanel', () => {
       platformAdmin,
     );
 
-    expect(await screen.findByText('webhook configured')).toBeInTheDocument();
+    expect(await screen.findByText('path token generated')).toBeInTheDocument();
     expect(screen.getByText(/never returned by the API/i)).toBeInTheDocument();
   });
 
@@ -56,21 +56,7 @@ describe('TenantDetailPanel', () => {
       platformAdmin,
     );
 
-    expect(await screen.findByText('no webhook yet')).toBeInTheDocument();
-  });
-
-  it('shows a tenant whose counts the backend did not report', async () => {
-    const { counts: _counts, ...uncounted } = tenantZero;
-    server.use(
-      http.get(`${config.apiBaseUrl}/v1/admin/tenants/:id`, () => envelope(uncounted)),
-    );
-
-    renderPlain(
-      <TenantDetailPanel tenantId={TENANT_IDS.zero} onClose={vi.fn()} onEdit={vi.fn()} />,
-      platformAdmin,
-    );
-
-    expect(await screen.findAllByText('not counted')).toHaveLength(2);
+    expect(await screen.findByText('no path token')).toBeInTheDocument();
   });
 
   it('shows the API failure rather than an empty panel', async () => {
@@ -134,7 +120,7 @@ describe('TenantDetailPanel', () => {
 
     await user.click(await screen.findByRole('button', { name: /try again/i }));
 
-    expect(await screen.findByText('webhook configured')).toBeInTheDocument();
+    expect(await screen.findByText('path token generated')).toBeInTheDocument();
   });
 
   it('hands the tenant to the editor when a platform admin asks to edit it', async () => {
@@ -154,7 +140,7 @@ describe('TenantDetailPanel', () => {
       { auth: { role: 'SUPER_ADMIN' } },
     );
 
-    expect(await screen.findByText('webhook configured')).toBeInTheDocument();
+    expect(await screen.findByText('path token generated')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /edit settings/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /suspend/i })).not.toBeInTheDocument();
   });

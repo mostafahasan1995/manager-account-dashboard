@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Link } from '@tanstack/react-router';
 import { UserPlus } from 'lucide-react';
 
@@ -17,6 +18,21 @@ import { cn } from '@/lib/utils';
 import { playerDisplayName, type AdminPlayer } from '@/types/player';
 
 import { playerMessages } from './messages';
+import { PlayerBalanceCell } from './player-balance-cell';
+
+/**
+ * How many rows may fetch their balance without being asked.
+ *
+ * Each balance is one Ichancy call through Cloudflare — seconds, and rate-limited — so a page of
+ * them is a real cost paid on every render of this screen, whether or not anyone was looking at the
+ * column. Below this many rows the wait is short enough that asking first would be pedantic; above
+ * it, the operator says when.
+ *
+ * Twelve is the largest page that still finishes in a few seconds at the shared concurrency of
+ * four. It is a judgement, not a measurement of anything fixed: if the limiter changes, this should
+ * be reconsidered with it.
+ */
+const BALANCE_AUTOLOAD_MAX_ROWS = 12;
 
 /**
  * The player list itself.
@@ -34,6 +50,8 @@ export function PlayerTable({
   onLink: (player: AdminPlayer) => void;
 }) {
   const t = useT(playerMessages);
+  const [balancesRequested, setBalancesRequested] = useState(false);
+  const showBalances = balancesRequested || players.length <= BALANCE_AUTOLOAD_MAX_ROWS;
 
   return (
     <Table>
@@ -45,6 +63,26 @@ export function PlayerTable({
           <TableHead>{t('field.status')}</TableHead>
           {/* The platform's own name, in either language. */}
           <TableHead>Ichancy</TableHead>
+          <TableHead className="text-end">
+            {showBalances ? (
+              t('players.field.balance')
+            ) : (
+              // The column exists either way; only the fetching waits. A header that appeared on
+              // click would move every column beside it and look like a different table.
+              <span className="inline-flex items-center gap-2">
+                {t('players.field.balance')}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setBalancesRequested(true);
+                  }}
+                >
+                  {t('players.balance.load')}
+                </Button>
+              </span>
+            )}
+          </TableHead>
           <TableHead>{t('field.currency')}</TableHead>
           <TableHead>{t('field.created')}</TableHead>
           <TableHead>{t('players.field.lastSeen')}</TableHead>
@@ -104,6 +142,10 @@ export function PlayerTable({
                     ) : null}
                   </div>
                 )}
+              </TableCell>
+
+              <TableCell className="tabular text-end">
+                <PlayerBalanceCell player={player} enabled={showBalances} />
               </TableCell>
 
               <TableCell className="tabular">{player.currencyCode}</TableCell>

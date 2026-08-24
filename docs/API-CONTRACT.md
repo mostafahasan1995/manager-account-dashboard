@@ -72,6 +72,7 @@ POST /v1/admin/auth/bot-code        { code }  ->  { accessToken, expiresAt, admi
 | Deposit: retry credit, maintenance sweep                             | SUPER_ADMIN, FINANCE_ADMIN                            |
 | Players: read                                                        | SUPER_ADMIN, FINANCE_ADMIN, REVIEWER, SUPPORT         |
 | Players: create Ichancy account                                      | SUPER_ADMIN, FINANCE_ADMIN                            |
+| Players: debit (take funds back out)                                 | SUPER_ADMIN, FINANCE_ADMIN, REVIEWER                  |
 | Payment methods/destinations: read                                   | SUPER_ADMIN, FINANCE_ADMIN, REVIEWER, SUPPORT         |
 | Payment methods/destinations: write                                  | SUPER_ADMIN, FINANCE_ADMIN                            |
 | Admin directory + approval limits: read                              | SUPER_ADMIN, FINANCE_ADMIN                            |
@@ -147,6 +148,10 @@ GET  /v1/admin/players?status=&telegramUserId=&linked=true|false&search=&limit=&
 GET  /v1/admin/players/:id
 POST /v1/admin/players/:id/ichancy-account
      -> { playerId, ichancyPlayerId, ichancyLogin, created, agentId }
+POST /v1/admin/players/:id/debit
+     { amountMinor, reason }
+     -> { debitId, playerId, amountMinor, status, playerBalanceBeforeMinor,
+          playerBalanceAfterMinor, verifiedBy, reason, decidedBy, createdAt }
 ```
 
 `AdminPlayerView`: `id, telegramUserId, telegramUsername, firstName, lastName, languageCode, status,
@@ -156,6 +161,16 @@ ichancyRegisteredAt, phone`.
 `PlayerStatus`: `PENDING_ICHANCY ACTIVE SUSPENDED SELF_EXCLUDED CLOSED`.
 
 `POST .../ichancy-account` is safe to repeat: `created:false` means the player was already linked.
+
+`PlayerDebitStatus`: `DEBITED REJECTED NEEDS_RECONCILIATION`. `verifiedBy` is the `CreditVerifiedBy`
+enum, and is null until something proves the debit.
+
+`POST .../debit` is the opposite of the account call in every way that matters. It takes money OUT
+of a player's Ichancy account and back into the agent float, it is admin-initiated (no player
+request, no queue, no second approver), and it is **not idempotent and not safe to repeat** —
+Ichancy has no idempotency key, so a second call is a second debit. The server verifies by reading
+the balance before and after; when it still cannot tell, it answers `NEEDS_RECONCILIATION`, which
+means a human checks Ichancy. The console must never turn that into a retry.
 
 ### Payment methods and destinations — `/v1/admin`
 
@@ -254,9 +269,25 @@ POST  /v1/admin/tenants/:id/activate     (verifies the Ichancy agent with a real
 POST  /v1/admin/tenants/:id/suspend
 ```
 
-Create: `{ slug, displayName, botToken, adminChatId, feedChatId?, ichancyBaseUrl, ichancyUsername,
-ichancyPassword, ichancyAgentId, currencyCode, dualApprovalThresholdMinor,
-agentFloatLowWatermarkMinor, depositExpiryMinutes }`.
+Create, required: `{ displayName (1..120), botToken, ichancyUsername, ichancyPassword }`.
+
+Create, optional — each has a server-side default, and an omitted one must be **absent** from the
+JSON rather than `""` or `null`, or the backend stores the empty value instead of resolving the
+default: `{ slug?, adminChatId?, feedChatId?, ichancyBaseUrl?, ichancyAgentId?, currencyCode?,
+dualApprovalThresholdMinor?, agentFloatLowWatermarkMinor?, depositExpiryMinutes? }`.
+
+What fills them in: `slug` ← `slugify(displayName)`, de-duplicated with `-2`, `-3`, … on collision;
+`adminChatId` ← the Telegram id of the PLATFORM_ADMIN making the request; `feedChatId` ← nothing, it
+stays optional with no default; everything else ← the single **PlatformDefaults** settings row
+(DB-backed, seeded from the deployment's env values on first run, read through one service).
+
+`ichancyAgentId` is the exception: supplied → PlatformDefaults → tenant zero's `ichancyAgentId` →
+**400 naming the field**. Ichancy `signin()` returns only a token pair, so an agent id can never be
+derived from the credentials — there is no lookup. Two tenants sharing an agent id is allowed and is
+how a second operator gets tested.
+
+The response is the same `TenantView` as before, with **every field populated**: the defaults are
+resolved server-side and visible in it, which is what the console's detail panel reads after create.
 
 `TenantView`: `id, slug, displayName, status, hasWebhookPath, adminChatId, feedChatId, botUsername,
 ichancyBaseUrl, ichancyUsername, ichancyAgentId, currencyCode, dualApprovalThresholdMinor,

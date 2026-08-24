@@ -29,20 +29,38 @@ export type Tenant = z.infer<typeof tenantSchema>;
 /** GET /v1/admin/tenants answers `{ tenants: [...] }`, not a bare array. */
 export const tenantListSchema = z.looseObject({ tenants: z.array(tenantSchema) });
 
+/**
+ * `POST /v1/admin/tenants`. FOUR fields are required; everything else has a server-side default.
+ *
+ * The optional half is optional in the strict sense: an omitted field must be ABSENT from the JSON,
+ * not present as `""` or `null`. An empty string is a value, and the backend would store it rather
+ * than resolve its default — which is how an operator ends up with a blank currency instead of the
+ * platform's. `toCreateBody` in tenant-form-dialog.tsx is the one place that decides, and it spreads
+ * each field in only when it holds something.
+ *
+ * What the server fills in, per docs/TENANT-OPERATIONS.md:
+ * - `slug` — slugify(displayName), de-duplicated with -2, -3 … on collision.
+ * - `adminChatId` — the Telegram id of the PLATFORM_ADMIN making the request.
+ * - `feedChatId` — no default; absent means the operator has no feed chat.
+ * - everything else — the single PlatformDefaults settings row, except `ichancyAgentId`, which
+ *   falls back to PlatformDefaults and then to tenant zero's, and is a 400 naming the field when
+ *   none of the three exists. Ichancy `signin()` returns only a token pair, so an agent id can
+ *   never be derived from the credentials.
+ */
 export interface CreateTenantBody {
-  slug: string;
   displayName: string;
   botToken: string;
-  adminChatId: string;
-  feedChatId?: string;
-  ichancyBaseUrl: string;
   ichancyUsername: string;
   ichancyPassword: string;
-  ichancyAgentId: string;
-  currencyCode: string;
-  dualApprovalThresholdMinor: string;
-  agentFloatLowWatermarkMinor: string;
-  depositExpiryMinutes: number;
+  slug?: string;
+  adminChatId?: string;
+  feedChatId?: string;
+  ichancyBaseUrl?: string;
+  ichancyAgentId?: string;
+  currencyCode?: string;
+  dualApprovalThresholdMinor?: string;
+  agentFloatLowWatermarkMinor?: string;
+  depositExpiryMinutes?: number;
 }
 
 /** `slug` and `currencyCode` are absent for a reason: both would rewrite the meaning of old rows. */
