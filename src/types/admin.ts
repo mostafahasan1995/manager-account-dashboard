@@ -89,3 +89,48 @@ export interface SetApprovalLimitBody {
 export function isCurrentLimit(limit: ApprovalLimit): boolean {
   return limit.effectiveTo === null;
 }
+
+// ── Signing in with an Ichancy agent account ───────────────────────────────────────────────────
+
+/**
+ * `POST /v1/admin/auth/ichancy`. The OTHER door into a session, beside the Telegram bot code.
+ *
+ * An operator IS an Ichancy agent: `ichancyUsername` / `ichancyPassword` on its tenant row are the
+ * account that registers its players and holds its float. Those are what it signs in with, and the
+ * session it gets back is that operator's SUPER_ADMIN. PLATFORM_ADMIN is not reachable this way —
+ * the platform runs no agent of its own — so running the platform stays a bot-code login.
+ *
+ * `operatorSlug` is absent on the FIRST attempt and present on the second: two tenants may be
+ * configured against one agent account, and when they are, the server refuses with
+ * `AGENT_OPERATOR_AMBIGUOUS` and names them rather than picking one.
+ */
+export interface AgentSignInBody {
+  username: string;
+  password: string;
+  operatorSlug?: string;
+}
+
+/** One operator offered by `AGENT_OPERATOR_AMBIGUOUS`. Never carries a secret. */
+export const agentOperatorChoiceSchema = z.looseObject({
+  slug: z.string(),
+  displayName: z.string(),
+});
+export type AgentOperatorChoice = z.infer<typeof agentOperatorChoiceSchema>;
+
+/**
+ * The operators named in an error's `details`, or none.
+ *
+ * Parsed rather than cast, and empty rather than throwing on a shape it does not recognise: this
+ * reads an ERROR body, so it runs at the exact moment something has already gone wrong. A screen
+ * that then crashed on the diagnosis would replace a message the operator can act on with one
+ * nobody can.
+ */
+export function agentOperatorChoices(details: unknown): AgentOperatorChoice[] {
+  if (typeof details !== 'object' || details === null) return [];
+  const operators = (details as { operators?: unknown }).operators;
+  if (!Array.isArray(operators)) return [];
+  return operators.flatMap((entry) => {
+    const parsed = agentOperatorChoiceSchema.safeParse(entry);
+    return parsed.success ? [parsed.data] : [];
+  });
+}

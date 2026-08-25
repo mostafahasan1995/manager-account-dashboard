@@ -7,6 +7,7 @@ import {
   DEBIT_REASON_MAX_LENGTH,
   type AdminDeposit,
   type AdminRole,
+  type Tenant,
 } from '@/types';
 
 import {
@@ -34,7 +35,7 @@ import {
   tenantHealth,
   updateTenantIchancy,
 } from './db';
-import { MOCK_SESSION_TTL_MINUTES, mockRoleForCode } from './demo';
+import { MOCK_AGENT_PASSWORD, MOCK_SESSION_TTL_MINUTES, mockRoleForCode } from './demo';
 import {
   mockBalanceAlwaysFailsFor,
   mockBalanceMinorFor,
@@ -199,6 +200,10 @@ function sortDeposits(rows: AdminDeposit[], sort: string | null): AdminDeposit[]
   }
 }
 
+/** What AGENT_OPERATOR_AMBIGUOUS and AGENT_OPERATOR_NOT_ACTIVE carry in `details`. No secrets. */
+const operatorChoices = (rows: readonly Tenant[]): { slug: string; displayName: string }[] =>
+  rows.map((tenant) => ({ slug: tenant.slug, displayName: tenant.displayName }));
+
 export const handlers: HttpHandler[] = [
   // ── Health ───────────────────────────────────────────────────────────────────────────────────
   http.get(url('/health/live'), () =>
@@ -244,6 +249,86 @@ export const handlers: HttpHandler[] = [
       // The HOME operator, exactly as the real exchange now reports it.
       tenantId: home?.id ?? TENANT_ZERO_ID,
       tenantSlug: home?.slug ?? 'tenant-zero',
+    });
+  }),
+
+  /*
+   * The OTHER door: an operator signing in with its Ichancy agent account.
+   *
+   * The refusal ORDER is mirrored from the real route rather than merely its status codes, because
+   * the order is the security property. Nothing about which operators exist is said until the
+   * password is right; everything said afterwards is about an operator the caller has already
+   * proved they run. A mock that had that backwards would let a console ship a screen which leaks
+   * against the real backend and looks correct against this one.
+   */
+  http.post(url('/v1/admin/auth/ichancy'), async ({ request }) => {
+    const body = (await request.json()) as {
+      username?: string;
+      password?: string;
+      operatorSlug?: string;
+    };
+
+    const username = (body.username ?? '').trim().toLowerCase();
+    const matched =
+      username.length > 0 && body.password === MOCK_AGENT_PASSWORD
+        ? db.tenants.filter((tenant) => tenant.ichancyUsername.toLowerCase() === username)
+        : [];
+
+    const wanted = body.operatorSlug?.trim().toLowerCase();
+    const chosen =
+      wanted === undefined || wanted.length === 0
+        ? matched
+        : matched.filter((tenant) => tenant.slug.toLowerCase() === wanted);
+
+    if (chosen.length === 0) {
+      return fail(
+        401,
+        'AGENT_CREDENTIALS_INVALID',
+        'Those Ichancy credentials are not valid for any operator on this platform.',
+      );
+    }
+
+    const active = chosen.filter((tenant) => tenant.status === 'ACTIVE');
+
+    if (active.length > 1) {
+      return fail(
+        409,
+        'AGENT_OPERATOR_AMBIGUOUS',
+        'That Ichancy agent runs more than one operator. Choose which one to sign into.',
+        { operators: operatorChoices(active) },
+      );
+    }
+
+    // Destructured rather than indexed: `active` is empty when every operator that agent opens is
+    // suspended, which is a real answer this route has to give rather than an impossible one.
+    const [tenant] = active;
+    if (tenant === undefined) {
+      return fail(
+        403,
+        'AGENT_OPERATOR_NOT_ACTIVE',
+        'That operator is suspended. A platform admin has to activate it before anyone can sign in.',
+        { operators: operatorChoices(chosen) },
+      );
+    }
+
+    // The agent account is the top of ONE operator, so it opens the console as a SUPER_ADMIN —
+    // never as the PLATFORM_ADMIN, which runs no agent of its own and stays a bot-code login.
+    const persona = db.admins.find((admin) => admin.role === 'SUPER_ADMIN');
+    if (persona !== undefined) {
+      setMockAdmin({
+        id: persona.id,
+        telegramUserId: persona.telegramUserId,
+        role: persona.role,
+        displayName: persona.displayName,
+      });
+    }
+
+    return ok({
+      accessToken: `mock:SUPER_ADMIN:${nextId('99999999')}`,
+      expiresAt: new Date(Date.now() + MOCK_SESSION_TTL_MINUTES * 60_000).toISOString(),
+      admin: db.currentAdmin,
+      tenantId: tenant.id,
+      tenantSlug: tenant.slug,
     });
   }),
 

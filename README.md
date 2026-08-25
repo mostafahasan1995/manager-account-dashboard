@@ -14,7 +14,11 @@ npm run dev                     # http://localhost:5173
 ```
 
 Out of the box `.env.local` runs the console against a **built-in mock API** (MSW), so it works with
-no backend, no database and no Telegram bot. Sign in with the code `123456`.
+no backend, no database and no Telegram bot. Sign in either way:
+
+- as an **operator**, with the Ichancy agent account `agent_main` / `agent-demo`;
+- as the **platform**, with the bot code `111111` — or `123456` for a super admin, and one code per
+  role besides, all listed on the sign-in screen.
 
 ---
 
@@ -131,7 +135,10 @@ npm run verify       typecheck + lint + coverage — what CI runs
    >
    > (5173 is `npm run dev`, 4173 is `npm run preview`.) The console's own error message names the
    > origin your browser is using, so you can paste it straight in.
-4. Send `/console` to the tenant's Telegram bot and sign in with the code it replies with.
+4. Sign in. An **operator** uses its own Ichancy agent username and password — the account its
+   players are registered under — and lands as that operator's super admin. Everyone else, the
+   **platform admin** included, sends `/console` to the tenant's Telegram bot and signs in with the
+   code it replies with. See docs/API-CONTRACT.md section 2.
 
 ---
 

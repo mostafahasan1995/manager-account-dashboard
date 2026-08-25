@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type {
   AdminListQuery,
   AdminSession,
+  AgentSignInBody,
   ApproveDepositBody,
   BreakListQuery,
   CreateAdminBody,
@@ -76,6 +77,21 @@ export const authApi = {
   exchangeBotCode: (code: string): Promise<AdminSession> =>
     api.post(adminSessionSchema, '/v1/admin/auth/bot-code', {
       body: { code },
+      anonymous: true,
+    }),
+
+  /**
+   * Signs an operator in with its ICHANCY AGENT account, and answers the same session shape.
+   *
+   * Same shape is the point: the console counts down one expiry and sends one bearer token, and
+   * nothing past this line can tell which door a session came through.
+   *
+   * A 409 AGENT_OPERATOR_AMBIGUOUS is not a failure to report and stop at — it is the server asking
+   * which operator, with the choices in `error.details.operators`. See agentOperatorChoices.
+   */
+  signInWithAgent: (body: AgentSignInBody): Promise<AdminSession> =>
+    api.post(adminSessionSchema, '/v1/admin/auth/ichancy', {
+      body,
       anonymous: true,
     }),
 };

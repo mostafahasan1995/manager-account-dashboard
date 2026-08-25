@@ -40,21 +40,81 @@ Useful headers: `x-correlation-id` (echoed, show it in error toasts), `retry-aft
 
 ## 2. Authentication
 
-Admins do **not** log in with a password. They send `/console` to the tenant's Telegram bot, get a
-one-time code, and exchange it:
+There are **two** doors into an admin session, and they answer different questions.
+
+Both are public routes, both answer the same `AdminSessionView`, and both hand back an **access
+token only — there is no admin refresh token**. When it expires the admin signs in again. The
+console therefore watches `expiresAt`, warns before expiry, and signs out cleanly on any 401. Every
+other call sends `Authorization: Bearer <accessToken>`.
 
 ```
-POST /v1/admin/auth/bot-code        { code }  ->  { accessToken, expiresAt, admin }
-     admin = { id, telegramUserId, role, displayName }
+AdminSessionView = { accessToken, expiresAt, admin, tenantId, tenantSlug }
+                   admin = { id, telegramUserId, role, displayName }
 ```
 
-- Public route, rate limited to 10 attempts per window.
-- The response is an **access token only — there is no admin refresh token**. When it expires the
-  admin fetches a new code. The console therefore watches `expiresAt`, warns before expiry, and
-  signs out cleanly on any 401.
-- Every other call sends `Authorization: Bearer <accessToken>`.
+### 2a. Bot code — "I am this person"
+
+The admin sends `/console` to the tenant's Telegram bot, gets a one-time code, and exchanges it:
+
+```
+POST /v1/admin/auth/bot-code        { code }  ->  AdminSessionView
+```
+
+- Rate limited to 10 attempts per minute, blocked for 5 after that.
+- Any role. **This is the only way to sign in as a `PLATFORM_ADMIN`**, which has no Ichancy agent of
+  its own to prove itself with.
 - An invalid _and_ an expired code both answer `BOT_CODE_INVALID` on purpose. Do not tell them apart
   in the UI either.
+
+### 2b. Ichancy agent account — "I am this operator"
+
+An operator **is** an Ichancy agent: `ichancyUsername` / `ichancyPassword` on its tenant row are the
+account that registers its players and holds its float. Those are what it signs in with, and the
+session it gets back is that operator's `SUPER_ADMIN`.
+
+```
+POST /v1/admin/auth/ichancy   { username, password, operatorSlug? }  ->  AdminSessionView
+```
+
+- Rate limited to 10 attempts per minute, blocked for **15** after that — longer than the code
+  route, because a bot code dies in five minutes on its own and a password does not.
+- Verified against the **sealed password on the tenant row**, in constant time. It is deliberately
+  not a live Ichancy `signin()`: the question is "do you hold the credential this deployment
+  registers players with", the row was already proved by a real signin at activation, and putting
+  Cloudflare on the login path would make an upstream outage into a lockout.
+- Which `admin_users` row the session becomes: the active `SUPER_ADMIN` whose `username` equals the
+  agent login, else the **oldest** active `SUPER_ADMIN` (the operator's first owner). Never a
+  `PLATFORM_ADMIN`, and never any other role.
+- **If the operator has no staff at all, the first successful sign-in creates its agent principal**
+  — a `SUPER_ADMIN` row with `username` = the agent login and the reserved
+  `telegram_user_id = 0` (Telegram numbers users from 1 up, so it can never collide, and no bot
+  update can ever resolve to it). This is not a convenience: `POST /v1/admin/tenants` writes a
+  tenant, a bot, a webhook and payment rails and **no staff**, so without it every new operator was
+  born unable to open the console. Just-in-time, audited as `admin.user.agentPrincipalCreated` by
+  the `SYSTEM` actor, and idempotent — `@@unique([tenantId, username])` settles a race.
+- Consequence worth knowing: decisions taken through this door are attributed to the operator's
+  agent principal, **not to a named person**. An operator that needs per-person attribution adds
+  staff and has them sign in with bot codes.
+- `operatorSlug` is **absent** on the first attempt. Two tenants may share one Ichancy agent — it is
+  how a second operator is tested, and `TenantIchancyHealth.sharesAgentWith` already reports the
+  coupling — so when they do, the server names them rather than picking one.
+
+Its four failures, and why they are four and not one:
+
+| Code                          | Status | Means                                                                  |
+| ----------------------------- | ------ | ---------------------------------------------------------------------- |
+| `AGENT_CREDENTIALS_INVALID`   | 401    | No non-CLOSED operator holds that username and password. Says no more. |
+| `AGENT_OPERATOR_AMBIGUOUS`    | 409    | Right credentials, several operators. `details.operators[{slug, displayName}]` — re-send with `operatorSlug`. |
+| `AGENT_OPERATOR_NOT_ACTIVE`   | 403    | Right credentials, operator SUSPENDED.                                 |
+| `AGENT_OPERATOR_HAS_NO_OWNER` | 403    | Right credentials, and the operator's agent principal was deactivated or demoted. Not "no staff yet" — that case provisions instead. |
+
+Nothing is said about which operators exist until the password is right; everything said afterwards
+is about an operator the caller has already proved they run. Only the first of the four is fixed by
+retyping, which is why the console gives each of the other three its own sentence naming who can fix
+it — collapsing them into "sign-in failed" leaves an owner with correct credentials retyping them.
+
+`AGENT_OPERATOR_AMBIGUOUS` is a **question, not a failure**: the console keeps the credential, shows
+the operator picker, and re-submits with the chosen slug.
 
 ---
 

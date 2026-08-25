@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 
 import { configureApiClient } from '@/lib/api/client';
 import { authApi } from '@/lib/api/endpoints';
-import type { AdminSession } from '@/types/admin';
+import type { AdminSession, AgentSignInBody } from '@/types/admin';
 
 import { AuthContext, type AuthState, type SignOutReason } from './auth-context';
 import { can as roleCan, type Capability } from './permissions';
@@ -99,8 +99,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [signOut]);
 
-  const signIn = useCallback(async (code: string): Promise<AdminSession> => {
-    const next = await authApi.exchangeBotCode(code.trim());
+  /**
+   * Everything that has to happen when a session arrives, in one place, because there are now two
+   * doors into one.
+   *
+   * The ref is assigned BEFORE the state, and that ordering is load-bearing rather than tidy: the
+   * API client reads the token through `sessionRef`, and the first request a screen fires after
+   * sign-in can be dispatched from the same tick as the navigation — before the effect that syncs
+   * the ref has run. Waiting for the commit would send that one request unauthenticated, get a 401,
+   * and sign the operator straight back out of the session they just opened.
+   */
+  const adopt = useCallback((next: AdminSession): AdminSession => {
     saveSession(next);
     sessionRef.current = next;
     setSession(next);
@@ -108,6 +117,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setNow(Date.now());
     return next;
   }, []);
+
+  const signIn = useCallback(
+    async (code: string): Promise<AdminSession> => adopt(await authApi.exchangeBotCode(code.trim())),
+    [adopt],
+  );
+
+  /**
+   * The password is passed through UNTOUCHED while the username is trimmed, and the asymmetry is
+   * deliberate: leading and trailing spaces are legal in a password, and a console that quietly ate
+   * them would turn one operator into a permanent, unexplainable authentication failure.
+   */
+  const signInWithAgent = useCallback(
+    async (credentials: AgentSignInBody): Promise<AdminSession> =>
+      adopt(
+        await authApi.signInWithAgent({
+          username: credentials.username.trim(),
+          password: credentials.password,
+          // Spread rather than assigned: an absent operator must be ABSENT from the JSON, not
+          // present as undefined, or the backend rejects the body under forbidNonWhitelisted.
+          ...(credentials.operatorSlug === undefined
+            ? {}
+            : { operatorSlug: credentials.operatorSlug }),
+        }),
+      ),
+    [adopt],
+  );
 
   const setTenantId = useCallback((next: string | null) => {
     tenantRef.current = next;
@@ -134,12 +169,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       expiresInMs: session === null ? 0 : millisecondsUntilExpiry(session, now),
       expiringSoon: session !== null && isExpiringSoon(session, now),
       signIn,
+      signInWithAgent,
       signOut,
       can: (capability: Capability) => roleCan(role, capability),
       tenantId,
       setTenantId,
     };
-  }, [session, signOutReason, now, signIn, signOut, tenantId, setTenantId]);
+  }, [session, signOutReason, now, signIn, signInWithAgent, signOut, tenantId, setTenantId]);
 
   return <AuthContext value={value}>{children}</AuthContext>;
 }

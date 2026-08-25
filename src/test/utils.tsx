@@ -12,7 +12,7 @@ import type { ReactElement, ReactNode } from 'react';
 
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { configureApiClient } from '@/lib/api/client';
-import { AuthContext, type AuthState } from '@/lib/auth/auth-context';
+import { AuthContext, type AuthState, type SignOutReason } from '@/lib/auth/auth-context';
 import { can } from '@/lib/auth/permissions';
 import { LOCALE_STORAGE_KEY } from '@/lib/i18n/i18n-context';
 import { I18nProvider } from '@/lib/i18n/i18n-provider';
@@ -57,7 +57,10 @@ export interface AuthOverrides {
   role?: AdminRole;
   isAuthenticated?: boolean;
   isRestoring?: boolean;
+  /** Why the last session ended, so the login screen can be tested saying so. */
+  signOutReason?: SignOutReason | null;
   signIn?: AuthState['signIn'];
+  signInWithAgent?: AuthState['signInWithAgent'];
   signOut?: AuthState['signOut'];
   tenantId?: string | null;
 }
@@ -73,10 +76,12 @@ export function createTestAuth(overrides: AuthOverrides = {}): AuthState {
     role: isAuthenticated ? role : null,
     isAuthenticated,
     isRestoring: overrides.isRestoring ?? false,
-    signOutReason: null,
+    signOutReason: overrides.signOutReason ?? null,
     expiresInMs: isAuthenticated ? 60 * 60_000 : 0,
     expiringSoon: false,
     signIn: overrides.signIn ?? (() => Promise.resolve(createTestSession(role))),
+    signInWithAgent:
+      overrides.signInWithAgent ?? (() => Promise.resolve(createTestSession(role))),
     signOut: overrides.signOut ?? (() => undefined),
     can: (capability) => (isAuthenticated ? can(role, capability) : false),
     tenantId: overrides.tenantId ?? null,

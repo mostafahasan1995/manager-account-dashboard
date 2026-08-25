@@ -1,6 +1,4 @@
-import type { Page } from '@playwright/test';
-
-import { DEMO_CODE, expect, test } from './fixtures';
+import { DEMO_CODE, expect, signInWithCode, test } from './fixtures';
 
 /**
  * The platform login: one account that runs every operator on the platform.
@@ -13,12 +11,12 @@ import { DEMO_CODE, expect, test } from './fixtures';
 
 const PLATFORM_CODE = '111111';
 
-async function signIn(page: Page, code: string) {
-  await page.goto('/login');
-  await page.getByLabel(/one-time code/i).fill(code);
-  await page.getByRole('button', { name: /sign in/i }).click();
-  await expect(page).not.toHaveURL(/\/login/);
-}
+/*
+ * Shared with the rest of the suite rather than copied here, now that sign-in has two doors and the
+ * code lives behind one of them. The local copy this replaces was already a second place that had
+ * to know where the code field is — which is exactly what went stale when the screen grew a tab.
+ */
+const signIn = signInWithCode;
 
 test('a platform login lands on the operator list, not on somebody else’s queue', async ({
   page,
