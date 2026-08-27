@@ -34,9 +34,7 @@ describe('SettingsPage', () => {
   it('gathers the session, the access list, appearance and the connection on one screen', async () => {
     render('SUPER_ADMIN');
 
-    expect(
-      await screen.findByRole('heading', { name: 'Settings', level: 1 }),
-    ).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Settings', level: 1 })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'You' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Your access' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Appearance' })).toBeInTheDocument();
@@ -62,9 +60,7 @@ describe('SettingsPage', () => {
   it('opens for every signed-in role, including one with almost no capabilities', async () => {
     render('VIEWER');
 
-    expect(
-      await screen.findByRole('heading', { name: 'Settings', level: 1 }),
-    ).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Settings', level: 1 })).toBeInTheDocument();
     expect(screen.getByText('Viewer')).toBeInTheDocument();
   });
 });
@@ -78,9 +74,7 @@ describe('SettingsPage in Arabic', () => {
   it('says everything in Arabic, from the page heading down to the health badge', async () => {
     render('SUPER_ADMIN', 'ar');
 
-    expect(
-      await screen.findByRole('heading', { name: 'الإعدادات', level: 1 }),
-    ).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'الإعدادات', level: 1 })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'حسابك' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'صلاحياتك' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'المظهر' })).toBeInTheDocument();

@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 
-import { THEME_STORAGE_KEY, ThemeContext, type ThemePreference, type ThemeState } from './theme-context';
+import {
+  THEME_STORAGE_KEY,
+  ThemeContext,
+  type ThemePreference,
+  type ThemeState,
+} from './theme-context';
 
 const isPreference = (value: unknown): value is ThemePreference =>
   value === 'light' || value === 'dark' || value === 'system';

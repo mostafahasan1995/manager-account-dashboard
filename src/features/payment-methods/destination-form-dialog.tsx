@@ -1,6 +1,6 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useEffect, useMemo } from 'react';
-import { Controller, useForm } from 'react-hook-form';
+import { Controller, useForm, useWatch } from 'react-hook-form';
 import { toast } from 'sonner';
 import { z } from 'zod';
 
@@ -30,6 +30,7 @@ import type {
 import { Field, ReadOnlyField, ToggleField } from './form-field';
 import { railMessages, type RailTranslator } from './messages';
 import { isRoundTrippableAmount, normaliseAmount } from './rail-money';
+import { chainAddressProblem, detectWalletNetwork } from './wallet-address';
 
 /**
  * Create and edit a destination — the account a player is actually told to send money to.
@@ -42,7 +43,13 @@ import { isRoundTrippableAmount, normaliseAmount } from './rail-money';
  * Like the method form, the schema is built at render so its refusals speak the operator's language.
  */
 
-function destinationSchema(t: RailTranslator) {
+/**
+ * @param isChainRail whether this method pays on a blockchain — `rail === 'CRYPTO'`, and NOT the
+ * method's code. At create time there is no address yet to read a chain off, so the rail is the
+ * only signal available; it is also the only one that stays true when an operator names their
+ * method `USDT` instead of `USDT_TRC20`. See the header of ./wallet-address.
+ */
+function destinationSchema(t: RailTranslator, isChainRail: boolean) {
   const wholeNumberField = (max: number) =>
     z
       .string()
@@ -63,30 +70,65 @@ function destinationSchema(t: RailTranslator) {
       t('rails.validation.amountScale'),
     );
 
-  return z.object({
-    label: z
-      .string()
-      .trim()
-      .min(1, t('rails.validation.destinationLabel'))
-      .max(120, t('rails.validation.tooLong')),
-    accountIdentifier: z
-      .string()
-      .trim()
-      .min(1, t('rails.validation.accountRequired'))
-      .max(200, t('rails.validation.tooLong')),
-    accountHolder: z.string().trim().max(160, t('rails.validation.tooLong')),
-    priority: wholeNumberField(999),
-    dailyCap: capField,
-    notes: z.string().trim().max(1_000, t('rails.validation.tooLong')),
-    isActive: z.boolean(),
-  });
+  return (
+    z
+      .object({
+        label: z
+          .string()
+          .trim()
+          .min(1, t('rails.validation.destinationLabel'))
+          .max(120, t('rails.validation.tooLong')),
+        accountIdentifier: z
+          .string()
+          .trim()
+          .min(1, t('rails.validation.accountRequired'))
+          .max(200, t('rails.validation.tooLong'))
+          // Only on a chain rail. Every other rail takes an account number whose shape this console
+          // has no business asserting — a rule that rejected a valid Syriatel number would be a worse
+          // bug than the one it was added to prevent.
+          .superRefine((value, ctx) => {
+            if (!isChainRail) return;
+            const problem = chainAddressProblem(value);
+            if (problem === null) return;
+            ctx.addIssue({ code: 'custom', message: t(problem) });
+          }),
+        /**
+         * Not a field, a speed bump. Format validation cannot tell a well-formed address of yours from
+         * a well-formed address of somebody else's, and the wrong-clipboard paste is the failure that
+         * actually happens. Nothing but a human comparing characters catches that, so this asks for it
+         * once — at the only moment it is still free, because the address cannot be edited afterwards.
+         */
+        addressConfirmed: z.boolean(),
+        accountHolder: z.string().trim().max(160, t('rails.validation.tooLong')),
+        priority: wholeNumberField(999),
+        dailyCap: capField,
+        notes: z.string().trim().max(1_000, t('rails.validation.tooLong')),
+        isActive: z.boolean(),
+      })
+      // Object-level, because the tick is only meaningful once the address it refers to has passed
+      // its own checks. On edit the field is locked and the default is already true.
+      .refine((values) => !isChainRail || values.addressConfirmed, {
+        message: t('rails.validation.walletUnconfirmed'),
+        path: ['addressConfirmed'],
+      })
+  );
 }
+
+/**
+ * A shape to compare against, not an address to copy. A real contract address (Tether’s own on
+ * Tron), chosen because an operator glancing between the placeholder and their phone is checking
+ * length and prefix — which a row of Xs would not show them. One example rather than one per chain:
+ * the field accepts either chain now, and the placeholder is only visible while it is empty.
+ */
+const CHAIN_ADDRESS_PLACEHOLDER = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t';
+const ACCOUNT_PLACEHOLDER = 'SY84 0000 0000 0001 2345';
 
 type DestinationFormValues = z.infer<ReturnType<typeof destinationSchema>>;
 
 const CREATE_DEFAULTS: DestinationFormValues = {
   label: '',
   accountIdentifier: '',
+  addressConfirmed: false,
   accountHolder: '',
   priority: '1',
   dailyCap: '',
@@ -99,6 +141,8 @@ function toFormValues(destination: PaymentDestination | null): DestinationFormVa
   return {
     label: destination.label,
     accountIdentifier: destination.accountIdentifier,
+    // Already saved, and locked. Nothing is left to confirm.
+    addressConfirmed: true,
     accountHolder: destination.accountHolder ?? '',
     priority: String(destination.priority),
     dailyCap: destination.dailyCap ?? '',
@@ -123,7 +167,8 @@ export function DestinationFormDialog({
   const createDestination = useCreateDestination();
   const updateDestination = useUpdateDestination();
 
-  const schema = useMemo(() => destinationSchema(t), [t]);
+  const isChainRail = method.rail === 'CRYPTO';
+  const schema = useMemo(() => destinationSchema(t, isChainRail), [t, isChainRail]);
 
   const {
     control,
@@ -136,6 +181,18 @@ export function DestinationFormDialog({
     resolver: zodResolver(schema),
     defaultValues: toFormValues(destination),
   });
+
+  /*
+   * The chain of whatever is in the box right now — echoed beside the read-back tick.
+   *
+   * This is what replaced the old code table's cross-network refusal. Nothing here knows which
+   * chain a rail is "supposed" to pay on any more, so the console cannot refuse the other one; what
+   * it can do is put the chain it READ in front of the person being asked to confirm the address.
+   * Somebody who pasted the BEP20 address out of the other rail's clipboard sees the word BEP20 on
+   * a rail they think of as TRC20, which is the moment the mistake is still free to fix.
+   */
+  const typedAccount = useWatch({ control, name: 'accountIdentifier' });
+  const pastedNetwork = isChainRail ? detectWalletNetwork(typedAccount.trim()) : null;
 
   useEffect(() => {
     if (open) reset(toFormValues(destination));
@@ -180,9 +237,7 @@ export function DestinationFormDialog({
     } catch (caught) {
       setError('root', { message: errorMessage(caught) });
       toast.error(
-        destination === null
-          ? t('rails.destination.addFailed')
-          : t('rails.destination.saveFailed'),
+        destination === null ? t('rails.destination.addFailed') : t('rails.destination.saveFailed'),
         { description: errorMessage(caught) },
       );
     }
@@ -245,24 +300,55 @@ export function DestinationFormDialog({
             </Field>
 
             {destination === null ? (
-              <Field
-                id="destination-account"
-                label={t('rails.field.account')}
-                error={errors.accountIdentifier?.message}
-                hint={t('rails.form.accountHint')}
-                className="sm:col-span-2"
-              >
-                {(a11y) => (
-                  <Input
-                    {...a11y}
-                    {...register('accountIdentifier')}
-                    placeholder="SY84 0000 0000 0001 2345"
-                    autoComplete="off"
-                    spellCheck={false}
-                    className="font-mono"
-                  />
+              <>
+                <Field
+                  id="destination-account"
+                  label={t('rails.field.account')}
+                  error={errors.accountIdentifier?.message}
+                  hint={isChainRail ? t('rails.form.walletHint') : t('rails.form.accountHint')}
+                  className="sm:col-span-2"
+                >
+                  {(a11y) => (
+                    <Input
+                      {...a11y}
+                      {...register('accountIdentifier')}
+                      placeholder={isChainRail ? CHAIN_ADDRESS_PLACEHOLDER : ACCOUNT_PLACEHOLDER}
+                      autoComplete="off"
+                      spellCheck={false}
+                      // Monospace so a transposition is visible, and wrapping so a 42-character
+                      // address can be read back in full rather than scrolled through.
+                      className="font-mono break-all"
+                    />
+                  )}
+                </Field>
+
+                {!isChainRail ? null : (
+                  <div className="sm:col-span-2">
+                    <Controller
+                      control={control}
+                      name="addressConfirmed"
+                      render={({ field }) => (
+                        <ToggleField
+                          id="destination-address-confirmed"
+                          label={t('rails.form.walletConfirm')}
+                          description={
+                            pastedNetwork === null
+                              ? undefined
+                              : t('rails.form.walletDetected', { network: pastedNetwork })
+                          }
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                        />
+                      )}
+                    />
+                    {errors.addressConfirmed === undefined ? null : (
+                      <p className="mt-1 text-xs text-[var(--danger)]">
+                        {errors.addressConfirmed.message}
+                      </p>
+                    )}
+                  </div>
                 )}
-              </Field>
+              </>
             ) : (
               <ReadOnlyField
                 label={t('rails.field.account')}
@@ -347,9 +433,7 @@ export function DestinationFormDialog({
               {t('common.cancel')}
             </Button>
             <Button type="submit" variant="primary" loading={isSubmitting}>
-              {destination === null
-                ? t('rails.destination.add')
-                : t('rails.form.saveChanges')}
+              {destination === null ? t('rails.destination.add') : t('rails.form.saveChanges')}
             </Button>
           </DialogFooter>
         </form>

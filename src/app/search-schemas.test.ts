@@ -134,6 +134,66 @@ describe('tenantSearchSchema', () => {
   });
 });
 
+/**
+ * The boolean filters, which used to read every one of these as YES.
+ *
+ * `z.coerce.boolean()` is `Boolean(value)`, and `Boolean('false')` is true. The console writes real
+ * JSON booleans so its own links were fine; a hand-edited `?linked=no` filtered to LINKED, and
+ * nothing looked broken. These cases are table-driven because the failure was uniform across six
+ * different filters and would come back the same way.
+ */
+const TRUTHY = [true, 1, 'true', 'TRUE', ' True ', '1'] as const;
+const FALSY = [false, 0, 'false', 'FALSE', ' false ', '0'] as const;
+/** Not `false` — ABSENT. Reading these as false would invent a filter nobody asked for. */
+const NEITHER = ['no', 'off', 'maybe', '', '  ', 'yes', 'on', 2, -1] as const;
+
+describe('boolean filters', () => {
+  it.each(TRUTHY)('reads %o as true', (value) => {
+    expect(playerSearchSchema.parse({ linked: value }).linked).toBe(true);
+  });
+
+  it.each(FALSY)('reads %o as false', (value) => {
+    expect(playerSearchSchema.parse({ linked: value }).linked).toBe(false);
+  });
+
+  it.each(NEITHER)('reads %o as absent, never as true', (value) => {
+    expect(playerSearchSchema.parse({ linked: value }).linked).toBeUndefined();
+  });
+
+  it('leaves an unsupplied filter absent', () => {
+    expect(playerSearchSchema.parse({}).linked).toBeUndefined();
+  });
+
+  /*
+   * Every schema that uses the parser, not just the one above: the bug was in the shared helper, so
+   * a fix that only reached `linked` would leave five other filters lying in exactly the same way.
+   */
+  it('applies to every filter built on it', () => {
+    expect(depositSearchSchema.parse({ unclaimedOnly: 'no' }).unclaimedOnly).toBeUndefined();
+    expect(depositSearchSchema.parse({ unclaimedOnly: 'false' }).unclaimedOnly).toBe(false);
+
+    expect(staffSearchSchema.parse({ isActive: 'no' }).isActive).toBeUndefined();
+    expect(staffSearchSchema.parse({ isActive: 'false' }).isActive).toBe(false);
+
+    expect(paymentMethodSearchSchema.parse({ isActive: 'no' }).isActive).toBeUndefined();
+    expect(paymentMethodSearchSchema.parse({ isActive: 'false' }).isActive).toBe(false);
+
+    const inactive = paymentMethodSearchSchema.parse({ includeInactiveDestinations: 'False' });
+    expect(inactive.includeInactiveDestinations).toBe(false);
+    expect(
+      paymentMethodSearchSchema.parse({ includeInactiveDestinations: 'off' })
+        .includeInactiveDestinations,
+    ).toBeUndefined();
+
+    expect(tenantSearchSchema.parse({ create: 'no' }).create).toBeUndefined();
+    expect(tenantSearchSchema.parse({ create: 'true' }).create).toBe(true);
+  });
+
+  it('survives a shape it cannot read at all, rather than throwing inside a route', () => {
+    expect(playerSearchSchema.parse({ linked: { nope: true } }).linked).toBeUndefined();
+  });
+});
+
 describe('pruneSearch', () => {
   it('removes cleared filters so they leave the URL instead of becoming empty params', () => {
     expect(

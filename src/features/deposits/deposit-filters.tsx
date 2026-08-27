@@ -23,7 +23,13 @@ import {
   type DepositStatus,
 } from '@/types/enums';
 
-import { hasActiveFilters, hasAdvancedFilters, isPlainAmount, sameStatusSet, toDayInput } from './deposit-model';
+import {
+  hasActiveFilters,
+  hasAdvancedFilters,
+  isPlainAmount,
+  sameStatusSet,
+  toDayInput,
+} from './deposit-model';
 import { useDepositNavigation, useDepositSearch } from './deposit-url';
 import { depositMessages } from './messages';
 

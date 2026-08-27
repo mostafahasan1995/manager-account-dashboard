@@ -534,8 +534,7 @@ export const tenantMessages = defineMessages({
     'tenants.ichancy.checkedAt': 'آخر فحص',
     'tenants.ichancy.test': 'اختبار الاتصال',
     'tenants.ichancy.edit': 'تعديل البيانات',
-    'tenants.ichancy.notShared':
-      'لا مشغّل آخر موجَّه إلى وكيل Ichancy هذا، فجلسته له وحده.',
+    'tenants.ichancy.notShared': 'لا مشغّل آخر موجَّه إلى وكيل Ichancy هذا، فجلسته له وحده.',
     'tenants.ichancy.sharedTitle': {
       zero: 'لا مشغّل آخر يستخدم وكيل Ichancy هذا',
       one: 'وكيل Ichancy هذا مشترك مع مشغّل آخر واحد',
@@ -696,7 +695,8 @@ export const tenantMessages = defineMessages({
     'tenants.role.SUPER_ADMIN':
       'أعلى صلاحية داخل مشغّل واحد. كل ما فيه، بما في ذلك الموظفون وحدود الموافقة.',
     'tenants.role.FINANCE_ADMIN': 'يقرّر في الإيداعات، ويدير قنوات الدفع، ويعالج فروقات التسوية.',
-    'tenants.role.REVIEWER': 'يراجع الإيداعات ويقرّر فيها. لا يستطيع تغيير قنوات الدفع ولا الموظفين.',
+    'tenants.role.REVIEWER':
+      'يراجع الإيداعات ويقرّر فيها. لا يستطيع تغيير قنوات الدفع ولا الموظفين.',
     'tenants.role.SUPPORT':
       'يطّلع على اللاعبين والإيداعات وقنوات الدفع للإجابة على الأسئلة. لا يقرّر شيئاً.',
     'tenants.role.VIEWER': 'اطّلاع فقط على قائمة الإيداعات والتسوية.',

@@ -184,9 +184,7 @@ export function StaffDetailPage() {
               </DetailRow>
               <DetailRow label={t('staff.column.lastLogin')}>
                 {row.lastLoginAt === null ? (
-                  <span className="text-[var(--muted-foreground)]">
-                    {t('staff.neverSignedIn')}
-                  </span>
+                  <span className="text-[var(--muted-foreground)]">{t('staff.neverSignedIn')}</span>
                 ) : (
                   <TimeAgo value={row.lastLoginAt} />
                 )}

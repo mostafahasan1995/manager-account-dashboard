@@ -24,32 +24,32 @@ no backend, no database and no Telegram bot. Sign in either way:
 
 ## What it does
 
-| Screen             | For                                                                                    |
-| ------------------ | -------------------------------------------------------------------------------------- |
-| **Overview**       | What is waiting, what is unclaimed, what is stuck, what the books disagree about        |
-| **Deposits**       | The review queue: claim, read the proof, approve or reject, retry a failed credit       |
-| **Players**        | Find an account while the player is on the phone; create it, or debit it back            |
-| **Payment rails**  | Methods and the destination accounts players actually send money to                     |
-| **Reconciliation** | Breaks, agent-float sync, rail ageing, ledger invariant checks                          |
-| **Staff**          | Who may decide money, and the versioned approval limits that bound them                 |
-| **Tenants**        | Platform administration: create, configure, activate and suspend operators              |
-| **Settings**       | Your access, appearance, the API it is pointed at, and its live health                  |
+| Screen             | For                                                                               |
+| ------------------ | --------------------------------------------------------------------------------- |
+| **Overview**       | What is waiting, what is unclaimed, what is stuck, what the books disagree about  |
+| **Deposits**       | The review queue: claim, read the proof, approve or reject, retry a failed credit |
+| **Players**        | Find an account while the player is on the phone; create it, or debit it back     |
+| **Payment rails**  | Methods and the destination accounts players actually send money to               |
+| **Reconciliation** | Breaks, agent-float sync, rail ageing, ledger invariant checks                    |
+| **Staff**          | Who may decide money, and the versioned approval limits that bound them           |
+| **Tenants**        | Platform administration: create, configure, activate and suspend operators        |
+| **Settings**       | Your access, appearance, the API it is pointed at, and its live health            |
 
 ---
 
 ## How it is built
 
-| Concern       | Choice                          | Why this one                                                              |
-| ------------- | ------------------------------- | ------------------------------------------------------------------------- |
-| Build         | Vite 8 + React 19 + TypeScript 6 | Strictest settings the toolchain offers; see `tsconfig.json`               |
-| Routing       | TanStack Router                 | Typed search params — every filter lives in the URL, not in component state |
-| Server state  | TanStack Query                  | Cursor/offset pagination, polling on the live queues, prefix invalidation  |
-| Tables        | TanStack Table                  | Real `<table>` semantics with column logic that stays out of the markup    |
-| Styling       | Tailwind v4 + CSS variables     | One token set, light and dark, no palette colours in components            |
-| Components    | Radix primitives                | Accessible dialogs, menus and selects without reimplementing focus traps   |
-| Forms         | react-hook-form + zod           | The same validation rules the backend enforces, stated once                |
-| Tests         | Vitest + Testing Library + MSW  | The mock API is the same one demo mode runs on                             |
-| E2E           | Playwright                      | The real bundle, driven end to end, still with no backend required         |
+| Concern      | Choice                           | Why this one                                                                |
+| ------------ | -------------------------------- | --------------------------------------------------------------------------- |
+| Build        | Vite 8 + React 19 + TypeScript 6 | Strictest settings the toolchain offers; see `tsconfig.json`                |
+| Routing      | TanStack Router                  | Typed search params — every filter lives in the URL, not in component state |
+| Server state | TanStack Query                   | Cursor/offset pagination, polling on the live queues, prefix invalidation   |
+| Tables       | TanStack Table                   | Real `<table>` semantics with column logic that stays out of the markup     |
+| Styling      | Tailwind v4 + CSS variables      | One token set, light and dark, no palette colours in components             |
+| Components   | Radix primitives                 | Accessible dialogs, menus and selects without reimplementing focus traps    |
+| Forms        | react-hook-form + zod            | The same validation rules the backend enforces, stated once                 |
+| Tests        | Vitest + Testing Library + MSW   | The mock API is the same one demo mode runs on                              |
+| E2E          | Playwright                       | The real bundle, driven end to end, still with no backend required          |
 
 ### The rules the code follows
 
@@ -99,7 +99,7 @@ npm run typecheck    tsc --noEmit
 npm run lint         eslint (type-aware, strict)
 npm run test         vitest, once
 npm run test:watch   vitest, watching
-npm run test:cov     vitest with coverage (gated at 85% lines / 80% branches)
+npm run test:cov     vitest with coverage (gated at 91% lines / 90% statements / 89% functions / 84% branches)
 npm run e2e          Playwright against the built bundle with the mock API
 npm run verify       typecheck + lint + coverage — what CI runs
 ```
@@ -110,12 +110,16 @@ npm run verify       typecheck + lint + coverage — what CI runs
 
 `.env.local` (copy from `.env.example`):
 
-| Variable                     | Default                 | Meaning                                            |
-| ---------------------------- | ----------------------- | -------------------------------------------------- |
-| `VITE_API_BASE_URL`          | `http://localhost:3000` | The cashier backend. No trailing slash.            |
-| `VITE_APP_NAME`              | `Cashier Console`       | Shown in the sidebar and the browser title.        |
-| `VITE_ENABLE_MOCKS`          | `false`                 | Boots the in-browser mock API instead of the backend. |
-| `VITE_TENANT_HEADER_ENABLED` | `false`                 | Sends `X-Tenant-Id`. Leave off — see below.        |
+| Variable                     | Default                       | Meaning                                                                    |
+| ---------------------------- | ----------------------------- | -------------------------------------------------------------------------- |
+| `VITE_API_BASE_URL`          | `http://localhost:3000`       | The cashier backend. No trailing slash.                                    |
+| `VITE_APP_NAME`              | `Cashier Console`             | Shown in the sidebar and the browser title.                                |
+| `VITE_ENABLE_MOCKS`          | `false`                       | Boots the in-browser mock API instead of the backend.                      |
+| `VITE_TENANT_HEADER_ENABLED` | `false` (`.env` ships `true`) | Sends `X-Tenant-Id`, so one platform login runs every operator. See below. |
+
+The compiled fallback for the last row is `false` and the shipped `.env` files set `true`, and the
+difference is deliberate: the backend does carry the tenant claim, so `true` is right — but an
+absent variable must fail safe rather than assume it.
 
 ### Pointing it at a real backend
 
@@ -135,6 +139,7 @@ npm run verify       typecheck + lint + coverage — what CI runs
    >
    > (5173 is `npm run dev`, 4173 is `npm run preview`.) The console's own error message names the
    > origin your browser is using, so you can paste it straight in.
+
 4. Sign in. An **operator** uses its own Ichancy agent username and password — the account its
    players are registered under — and lands as that operator's super admin. Everyone else, the
    **platform admin** included, sends `/console` to the tenant's Telegram bot and signs in with the
@@ -142,22 +147,39 @@ npm run verify       typecheck + lint + coverage — what CI runs
 
 ---
 
-## The tenant gap — please read before enabling the switcher
+## The operator switcher — closed 2026-08-25
 
-The backend's multi-tenancy is real for bot traffic, queues and crons: the webhook path token selects
-the tenant and a Prisma extension scopes every query.
+This section used to describe a gap. It is closed, and what follows is the verification rather than
+the plan, because the flag it concerns is the one whose whole purpose is to stop the console showing
+one operator's money under another's name.
 
-**HTTP admin requests carry no tenant claim yet.** The access token holds `sub, tgid, role, sid` and
-nothing else, and no middleware enters a tenant context for `/v1/admin/*`, so every screen except
-Tenants answers for tenant zero. The backend's own `plan-multitenant.md` lists "HTTP tenant claim" as
-still open.
+The backend carries the tenant claim end to end:
 
-So the console says so, in a banner, and ships the switcher behind `VITE_TENANT_HEADER_ENABLED`
-(default off). Turning it on before the backend reads the header would produce a console that looks
-multi-tenant while quietly showing one tenant's money under another's name.
+- the admin access token holds `tid`, the caller's **home** operator, signed at sign-in;
+- `tenant-context.middleware.ts` enters that tenant for every request, before any guard;
+- `TenantOverrideInterceptor` then lets a `PLATFORM_ADMIN` whose row is in tenant zero point one
+  request at a different operator with `X-Tenant-Id` — and **silently ignores the header from
+  everybody else**, because answering 403 would turn it into an oracle for which operator ids exist.
 
-`docs/API-CONTRACT.md` section 5 lists exactly what the backend needs for this to become real. When
-it lands, flipping the flag is the only change needed here.
+Measured against the running API on 2026-08-25, one token, header varied:
+
+| `X-Tenant-Id`             | `GET /v1/admin/players` |
+| ------------------------- | ----------------------- |
+| absent                    | 3 rows (home operator)  |
+| tenant zero               | 3 rows                  |
+| another operator          | 1 row                   |
+| an id that does not exist | `400 VALIDATION_FAILED` |
+
+That last row matters as much as the others: an unknown operator is refused rather than quietly
+served as tenant zero, so a mistyped id costs a confused click instead of a conversation about
+numbers that were never real.
+
+So `VITE_TENANT_HEADER_ENABLED=true` is correct, `TenantNotice` is silent, and the switcher is real.
+Turn the flag **off** only when pointing this console at a backend older than that claim — there the
+header is ignored, every screen answers for tenant zero, and a switcher would be a lie.
+
+The switcher stays hidden from `SUPER_ADMIN` whatever the flag says, because the backend discards
+the header from non-platform roles and a choice the server throws away is worse than no choice.
 
 ---
 
@@ -169,6 +191,10 @@ it lands, flipping the flag is the only change needed here.
   `useSearch` and `useNavigate` behave exactly as they do in the app. Only auth is faked.
 - The router resolves routes asynchronously, so the first query in a test is a `findBy*`.
 - Coverage is gated in `vitest.config.ts`. Raise it, do not lower it.
+- Three files carry their own **per-file** gate — `money.ts`, `concurrency.ts`, `permissions.ts` —
+  because the global one cannot do that job. Deleting `money.test.ts` outright, 49 tests, moves the
+  global statement number by two tenths of a point; no survivable global threshold notices a single
+  file's tests going away, and one tuned tightly enough to try would turn red on every added `if`.
 
 ```
 npm run test:cov

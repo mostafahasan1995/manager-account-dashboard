@@ -18,10 +18,7 @@ const platformAdmin = { auth: { role: 'PLATFORM_ADMIN' as const } };
 
 describe('TenantStatusActions', () => {
   it('offers suspend for a live tenant and activate for a stopped one', () => {
-    const { unmount } = renderPlain(
-      <TenantStatusActions tenant={activeTenant} />,
-      platformAdmin,
-    );
+    const { unmount } = renderPlain(<TenantStatusActions tenant={activeTenant} />, platformAdmin);
     expect(screen.getByRole('button', { name: 'Suspend' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Activate' })).not.toBeInTheDocument();
     unmount();

@@ -20,8 +20,7 @@ import type { Locale } from './i18n/locales';
 
 const DATE_FNS_LOCALES: Record<Locale, DateFnsLocale> = { en: enGB, ar };
 
-const dateLocale = (locale: Locale | undefined): DateFnsLocale =>
-  DATE_FNS_LOCALES[locale ?? 'en'];
+const dateLocale = (locale: Locale | undefined): DateFnsLocale => DATE_FNS_LOCALES[locale ?? 'en'];
 
 export function toDate(value: string | Date | null | undefined): Date | null {
   if (value == null) return null;
@@ -30,10 +29,7 @@ export function toDate(value: string | Date | null | undefined): Date | null {
 }
 
 /** `21 Aug 2026, 16:42` — unambiguous in both languages. */
-export function formatDateTime(
-  value: string | Date | null | undefined,
-  locale?: Locale,
-): string {
+export function formatDateTime(value: string | Date | null | undefined, locale?: Locale): string {
   const date = toDate(value);
   return date === null ? '—' : format(date, 'd MMM yyyy, HH:mm', { locale: dateLocale(locale) });
 }

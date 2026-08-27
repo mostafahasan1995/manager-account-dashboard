@@ -50,7 +50,9 @@ export function SheetHeader({ className, ...props }: ComponentProps<'div'>) {
 }
 
 export function SheetBody({ className, ...props }: ComponentProps<'div'>) {
-  return <div className={cn('scrollbar-thin flex-1 overflow-y-auto px-6 py-4', className)} {...props} />;
+  return (
+    <div className={cn('scrollbar-thin flex-1 overflow-y-auto px-6 py-4', className)} {...props} />
+  );
 }
 
 export function SheetFooter({ className, ...props }: ComponentProps<'div'>) {

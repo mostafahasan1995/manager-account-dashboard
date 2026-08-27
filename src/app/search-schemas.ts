@@ -49,7 +49,51 @@ const optionalString = z
   .refine((value) => value.length > 0)
   .optional()
   .catch(undefined);
-const optionalBool = z.coerce.boolean().optional().catch(undefined);
+/**
+ * A boolean filter, which the router may hand us as a boolean, a number, or a string.
+ *
+ * ── WHY NOT `z.coerce.boolean()` ──────────────────────────────────────────────────────────────
+ * That is `Boolean(value)`, and `Boolean('false')` is `true`. The router `JSON.parse`s each search
+ * value and falls back to the raw string when that throws, so the console's own links — which write
+ * real JSON booleans — were fine, and `?linked=no`, `?unclaimedOnly=False` and `?isActive=off`
+ * arrived as strings and every one of them read as **yes**. A link that says "not linked" filtered
+ * to linked, silently, which is the worst way for a filter to be wrong: nothing looks broken.
+ *
+ * That only bites a hand-typed or hand-edited link. It is worth fixing anyway, because "a reviewer
+ * can send a colleague the exact queue they are looking at" is a property this file already goes to
+ * trouble to protect for string filters (see `optionalString` above) — booleans were simply missed.
+ *
+ * ── WHAT IS ACCEPTED, AND WHY THE REST IS ABSENT RATHER THAN FALSE ────────────────────────────
+ * Real booleans; the numbers `1` and `0`, which is what `?x=1` becomes after `JSON.parse`; and the
+ * strings `'true'`, `'false'`, `'1'`, `'0'`, case-insensitively. Anything else — `no`, `off`,
+ * `maybe`, an empty value — is treated as ABSENT, which is this file's stated rule for an
+ * unparseable filter (see the header): fall back to the default view. Reading `?linked=maybe` as
+ * `false` would be inventing a filter nobody asked for, and it would be just as silent as the bug
+ * it replaced.
+ *
+ * `yes` and `on` are deliberately NOT accepted. Guessing what somebody meant is how `'false'`
+ * became `true` in the first place.
+ */
+const BOOLEAN_WORDS: Readonly<Record<string, boolean>> = {
+  true: true,
+  '1': true,
+  false: false,
+  '0': false,
+};
+
+const optionalBool = z
+  .union([z.boolean(), z.number(), z.string()])
+  .transform((value) => {
+    if (typeof value === 'boolean') return value;
+    // `String(1)` rather than a numeric branch, so the number and the string forms of the same
+    // value cannot drift apart — `?x=1` is a number after JSON.parse and `?x=%31` is a string.
+    return BOOLEAN_WORDS[String(value).trim().toLowerCase()];
+  })
+  // AFTER the transform, not before: `.optional()` here is what makes the KEY optional in the
+  // inferred type. In front of the transform it would instead produce a required key that may hold
+  // undefined, which `exactOptionalPropertyTypes` rejects everywhere the search object is passed on.
+  .optional()
+  .catch(undefined);
 const pageLimit = z.coerce.number().int().min(1).max(100).optional().catch(undefined);
 const pageOffset = z.coerce.number().int().min(0).optional().catch(undefined);
 

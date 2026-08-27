@@ -31,8 +31,16 @@ test('a platform login lands on the operator list, not on somebody else’s queu
 test('picking an operator changes what every other screen answers for', async ({ page }) => {
   await signIn(page, PLATFORM_CODE);
 
-  // Until another is chosen, the switcher names the operator the session belongs to.
-  await page.getByRole('button', { name: /tenant-zero/i }).click();
+  /*
+   * Until another is chosen, the switcher names the operator the session belongs to.
+   *
+   * `exact` is load-bearing. The trigger's accessible name is the slug alone; a menu item's is
+   * "Main operation tenant-zero", so the moment the operator list resolves and the menu opens, a
+   * substring match names two buttons. That made this a race rather than a failure — the first
+   * click opened the menu, and any actionability re-check resolved the locator again against two
+   * elements and died on strict mode. It passed alone and failed in a full parallel run.
+   */
+  await page.getByRole('button', { name: 'tenant-zero', exact: true }).click();
   await page.getByRole('menuitem', { name: /northern branch/i }).click();
   await expect(page.getByRole('button', { name: /northern branch/i }).first()).toBeVisible();
 

@@ -16,7 +16,7 @@ env:
 
 jobs:
   verify:
-    name: Typecheck, lint, test
+    name: Format, typecheck, lint, test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -27,6 +27,12 @@ jobs:
           cache: npm
 
       - run: npm ci
+
+      # First, because it is the cheapest step and the one whose failure is least interesting to
+      # read a stack trace for. Formatting drift costs attention in review that should be going to
+      # the money path; 88 files had already drifted before this step existed.
+      - name: Format
+        run: npm run format:check
 
       - name: Typecheck
         run: npm run typecheck

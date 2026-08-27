@@ -120,9 +120,7 @@ describe('SettingsConnection', () => {
     expect(await screen.findByText('Degraded')).toBeInTheDocument();
     expect(screen.getByText('worker')).toBeInTheDocument();
     expect(screen.getByText('No answer')).toBeInTheDocument();
-    expect(
-      screen.getByText('The backend reported no readiness indicators.'),
-    ).toBeInTheDocument();
+    expect(screen.getByText('The backend reported no readiness indicators.')).toBeInTheDocument();
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
   });
 

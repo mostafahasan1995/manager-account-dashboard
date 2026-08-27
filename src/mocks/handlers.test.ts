@@ -68,7 +68,7 @@ describe('operator health', () => {
     expect((await tenantsApi.health(TENANT_IDS.second)).bot.webhookMatches).toBe(true);
   });
 
-  it('gives a newly created operator a webhook nobody has registered', async () => {
+  it('registers a new operator webhook on create, as provision() does', async () => {
     const created = await tenantsApi.create({
       slug: 'harbour-kiosk',
       displayName: 'Harbour kiosk',
@@ -84,10 +84,27 @@ describe('operator health', () => {
       depositExpiryMinutes: 30,
     });
 
+    /*
+     * This assertion used to be the opposite, and the change is the point. Creating an operator
+     * left a webhook path in the database that Telegram had never heard of, so a brand-new bot
+     * received nothing and nobody could sign into it. `TenantService.provision()` closed that: the
+     * webhook is registered, the command menus are pushed and the rails are seeded, all on create.
+     */
     const health = await tenantsApi.health(created.id);
-    expect(health.bot.webhookUrl).toBeNull();
-    expect(health.bot.ok).toBe(false);
+    expect(health.bot.webhookUrl).toContain('/telegram/webhook/');
+    expect(health.bot.webhookMatches).toBe(true);
     expect(health.counts).toEqual({ players: 0, deposits: 0 });
+
+    // And the create response says so, rather than leaving the console to go and ask.
+    expect(created.provisioning).toMatchObject({
+      webhookRegistered: true,
+      menusPushed: true,
+      paymentMethodsCreated: 4,
+      // The one step a mock cannot honestly do: there is no Ichancy here to prove the agent with.
+      activated: false,
+      // Every seeded rail points at a placeholder until somebody enters a real account.
+      paymentMethodsNeedAccounts: true,
+    });
   });
 });
 

@@ -41,7 +41,8 @@ export const reconMessages = defineMessages({
     'recon.field.dedupeKey': 'Dedupe key',
 
     // ── Filters ──────────────────────────────────────────────────────────────────────────────
-    'recon.filters.statusHint': 'With nothing ticked the queue falls back to open and investigating.',
+    'recon.filters.statusHint':
+      'With nothing ticked the queue falls back to open and investigating.',
     'recon.filters.minSeverity': 'Minimum severity',
     'recon.filters.anySeverity': 'Any severity',
     'recon.filters.severityAndAbove': '{level} and above',
@@ -151,8 +152,7 @@ export const reconMessages = defineMessages({
     'recon.ledger.consistentBody': 'Every invariant held when the check ran.',
     'recon.ledger.inconsistent': 'Ledger not consistent',
     'recon.ledger.violationCount': {
-      one:
-        '{count} invariant did not hold. Each row below is a difference the ledger cannot explain from its own entries.',
+      one: '{count} invariant did not hold. Each row below is a difference the ledger cannot explain from its own entries.',
       other:
         '{count} invariants did not hold. Each row below is a difference the ledger cannot explain from its own entries.',
     },

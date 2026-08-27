@@ -171,8 +171,12 @@ describe('differsFrom', () => {
   const claimed = { minor: '150000', amount: '1500.00', currency: 'NSP' };
 
   it('compares by minor units, not by string', () => {
-    expect(differsFrom(claimed, { minor: '150000', amount: '1500.0', currency: 'NSP' })).toBe(false);
-    expect(differsFrom(claimed, { minor: '150001', amount: '1500.01', currency: 'NSP' })).toBe(true);
+    expect(differsFrom(claimed, { minor: '150000', amount: '1500.0', currency: 'NSP' })).toBe(
+      false,
+    );
+    expect(differsFrom(claimed, { minor: '150001', amount: '1500.01', currency: 'NSP' })).toBe(
+      true,
+    );
   });
 
   it('treats a missing side as "no difference to report"', () => {

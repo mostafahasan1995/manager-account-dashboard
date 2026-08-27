@@ -10,8 +10,7 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        primary:
-          'bg-[var(--primary)] text-[var(--primary-foreground)] hover:opacity-90 shadow-sm',
+        primary: 'bg-[var(--primary)] text-[var(--primary-foreground)] hover:opacity-90 shadow-sm',
         secondary:
           'bg-[var(--surface)] text-[var(--foreground)] border border-[var(--border-strong)] hover:bg-[var(--muted)]',
         ghost: 'text-[var(--foreground)] hover:bg-[var(--muted)]',
@@ -30,9 +29,7 @@ const buttonVariants = cva(
   },
 );
 
-export interface ButtonProps
-  extends ComponentProps<'button'>,
-    VariantProps<typeof buttonVariants> {
+export interface ButtonProps extends ComponentProps<'button'>, VariantProps<typeof buttonVariants> {
   asChild?: boolean;
   /** Shows a spinner and disables the button. Every mutation in this app uses it. */
   loading?: boolean;

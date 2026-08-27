@@ -77,13 +77,11 @@ export const playerMessages = defineMessages({
     'players.link.idempotentNote':
       'Safe to repeat: if the account already exists this changes nothing and says so.',
     'players.link.created': 'Ichancy account created',
-    'players.link.createdDescription':
-      '{name} can be credited now. Login {login}, agent {agent}.',
+    'players.link.createdDescription': '{name} can be credited now. Login {login}, agent {agent}.',
     'players.link.alreadyLinked': 'Already linked',
     'players.link.alreadyLinkedDescription':
       'Nothing was created — {name} already has login {login} on agent {agent}.',
-    'players.link.nothingCreated':
-      ' — this player already had an account, so nothing was created.',
+    'players.link.nothingCreated': ' — this player already had an account, so nothing was created.',
     'players.link.failed': 'Could not create the Ichancy account',
 
     'players.deposits.title': 'Recent deposits',
@@ -211,7 +209,8 @@ export const playerMessages = defineMessages({
     'players.link.notWaitingTitle': 'هذا اللاعب ليس بانتظار حساب',
     'players.link.notWaitingBody':
       'حالته ليست «{status}»، أي أن أحدهم أغلق الحساب أو أن الربط فشل سابقاً لسبب يستحق التحقق منه أولاً.',
-    'players.link.idempotentNote': 'التكرار آمن: إذا كان الحساب موجوداً فلن يتغيّر شيء وسيُقال لك ذلك.',
+    'players.link.idempotentNote':
+      'التكرار آمن: إذا كان الحساب موجوداً فلن يتغيّر شيء وسيُقال لك ذلك.',
     'players.link.created': 'تم إنشاء حساب Ichancy',
     'players.link.createdDescription':
       'يمكن الآن إضافة الرصيد لـ {name}. اسم الدخول {login}، الوكيل {agent}.',
@@ -244,7 +243,8 @@ export const playerMessages = defineMessages({
     'players.debit.amountLabel': 'المبلغ المطلوب سحبه ({currency})',
     'players.debit.amountPlaceholder': '0.00',
     'players.debit.amountRequired': 'أدخل المبلغ المطلوب سحبه.',
-    'players.debit.amountFormat': 'أرقام وخانتان عشريتان على الأكثر — 1500.00 وليس 1,500 ولا 1.5e3.',
+    'players.debit.amountFormat':
+      'أرقام وخانتان عشريتان على الأكثر — 1500.00 وليس 1,500 ولا 1.5e3.',
     'players.debit.amountTooSmall': 'يجب أن يكون المبلغ أكبر من صفر.',
     'players.debit.reasonLabel': 'السبب',
     'players.debit.reasonPlaceholder': 'لماذا يُسحب هذا المبلغ.',
@@ -263,7 +263,8 @@ export const playerMessages = defineMessages({
     'players.debit.back': 'رجوع',
     'players.debit.stop': 'توقّف هنا',
     'players.debit.confirmLabel': 'سحب {amount}',
-    'players.debit.sending': 'يجري إرسال الطلب إلى Ichancy. لا تغلق النافذة — العملية غير قابلة للتكرار.',
+    'players.debit.sending':
+      'يجري إرسال الطلب إلى Ichancy. لا تغلق النافذة — العملية غير قابلة للتكرار.',
     'players.debit.notLinkedTitle': 'هذا اللاعب لا يملك حساب Ichancy',
     'players.debit.notLinkedBody':
       'لا يوجد رصيد في الكازينو ليُسحب منه شيء. أنشئ الحساب أولاً، أو تأكد أنك على اللاعب الصحيح.',

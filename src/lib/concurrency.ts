@@ -56,7 +56,7 @@ export function createLimiter(max: number): Limiter {
   };
 
   return {
-    run: async <T,>(task: () => Promise<T>): Promise<T> => {
+    run: async <T>(task: () => Promise<T>): Promise<T> => {
       await acquire();
       try {
         return await task();

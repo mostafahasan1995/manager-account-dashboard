@@ -48,13 +48,7 @@ export function resetApiClient(): void {
 }
 
 export type QueryValue =
-  | string
-  | number
-  | boolean
-  | readonly string[]
-  | readonly number[]
-  | null
-  | undefined;
+  string | number | boolean | readonly string[] | readonly number[] | null | undefined;
 
 /**
  * `{ status: ['SUBMITTED','UNDER_REVIEW'], limit: 20, unclaimedOnly: undefined }`
@@ -158,7 +152,7 @@ function errorFromEnvelope(response: Response, payload: unknown): ApiError {
   const message =
     typeof error?.message === 'string'
       ? error.message
-      : (response.statusText || `Request failed with status ${response.status}`);
+      : response.statusText || `Request failed with status ${response.status}`;
 
   return new ApiError({
     status: response.status,

@@ -1,4 +1,10 @@
-import { CopyableValue, DetailList, DetailRow, PlayerStatusBadge, TimeAgo } from '@/components/common';
+import {
+  CopyableValue,
+  DetailList,
+  DetailRow,
+  PlayerStatusBadge,
+  TimeAgo,
+} from '@/components/common';
 import { Badge, Card, CardContent, CardHeader, CardTitle, Separator } from '@/components/ui';
 import { useT } from '@/lib/i18n/use-translation';
 import type { AdminPlayer } from '@/types/player';

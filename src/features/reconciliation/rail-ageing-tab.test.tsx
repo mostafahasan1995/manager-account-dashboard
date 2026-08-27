@@ -39,9 +39,9 @@ describe('RailAgeingTab', () => {
 
     await screen.findByText('RAIL_CLEARING:BANK_SYR');
 
-    expect(
-      screen.getByText(/never been matched to a bank statement/i),
-    ).toHaveTextContent('RAIL_CLEARING:BANK_SYR');
+    expect(screen.getByText(/never been matched to a bank statement/i)).toHaveTextContent(
+      'RAIL_CLEARING:BANK_SYR',
+    );
     expect(within(cardFor('RAIL_CLEARING:BANK_SYR')).getByText(/stale/i)).toBeInTheDocument();
     expect(
       within(cardFor('RAIL_CLEARING:MOBILE_WALLET')).queryByText(/stale/i),

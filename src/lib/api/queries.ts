@@ -18,7 +18,6 @@ import type {
   CreatePaymentDestinationBody,
   CreatePaymentMethodBody,
   CreateTenantBody,
-  CreditPlayerBody,
   DebitPlayerBody,
   DepositQueueQuery,
   PaymentMethodListQuery,
@@ -32,21 +31,30 @@ import type {
   UpdateTenantBody,
   UpdateTenantBotBody,
   UpdateTenantIchancyBody,
+  UpdatePlatformDefaultsBody,
+  SetExchangeRateBody,
 } from '@/types';
 
 import {
   adminsApi,
+  agentFloatApi,
+  depositChainChecksApi,
   depositsApi,
   healthApi,
   paymentMethodsApi,
   playersApi,
   reconciliationApi,
   tenantsApi,
+  exchangeRatesApi,
+  platformDefaultsApi,
+  walletBalancesApi,
 } from './endpoints';
 import { isAbortError } from '@/lib/utils';
 
 import {
   adminKeys,
+  agentFloatKeys,
+  depositChainCheckKeys,
   depositKeys,
   healthKeys,
   paymentMethodKeys,
@@ -54,22 +62,67 @@ import {
   reconciliationKeys,
   tenantHealthKeys,
   tenantKeys,
+  exchangeRateKeys,
+  platformDefaultsKeys,
+  walletBalanceKeys,
 } from './query-keys';
 
 /**
  * The React-facing half of the API layer: one hook per thing a screen needs.
  *
- * Two conventions worth knowing:
- *   - **Lists that change under you** (the deposit queue, open breaks) poll. A reviewer must not
- *     spend a minute on a deposit a colleague already took.
+ * Three conventions worth knowing:
  *   - **Every mutation invalidates by prefix**, never by exact key, so a decision made from the
  *     detail page refreshes the queue behind it regardless of the filters that queue is holding.
+ *   - **Coming back to the tab refetches.** That is the signal that actually correlates with a
+ *     human being present, and it costs nothing while nobody is looking.
+ *   - **Almost nothing polls**, and what does, polls slowly. See below.
+ *
+ * ══ WHY THE TIMERS WERE CUT ═══════════════════════════════════════════════════════════════════
+ * The overview alone used to run FIVE deposit queries at 15s, a break list at 60s and two health
+ * probes at 30s: about 25 requests a minute, per open tab, for ever. Measured on a real console
+ * with an empty queue it was 475 requests and 714 kB, and every one of them re-answered the same
+ * nine stuck deposits — rows that had not changed in days and could not change without somebody in
+ * this console doing something, which already invalidates them.
+ *
+ * The root of it was `refetchOnWindowFocus: false` in the query client. With no signal for "a
+ * person is looking", every surface compensated with a timer, and the timers had to be fast because
+ * they were the only thing keeping the screen honest. Turning focus refetching ON is what makes the
+ * timers removable: the expensive question is answered when it is actually asked.
+ *
+ * What still polls, and why it earns it:
+ *   - the DEPOSIT QUEUE screen, at 30s. Two reviewers race for the same deposit, and a claim taken
+ *     by a colleague has to appear without anybody pressing anything. This is the one genuinely
+ *     contended surface in the product.
+ *   - the OVERVIEW's two live tiles, at 120s, so a dashboard left open on a wall still moves.
+ *   - HEALTH, at 120s. It is a status light.
+ *
+ * What no longer polls at all: stuck money, second approvals, open breaks, the oldest-waiting
+ * panel. Every one of them changes only as a result of an action — a retry, a sweep, a resolve —
+ * and every one of those actions already invalidates by prefix.
  */
 
-/** How often the two live surfaces refetch. Slow enough to be cheap, fast enough to feel live. */
-export const QUEUE_POLL_MS = 15_000;
-export const BREAKS_POLL_MS = 60_000;
-export const HEALTH_POLL_MS = 30_000;
+/** The deposit QUEUE screen: the one surface two people genuinely compete over. */
+export const QUEUE_POLL_MS = 30_000;
+
+/**
+ * The overview's two live tiles. Slow on purpose: this screen is read and left, or left open on a
+ * wall, and neither wants a request every fifteen seconds.
+ */
+export const OVERVIEW_POLL_MS = 120_000;
+
+/** A status light. It has never needed to be more current than this. */
+export const HEALTH_POLL_MS = 120_000;
+
+/**
+ * The agent float in the top bar, which is open on EVERY screen.
+ *
+ * A timer is defensible here where it is not for `tenantsApi.health`: the answer is a local ledger
+ * balance, not an Ichancy signin. But the reason it is as slow as the health light rather than as
+ * fast as the queue is that it never buys anything to be quicker — the float moves when a deposit
+ * is credited, and by the time it is close enough to the watermark to matter, being two minutes
+ * behind changes nothing an operator would do differently.
+ */
+export const AGENT_FLOAT_POLL_MS = 120_000;
 
 /**
  * How long an operator's health check stays fresh.
@@ -83,7 +136,7 @@ export const TENANT_HEALTH_STALE_MS = 5 * 60_000;
 
 // ── Deposits ───────────────────────────────────────────────────────────────────────────────────
 
-export function useDepositQueue(query: DepositQueueQuery, options?: { poll?: boolean }) {
+export function useDepositQueue(query: DepositQueueQuery, options?: { poll?: number | false }) {
   return useInfiniteQuery({
     queryKey: depositKeys.list(query),
     queryFn: ({ pageParam, signal }) =>
@@ -93,8 +146,8 @@ export function useDepositQueue(query: DepositQueueQuery, options?: { poll?: boo
       ),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (lastPage) => lastPage.meta.nextCursor ?? undefined,
-    refetchInterval: options?.poll === false ? false : QUEUE_POLL_MS,
-    // A queue that reorders while somebody is reading it is worse than one that is 15s stale.
+    refetchInterval: options?.poll ?? QUEUE_POLL_MS,
+    // A queue that reorders while somebody is reading it is worse than one that is 30s stale.
     refetchOnWindowFocus: true,
   });
 }
@@ -140,6 +193,47 @@ export const useRetryCredit = () =>
   );
 
 export const useSweepDeposits = () => useDepositMutation(() => depositsApi.sweep());
+
+/**
+ * How long a chain verdict is worth showing before it is worth paying for again.
+ *
+ * Five minutes, longer than a wallet balance, because it is a stronger claim: a wallet's balance
+ * moves whenever anyone touches it, while a verdict is about ONE transfer that has already
+ * happened. The only part of it that genuinely ages is `pending`, and a reviewer who wants to know
+ * whether a transfer confirmed presses the button rather than waiting for a timer.
+ */
+export const DEPOSIT_CHAIN_CHECK_STALE_MS = 5 * 60_000;
+
+/**
+ * What the chain says about ONE deposit — the one being reviewed.
+ *
+ * ── NEVER CALL THIS FROM A LIST ───────────────────────────────────────────────────────────────
+ * One call per row is the failure this endpoint was shaped to avoid; that is why the verdict is its
+ * own resource instead of a field on the deposit view. A queue of twenty rows would open twenty
+ * chain reads on every render of a screen that also polls itself every 30 seconds.
+ *
+ * ── NO TIMER, AND ITS OWN KEY ROOT ────────────────────────────────────────────────────────────
+ * `refetchInterval: false` says out loud what a default could quietly change. The key sits outside
+ * `depositKeys.all` so that claiming or releasing the deposit — which invalidates that whole
+ * namespace — does not re-bill the chain; see the note in query-keys.ts.
+ *
+ * `retry: false` for the reason `useWalletBalance` gives: a verdict that failed to arrive is a
+ * panel saying so, and retrying triples the load on the rate limit that most likely caused it. The
+ * screen renders that failure as OUR outage, never as anything about the deposit.
+ */
+export function useDepositChainCheck(depositId: string | undefined) {
+  return useQuery({
+    queryKey: depositChainCheckKeys.detail(depositId ?? ''),
+    queryFn: ({ signal }) => depositChainChecksApi.read(depositId ?? '', signal),
+    enabled: depositId !== undefined && depositId.length > 0,
+    staleTime: DEPOSIT_CHAIN_CHECK_STALE_MS,
+    // Matched to the staleTime so closing the review panel and reopening it — which a reviewer does
+    // constantly — does not re-read a chain that answered a moment ago.
+    gcTime: DEPOSIT_CHAIN_CHECK_STALE_MS,
+    refetchInterval: false,
+    retry: false,
+  });
+}
 
 export interface ProofObjectUrl {
   url: string | null;
@@ -265,25 +359,6 @@ export function useDebitPlayer() {
 }
 
 /**
- * A manual credit: money sent out of the agent float and into the player's Ichancy account.
- *
- * Identical in every respect to `useDebitPlayer`, including `retry: false` and the invalidation on
- * ANY outcome. The direction of the money changes who is out of pocket when it goes wrong; it
- * changes nothing about whether the console may quietly send it twice. It may not.
- */
-export function useCreditPlayer() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (input: { playerId: string; body: CreditPlayerBody }) =>
-      playersApi.credit(input.playerId, input.body),
-    retry: false,
-    onSettled: async () => {
-      await queryClient.invalidateQueries({ queryKey: playerKeys.all });
-    },
-  });
-}
-
-/**
  * How long a balance is worth showing before it is worth paying for again.
  *
  * Sixty seconds. Long enough that paging back and forth, opening a dialog, or re-rendering the
@@ -313,7 +388,12 @@ export function usePlayerBalance(playerId: string, options: { enabled: boolean }
     staleTime: PLAYER_BALANCE_STALE_MS,
     gcTime: PLAYER_BALANCE_STALE_MS,
     retry: false,
-    // A tab-switch is not a reason to spend a page of upstream calls.
+    /*
+     * A tab-switch is not a reason to spend a page of upstream calls. This was already here before
+     * focus refetching was turned on globally, and it is the one query that must keep opting out:
+     * every other surface costs the backend a cheap read, while a table of balances is one
+     * Cloudflare-fronted Ichancy call PER ROW — the exact burst src/lib/concurrency.ts exists for.
+     */
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
   });
@@ -385,6 +465,82 @@ export const useUpdateDestination = () =>
 
 export const useDeactivateDestination = () =>
   usePaymentMutation((id: string) => paymentMethodsApi.deactivateDestination(id));
+
+// ── What the chain says a payout wallet holds ──────────────────────────────────────────────────
+
+/**
+ * How long a wallet balance is worth showing before it is worth paying for again.
+ *
+ * Two minutes. A chain balance changes only when somebody moves coins, and the operator reading it
+ * is deciding whether to sweep — a question two minutes of age does not change the answer to. What
+ * this number is really bounding is the FOCUS refetch: without it, every tab-switch would spend a
+ * call on a third-party explorer to re-answer the same figure.
+ */
+export const WALLET_BALANCE_STALE_MS = 120_000;
+
+/**
+ * ONE payout wallet's on-chain balance.
+ *
+ * ── NO TIMER, ON PURPOSE ──────────────────────────────────────────────────────────────────────
+ * Read the module header first: the polling in this console was cut roughly ten to one, and this is
+ * exactly the kind of query that put it back if nobody is careful. Every answer costs a call to a
+ * third-party chain explorer — rate-limited, metered, and outside this system's control — to
+ * re-report a number that only moves when a player actually sends money. So it fetches on mount and
+ * when the operator presses refresh, and `refetchInterval: false` says so out loud rather than
+ * leaving it to a default that could change.
+ *
+ * `retry: false` for the reason `usePlayerBalance` gives: a balance that failed is a card saying so
+ * with a button next to it, not a broken screen — and retrying three times triples the load on the
+ * rate limit that probably caused the failure. The retry is the operator's, and it is one press.
+ */
+export function useWalletBalance(destinationId: string) {
+  return useQuery({
+    queryKey: walletBalanceKeys.detail(destinationId),
+    queryFn: ({ signal }) => walletBalancesApi.read(destinationId, signal),
+    enabled: destinationId.length > 0,
+    staleTime: WALLET_BALANCE_STALE_MS,
+    // Matched to the staleTime so moving between the rails and the financial screen and back does
+    // not re-bill a read that is still current.
+    gcTime: WALLET_BALANCE_STALE_MS,
+    refetchInterval: false,
+    retry: false,
+  });
+}
+
+// ── The rate that prices a crypto deposit ──────────────────────────────────────────────────────
+
+/**
+ * The operator's current USDT rate, or null when nobody has set one.
+ *
+ * Never polled. A rate changes when a person changes it, and this console is where they do it — so
+ * a timer here would only ever re-answer a number it had just written. Coming back to the tab
+ * refetches it, which covers the one case that matters: somebody set it on another machine.
+ */
+export function useUsdtRate(options: { enabled?: boolean } = {}) {
+  return useQuery({
+    queryKey: exchangeRateKeys.usdt(),
+    queryFn: ({ signal }) => exchangeRatesApi.getUsdt(signal),
+    enabled: options.enabled ?? true,
+  });
+}
+
+/**
+ * Setting it.
+ *
+ * `retry: false`, like every mutation that prices or moves money. A retried PUT would record a
+ * second VERSION of the same rate — harmless to the number, and noise in the history somebody will
+ * one day read to justify a credit.
+ */
+export function useSetUsdtRate() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: SetExchangeRateBody) => exchangeRatesApi.setUsdt(body),
+    retry: false,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: exchangeRateKeys.all });
+    },
+  });
+}
 
 // ── Admin directory ────────────────────────────────────────────────────────────────────────────
 
@@ -470,7 +626,7 @@ export const useEndApprovalLimit = () =>
 
 // ── Reconciliation ─────────────────────────────────────────────────────────────────────────────
 
-export function useBreaks(query: BreakListQuery, options?: { poll?: boolean }) {
+export function useBreaks(query: BreakListQuery, options?: { poll?: number | false }) {
   return useInfiniteQuery({
     queryKey: reconciliationKeys.breakList(query),
     queryFn: ({ pageParam, signal }) =>
@@ -480,7 +636,12 @@ export function useBreaks(query: BreakListQuery, options?: { poll?: boolean }) {
       ),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (lastPage) => lastPage.meta.nextCursor ?? undefined,
-    refetchInterval: options?.poll === false ? false : BREAKS_POLL_MS,
+    /*
+     * No timer by default. A break is opened by a detector and closed by a person in this console,
+     * and closing one already invalidates this key by prefix — so a poll here only ever re-answered
+     * a list that had not moved. Coming back to the tab refetches it.
+     */
+    refetchInterval: options?.poll ?? false,
   });
 }
 
@@ -557,6 +718,38 @@ function useTenantMutation<TVariables, TData>(
     mutationFn,
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: tenantKeys.all });
+    },
+  });
+}
+
+/**
+ * What a new operator would inherit right now.
+ *
+ * `PLATFORM_ADMIN` only — the endpoint answers 403 to anybody else — so every caller passes
+ * `enabled`, exactly as the operator list does. Asking as the wrong role would put a 403 in the
+ * console for a screen the role cannot open anyway.
+ */
+export function usePlatformDefaults(options: { enabled?: boolean } = {}) {
+  return useQuery({
+    queryKey: platformDefaultsKeys.all,
+    queryFn: ({ signal }) => platformDefaultsApi.get(signal),
+    enabled: options.enabled ?? true,
+  });
+}
+
+/**
+ * Editing them.
+ *
+ * Invalidates ONLY its own key. A default is copied onto an operator's row at creation and never
+ * read again, so no operator's data changed and refetching the list would be a request that cannot
+ * return anything different.
+ */
+export function useUpdatePlatformDefaults() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: UpdatePlatformDefaultsBody) => platformDefaultsApi.update(body),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: platformDefaultsKeys.all });
     },
   });
 }
@@ -647,6 +840,24 @@ export function useHealth() {
     },
     refetchInterval: HEALTH_POLL_MS,
     // The health strip is a status light. It must never make a screen look broken.
+    retry: false,
+  });
+}
+
+// ── The agent float ────────────────────────────────────────────────────────────────────────────
+
+/**
+ * The float behind the top-bar pill.
+ *
+ * `retry: false` for the same reason health has it, and one more: the backend endpoint does not
+ * exist yet. Until it ships this query answers 404 on every screen, and two retries plus a backoff
+ * would turn one dead request into three, forever, in every open tab.
+ */
+export function useAgentFloat() {
+  return useQuery({
+    queryKey: agentFloatKeys.current(),
+    queryFn: ({ signal }) => agentFloatApi.get(signal),
+    refetchInterval: AGENT_FLOAT_POLL_MS,
     retry: false,
   });
 }

@@ -41,10 +41,16 @@ export function HealthPill() {
 
   return (
     <Tooltip content={detail}>
-      <span>
+      {/*
+        `shrink-0`, and the label carried by a screen reader at every width — both for the reasons
+        set out on `AgentFloatPill`, which now shares this cluster. The two badges have to give way
+        at the same size or the bar reflows at two different breakpoints, which is how a top bar
+        ends up overflowing on a phone in one language and not the other.
+      */}
+      <span className="shrink-0">
         <Badge tone={tone} className="cursor-help">
           <Activity className="size-3" />
-          <span className="hidden sm:inline">{label}</span>
+          <span className="sr-only md:not-sr-only md:inline">{label}</span>
         </Badge>
       </span>
     </Tooltip>

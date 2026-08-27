@@ -96,7 +96,9 @@ test.describe('deciding', () => {
     await expect(signedIn.getByText(/second approval|second approver/i).first()).toBeVisible();
   });
 
-  test('rejecting needs a reason, and a fraud reason needs an explanation', async ({ signedIn }) => {
+  test('rejecting needs a reason, and a fraud reason needs an explanation', async ({
+    signedIn,
+  }) => {
     await signedIn.getByRole('button', { name: 'M2WX88', exact: true }).click();
 
     const panel = signedIn.getByRole('dialog');

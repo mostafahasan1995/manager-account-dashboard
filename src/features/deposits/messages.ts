@@ -114,6 +114,7 @@ export const depositMessages = defineMessages({
       'They asked for {claimed} and {verified} was verified. Whoever decided it should have said why in the note.',
 
     'deposits.section.money': 'Money',
+    'deposits.section.chain': 'What the chain says',
     'deposits.section.destination': 'Where it was sent',
     'deposits.section.sender': 'Who sent it',
     'deposits.section.decision': 'Decision',
@@ -121,6 +122,46 @@ export const depositMessages = defineMessages({
     'deposits.section.rejection': 'Rejection',
     'deposits.section.timeline': 'Timeline',
     'deposits.section.proofs': { one: 'Proof', other: 'Proofs' },
+
+    // ── The on-chain verdict ─────────────────────────────────────────────────────────────────
+    // Two of these seven carry the weight. `suspect` has to read as a STOP, because everything a
+    // reviewer normally checks is present on a suspect transfer — it is real, it is confirmed, and
+    // it paid somebody else. `unavailable` must NOT read as a refusal: it is our node that failed,
+    // and the deposit is exactly as good or as bad as it was before we asked.
+    'deposits.chain.loading': 'Reading the chain…',
+    'deposits.chain.refresh': 'Check again',
+    'deposits.chain.checked': 'Checked',
+    'deposits.chain.arrived': 'Arrived on chain',
+    'deposits.chain.creditable': 'Worth crediting',
+    'deposits.chain.network': 'Network',
+    'deposits.chain.txHash': 'Transaction hash',
+    'deposits.chain.from': 'Sent from',
+    'deposits.chain.confirmations': 'Confirmations',
+    'deposits.chain.confirmationsValue': '{confirmations} of {required}',
+
+    'deposits.chain.verified.title': 'Confirmed on chain',
+    'deposits.chain.verified.body':
+      'The transfer is on the chain, confirmed, and for the amount the player asked for.',
+
+    'deposits.chain.pending.title': 'Found, but not confirmed yet',
+    'deposits.chain.pending.body':
+      'The transfer is on the chain and is not deep enough to be safe. A transfer this shallow can still be dropped, and the money would be gone after you had paid it out. Check again in a few minutes.',
+
+    'deposits.chain.mismatch.title': 'Less arrived than the player claimed',
+    'deposits.chain.mismatch.body':
+      'Both figures are below. The creditable amount is what actually arrived, priced at your rate — approving the claimed figure pays out money nobody sent.',
+
+    'deposits.chain.suspect.title': 'Stop — this transfer did not pay you',
+    'deposits.chain.suspect.body':
+      'It is real, it is confirmed, and it paid a wallet that is not yours. That is exactly what makes it convincing. Crediting it hands this player somebody else’s transfer, and no second reviewer will catch it either. Reject it.',
+
+    'deposits.chain.missing.title': 'Nothing on the chain matches this',
+    'deposits.chain.missing.body':
+      'The chain answered, and no transfer with this hash reached your wallet. Ask the player for the hash again before rejecting — a mistyped one looks exactly like this.',
+
+    'deposits.chain.unavailable.title': 'We could not read the chain',
+    'deposits.chain.unavailable.body':
+      'This is our outage, not a verdict. Nothing here counts against the player and nothing here counts for them. Decide this deposit on the proof, the way you would if we never asked the chain at all.',
 
     'deposits.destination.gone': 'The rail this deposit used is no longer on record.',
     'deposits.reference.none': 'None given',
@@ -199,6 +240,12 @@ export const depositMessages = defineMessages({
     'deposits.approve.secondTitle': 'A second approver is needed for this one',
     'deposits.approve.secondBody':
       'Your approval records the decision but does not move money. Someone else has to confirm it before {player} sees anything.',
+    // The chain's own figure, as a BUTTON and never as a pre-filled value — see the comment beside
+    // `verifiedAmount` in approve-dialog.tsx for why nothing may fill this field on its own.
+    'deposits.approve.chainTitle': 'The chain says a different amount arrived',
+    'deposits.approve.chainBody':
+      '{arrived} arrived, which is {creditable} at your rate. Nothing has been typed into the box for you — press the button if that is the figure you mean to approve.',
+    'deposits.approve.useChainAmount': 'Use {amount}',
     'deposits.approve.amountLabel': 'Verified amount ({currency})',
     'deposits.approve.amountTooSmall': 'Approve an amount greater than zero.',
     'deposits.approve.notePlaceholder':
@@ -340,6 +387,7 @@ export const depositMessages = defineMessages({
       'طلب {claimed} وتم التحقق من {verified}. من قرّر ذلك كان عليه أن يذكر السبب في الملاحظة.',
 
     'deposits.section.money': 'المبالغ',
+    'deposits.section.chain': 'ما تقوله الشبكة',
     'deposits.section.destination': 'إلى أين أُرسل',
     'deposits.section.sender': 'من أرسله',
     'deposits.section.decision': 'القرار',
@@ -354,6 +402,40 @@ export const depositMessages = defineMessages({
       many: 'الإثباتات',
       other: 'الإثباتات',
     },
+
+    'deposits.chain.loading': 'جارٍ قراءة الشبكة…',
+    'deposits.chain.refresh': 'أعد القراءة',
+    'deposits.chain.checked': 'قُرئ',
+    'deposits.chain.arrived': 'الواصل على الشبكة',
+    'deposits.chain.creditable': 'المبلغ القابل للإضافة',
+    'deposits.chain.network': 'الشبكة',
+    'deposits.chain.txHash': 'رقم العملية (hash)',
+    'deposits.chain.from': 'أُرسل من محفظة',
+    'deposits.chain.confirmations': 'التأكيدات',
+    'deposits.chain.confirmationsValue': '{confirmations} من {required}',
+
+    'deposits.chain.verified.title': 'مؤكَّد على الشبكة',
+    'deposits.chain.verified.body': 'الحوالة موجودة على الشبكة ومؤكَّدة وبالمبلغ الذي طلبه اللاعب.',
+
+    'deposits.chain.pending.title': 'وُجدت لكنها لم تُؤكَّد بعد',
+    'deposits.chain.pending.body':
+      'الحوالة على الشبكة لكن عمقها غير كافٍ. حوالة بهذا العمق قد تسقط من الشبكة، ويضيع المال بعد أن تكون قد دفعته. أعد القراءة بعد دقائق.',
+
+    'deposits.chain.mismatch.title': 'الواصل أقل مما طلبه اللاعب',
+    'deposits.chain.mismatch.body':
+      'الرقمان أدناه. المبلغ القابل للإضافة هو ما وصل فعلاً مسعَّراً بسعرك — والموافقة على المبلغ المطلوب تدفع مالاً لم يرسله أحد.',
+
+    'deposits.chain.suspect.title': 'قف — هذه الحوالة لم تصلك أنت',
+    'deposits.chain.suspect.body':
+      'حقيقية ومؤكَّدة، لكنها دخلت محفظة ليست محفظتك، وهذا بالضبط ما يجعلها مقنعة. إضافتها تمنح هذا اللاعب حوالة غيره، ولن ينتبه لها الموافق الثاني أيضاً. ارفضها.',
+
+    'deposits.chain.missing.title': 'لا شيء على الشبكة يطابق هذا',
+    'deposits.chain.missing.body':
+      'الشبكة أجابت، ولا توجد حوالة بهذا الرقم وصلت إلى محفظتك. اطلب الرقم من اللاعب مرة أخرى قبل الرفض — الرقم المكتوب خطأً يبدو تماماً هكذا.',
+
+    'deposits.chain.unavailable.title': 'تعذّرت قراءة الشبكة',
+    'deposits.chain.unavailable.body':
+      'هذا عطل عندنا وليس حكماً. لا شيء هنا ضد اللاعب ولا شيء هنا لصالحه. قرِّر هذا الإيداع من الإثبات، كما لو أننا لم نسأل الشبكة أصلاً.',
 
     'deposits.destination.gone': 'القناة التي استُخدمت في هذا الإيداع لم تعد مسجّلة.',
     'deposits.reference.none': 'لم يُذكر',
@@ -427,6 +509,10 @@ export const depositMessages = defineMessages({
     'deposits.approve.secondTitle': 'هذا الإيداع يحتاج موافقاً ثانياً',
     'deposits.approve.secondBody':
       'موافقتك تسجّل القرار لكنها لا تحرّك المال. يجب أن يؤكّدها شخص آخر قبل أن يرى {player} أي شيء.',
+    'deposits.approve.chainTitle': 'الشبكة تقول إن مبلغاً مختلفاً وصل',
+    'deposits.approve.chainBody':
+      'وصل {arrived}، أي {creditable} بسعرك. لم نكتب لك شيئاً في الخانة — اضغط الزر إن كان هذا هو الرقم الذي تقصد الموافقة عليه.',
+    'deposits.approve.useChainAmount': 'استخدم {amount}',
     'deposits.approve.amountLabel': 'المبلغ المتحقَّق ({currency})',
     'deposits.approve.amountTooSmall': 'وافق على مبلغ أكبر من صفر.',
     'deposits.approve.notePlaceholder': 'أي شيء يجب أن يعرفه من يقرأ هذا الإيداع بعدك.',
@@ -440,8 +526,7 @@ export const depositMessages = defineMessages({
     'deposits.reject.noteRequired': '«{reason}» يجب شرحه كتابةً.',
     'deposits.reject.notePlaceholder': 'ماذا رأيت في الإشعار؟',
     'deposits.reject.noteAlertTitle': 'هذا السبب يحتاج ملاحظة',
-    'deposits.reject.noteAlertBody':
-      'من سيردّ على شكوى اللاعب لن يكون بين يديه سوى ما تكتبه هنا.',
+    'deposits.reject.noteAlertBody': 'من سيردّ على شكوى اللاعب لن يكون بين يديه سوى ما تكتبه هنا.',
     'deposits.reject.confirm': 'رفض الإيداع',
 
     'deposits.proofs.noneTitle': 'لم يُرفع أي إثبات',

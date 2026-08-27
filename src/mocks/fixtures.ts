@@ -95,6 +95,8 @@ export const METHOD_IDS = {
   wallet: uuid(2, 'cccccccc'),
   cash: uuid(3, 'cccccccc'),
   retired: uuid(4, 'cccccccc'),
+  usdtTrc20: uuid(5, 'cccccccc'),
+  usdtBep20: uuid(6, 'cccccccc'),
 } as const;
 
 export const DESTINATION_IDS = {
@@ -102,6 +104,8 @@ export const DESTINATION_IDS = {
   bankSecondary: uuid(2, 'dddddddd'),
   walletMain: uuid(3, 'dddddddd'),
   walletRetired: uuid(4, 'dddddddd'),
+  usdtTrc20Placeholder: uuid(5, 'dddddddd'),
+  usdtBep20Placeholder: uuid(6, 'dddddddd'),
 } as const;
 
 export const DEPOSIT_IDS = {
@@ -466,6 +470,63 @@ export const mockPaymentMethods: PaymentMethod[] = [
     updatedAt: minutesAgo(60 * 24 * 60),
     requiredProofFields: [],
   },
+  /*
+   * ── THE TWO USDT RAILS, EXACTLY AS A NEW OPERATOR RECEIVES THEM ──────────────────────────────
+   * APPENDED, never inserted: several tests reach for `mockPaymentMethods[0]` and friends, and a
+   * fixture that renumbered itself would break them for no reason anybody could see.
+   *
+   * They mirror `provisionDefaultPaymentMethods` on the backend, down to the two things that make
+   * the financial screen worth having: the rail arrives INACTIVE, because a rail that cannot be
+   * priced must not be on the menu, and it arrives with an ACTIVE placeholder destination — which
+   * is what makes an unconfigured rail look configured. Without these the demo had no USDT rail at
+   * all, so the screen an operator was told to look for showed them nothing to find.
+   */
+  {
+    id: METHOD_IDS.usdtTrc20,
+    code: 'USDT_TRC20',
+    displayName: 'USDT — TRC20 (Tron)',
+    rail: 'CRYPTO',
+    currencyCode: MOCK_CURRENCY,
+    verificationMode: 'MANUAL_PROOF',
+    minAmount: '25000.00',
+    maxAmount: '5000000.00',
+    feeFixed: '0.00',
+    feeBps: 0,
+    // The attribution mechanism, not a convenience: every player pays into the same wallet, so the
+    // transaction hash is the only thing tying an incoming transfer to whoever sent it.
+    requiresReference: true,
+    requiresProof: true,
+    referencePattern: '^[A-Fa-f0-9]{64}$',
+    instructions:
+      'أرسل USDT على شبكة TRC20 فقط إلى العنوان الظاهر، ثم أرسل رقم العملية (hash) هنا.',
+    isActive: false,
+    sortOrder: 5,
+    createdAt: minutesAgo(60 * 24 * 30),
+    updatedAt: minutesAgo(60 * 24 * 30),
+    requiredProofFields: [],
+  },
+  {
+    id: METHOD_IDS.usdtBep20,
+    code: 'USDT_BEP20',
+    displayName: 'USDT — BEP20 (BNB Smart Chain)',
+    rail: 'CRYPTO',
+    currencyCode: MOCK_CURRENCY,
+    verificationMode: 'MANUAL_PROOF',
+    minAmount: '25000.00',
+    maxAmount: '5000000.00',
+    feeFixed: '0.00',
+    feeBps: 0,
+    requiresReference: true,
+    requiresProof: true,
+    referencePattern: '^0x[A-Fa-f0-9]{64}$',
+    instructions:
+      'أرسل USDT على شبكة BEP20 فقط إلى العنوان الظاهر، ثم أرسل رقم العملية (hash) هنا.',
+    isActive: false,
+    sortOrder: 6,
+    createdAt: minutesAgo(60 * 24 * 30),
+    updatedAt: minutesAgo(60 * 24 * 30),
+    requiredProofFields: [],
+  },
 ];
 
 export const mockDestinations: PaymentDestination[] = [
@@ -519,6 +580,37 @@ export const mockDestinations: PaymentDestination[] = [
     priority: 5,
     dailyCap: null,
     createdAt: minutesAgo(60 * 24 * 250),
+    updatedAt: minutesAgo(60 * 24 * 30),
+  },
+  /*
+   * The seeded placeholders — the state every operator actually starts in, and the reason the
+   * financial screen exists. Active, priority 0, holder "REPLACE ME": the rotation hands them out
+   * ahead of anything an operator adds later, and the string they name is not a wallet.
+   */
+  {
+    id: DESTINATION_IDS.usdtTrc20Placeholder,
+    paymentMethodId: METHOD_IDS.usdtTrc20,
+    label: 'USDT TRC20',
+    accountIdentifier: 'SEED-PLACEHOLDER-USDT-TRC20-0000',
+    accountHolder: 'REPLACE ME',
+    notes: 'Created automatically. Replace with a real account before taking deposits.',
+    isActive: true,
+    priority: 0,
+    dailyCap: null,
+    createdAt: minutesAgo(60 * 24 * 30),
+    updatedAt: minutesAgo(60 * 24 * 30),
+  },
+  {
+    id: DESTINATION_IDS.usdtBep20Placeholder,
+    paymentMethodId: METHOD_IDS.usdtBep20,
+    label: 'USDT BEP20',
+    accountIdentifier: 'SEED-PLACEHOLDER-USDT-BEP20-0000',
+    accountHolder: 'REPLACE ME',
+    notes: 'Created automatically. Replace with a real account before taking deposits.',
+    isActive: true,
+    priority: 0,
+    dailyCap: null,
+    createdAt: minutesAgo(60 * 24 * 30),
     updatedAt: minutesAgo(60 * 24 * 30),
   },
 ];
@@ -588,7 +680,13 @@ export const mockDeposits: AdminDeposit[] = [
     creditKeyEpoch: 0,
     riskFlags: [],
     requiresSecondApproval: false,
-    proofs: [proof(uuid(1, '33333333'), 3, 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678abcdef0123456789abcdef01')],
+    proofs: [
+      proof(
+        uuid(1, '33333333'),
+        3,
+        'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678abcdef0123456789abcdef01',
+      ),
+    ],
   },
   {
     id: DEPOSIT_IDS.duplicateProof,
@@ -622,8 +720,16 @@ export const mockDeposits: AdminDeposit[] = [
     riskFlags: ['DUPLICATE_PROOF_EXACT', 'REFERENCE_REUSED', 'NEW_PLAYER'],
     requiresSecondApproval: false,
     proofs: [
-      proof(uuid(2, '33333333'), 9, 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678abcdef0123456789abcdef01'),
-      proof(uuid(3, '33333333'), 8, 'ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100'),
+      proof(
+        uuid(2, '33333333'),
+        9,
+        'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678abcdef0123456789abcdef01',
+      ),
+      proof(
+        uuid(3, '33333333'),
+        8,
+        'ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100',
+      ),
     ],
   },
   {
@@ -657,7 +763,13 @@ export const mockDeposits: AdminDeposit[] = [
     creditKeyEpoch: 0,
     riskFlags: ['LARGE_AMOUNT'],
     requiresSecondApproval: false,
-    proofs: [proof(uuid(4, '33333333'), 17, '1111222233334444555566667777888899990000aaaabbbbccccddddeeeeffff')],
+    proofs: [
+      proof(
+        uuid(4, '33333333'),
+        17,
+        '1111222233334444555566667777888899990000aaaabbbbccccddddeeeeffff',
+      ),
+    ],
   },
   {
     id: DEPOSIT_IDS.claimedByOther,
@@ -690,7 +802,13 @@ export const mockDeposits: AdminDeposit[] = [
     creditKeyEpoch: 0,
     riskFlags: [],
     requiresSecondApproval: false,
-    proofs: [proof(uuid(5, '33333333'), 23, '0f0e0d0c0b0a09080706050403020100f0e0d0c0b0a090807060504030201000')],
+    proofs: [
+      proof(
+        uuid(5, '33333333'),
+        23,
+        '0f0e0d0c0b0a09080706050403020100f0e0d0c0b0a090807060504030201000',
+      ),
+    ],
   },
   {
     id: DEPOSIT_IDS.secondApproval,
@@ -723,7 +841,13 @@ export const mockDeposits: AdminDeposit[] = [
     creditKeyEpoch: 0,
     riskFlags: ['LARGE_AMOUNT'],
     requiresSecondApproval: true,
-    proofs: [proof(uuid(6, '33333333'), 36, 'abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd')],
+    proofs: [
+      proof(
+        uuid(6, '33333333'),
+        36,
+        'abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd',
+      ),
+    ],
   },
   {
     id: DEPOSIT_IDS.creditFailed,
@@ -756,7 +880,13 @@ export const mockDeposits: AdminDeposit[] = [
     creditKeyEpoch: 1,
     riskFlags: [],
     requiresSecondApproval: false,
-    proofs: [proof(uuid(7, '33333333'), 93, '9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba')],
+    proofs: [
+      proof(
+        uuid(7, '33333333'),
+        93,
+        '9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba',
+      ),
+    ],
   },
   {
     id: DEPOSIT_IDS.needsReconciliation,
@@ -789,7 +919,13 @@ export const mockDeposits: AdminDeposit[] = [
     creditKeyEpoch: 0,
     riskFlags: [],
     requiresSecondApproval: false,
-    proofs: [proof(uuid(8, '33333333'), 158, 'aaaabbbbccccddddeeeeffff0000111122223333444455556666777788889999')],
+    proofs: [
+      proof(
+        uuid(8, '33333333'),
+        158,
+        'aaaabbbbccccddddeeeeffff0000111122223333444455556666777788889999',
+      ),
+    ],
   },
   {
     id: DEPOSIT_IDS.credited,
@@ -822,7 +958,13 @@ export const mockDeposits: AdminDeposit[] = [
     creditKeyEpoch: 0,
     riskFlags: [],
     requiresSecondApproval: false,
-    proofs: [proof(uuid(9, '33333333'), 208, '1234123412341234123412341234123412341234123412341234123412341234')],
+    proofs: [
+      proof(
+        uuid(9, '33333333'),
+        208,
+        '1234123412341234123412341234123412341234123412341234123412341234',
+      ),
+    ],
   },
   {
     id: DEPOSIT_IDS.rejected,
@@ -855,7 +997,13 @@ export const mockDeposits: AdminDeposit[] = [
     creditKeyEpoch: 0,
     riskFlags: ['PROOF_UNREADABLE'],
     requiresSecondApproval: false,
-    proofs: [proof(uuid(10, '33333333'), 318, 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef')],
+    proofs: [
+      proof(
+        uuid(10, '33333333'),
+        318,
+        'deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef',
+      ),
+    ],
   },
   {
     id: DEPOSIT_IDS.largeUnclaimed,
@@ -888,7 +1036,13 @@ export const mockDeposits: AdminDeposit[] = [
     creditKeyEpoch: 0,
     riskFlags: ['LARGE_AMOUNT'],
     requiresSecondApproval: true,
-    proofs: [proof(uuid(11, '33333333'), 27, 'cafebabecafebabecafebabecafebabecafebabecafebabecafebabecafebabe')],
+    proofs: [
+      proof(
+        uuid(11, '33333333'),
+        27,
+        'cafebabecafebabecafebabecafebabecafebabecafebabecafebabecafebabe',
+      ),
+    ],
   },
 ];
 
@@ -1023,11 +1177,51 @@ export const mockRailAgeing = {
       balanceMinor: '18500000',
       oldestUnsettledAt: minutesAgo(60 * 24 * 22),
       buckets: [
-        { label: '0-1d', fromDays: 0, toDays: 1, debitMinor: '9000000', creditMinor: '8200000', netMinor: '800000', entryCount: 34 },
-        { label: '1-3d', fromDays: 1, toDays: 3, debitMinor: '4000000', creditMinor: '3800000', netMinor: '200000', entryCount: 12 },
-        { label: '3-7d', fromDays: 3, toDays: 7, debitMinor: '2000000', creditMinor: '1500000', netMinor: '500000', entryCount: 6 },
-        { label: '7-30d', fromDays: 7, toDays: 30, debitMinor: '3500000', creditMinor: '1000000', netMinor: '2500000', entryCount: 4 },
-        { label: '30d+', fromDays: 30, toDays: null, debitMinor: '1450000', creditMinor: '0', netMinor: '1450000', entryCount: 2 },
+        {
+          label: '0-1d',
+          fromDays: 0,
+          toDays: 1,
+          debitMinor: '9000000',
+          creditMinor: '8200000',
+          netMinor: '800000',
+          entryCount: 34,
+        },
+        {
+          label: '1-3d',
+          fromDays: 1,
+          toDays: 3,
+          debitMinor: '4000000',
+          creditMinor: '3800000',
+          netMinor: '200000',
+          entryCount: 12,
+        },
+        {
+          label: '3-7d',
+          fromDays: 3,
+          toDays: 7,
+          debitMinor: '2000000',
+          creditMinor: '1500000',
+          netMinor: '500000',
+          entryCount: 6,
+        },
+        {
+          label: '7-30d',
+          fromDays: 7,
+          toDays: 30,
+          debitMinor: '3500000',
+          creditMinor: '1000000',
+          netMinor: '2500000',
+          entryCount: 4,
+        },
+        {
+          label: '30d+',
+          fromDays: 30,
+          toDays: null,
+          debitMinor: '1450000',
+          creditMinor: '0',
+          netMinor: '1450000',
+          entryCount: 2,
+        },
       ],
     },
     {
@@ -1038,11 +1232,51 @@ export const mockRailAgeing = {
       balanceMinor: '250000',
       oldestUnsettledAt: minutesAgo(60 * 20),
       buckets: [
-        { label: '0-1d', fromDays: 0, toDays: 1, debitMinor: '1200000', creditMinor: '950000', netMinor: '250000', entryCount: 18 },
-        { label: '1-3d', fromDays: 1, toDays: 3, debitMinor: '0', creditMinor: '0', netMinor: '0', entryCount: 0 },
-        { label: '3-7d', fromDays: 3, toDays: 7, debitMinor: '0', creditMinor: '0', netMinor: '0', entryCount: 0 },
-        { label: '7-30d', fromDays: 7, toDays: 30, debitMinor: '0', creditMinor: '0', netMinor: '0', entryCount: 0 },
-        { label: '30d+', fromDays: 30, toDays: null, debitMinor: '0', creditMinor: '0', netMinor: '0', entryCount: 0 },
+        {
+          label: '0-1d',
+          fromDays: 0,
+          toDays: 1,
+          debitMinor: '1200000',
+          creditMinor: '950000',
+          netMinor: '250000',
+          entryCount: 18,
+        },
+        {
+          label: '1-3d',
+          fromDays: 1,
+          toDays: 3,
+          debitMinor: '0',
+          creditMinor: '0',
+          netMinor: '0',
+          entryCount: 0,
+        },
+        {
+          label: '3-7d',
+          fromDays: 3,
+          toDays: 7,
+          debitMinor: '0',
+          creditMinor: '0',
+          netMinor: '0',
+          entryCount: 0,
+        },
+        {
+          label: '7-30d',
+          fromDays: 7,
+          toDays: 30,
+          debitMinor: '0',
+          creditMinor: '0',
+          netMinor: '0',
+          entryCount: 0,
+        },
+        {
+          label: '30d+',
+          fromDays: 30,
+          toDays: null,
+          debitMinor: '0',
+          creditMinor: '0',
+          netMinor: '0',
+          entryCount: 0,
+        },
       ],
     },
   ],

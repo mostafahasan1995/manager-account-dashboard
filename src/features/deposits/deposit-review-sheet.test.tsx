@@ -130,3 +130,54 @@ describe('DepositReviewSheet', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 });
+
+/**
+ * That the verdict is actually MOUNTED here, and not merely built.
+ *
+ * Worth its own case: this console has form for shipping a finished component nobody wired into a
+ * screen, and the failure is invisible — every test of the component itself stays green while the
+ * reviewer who needs it sees nothing.
+ */
+describe('the on-chain verdict inside the review panel', () => {
+  it('puts what the chain says in front of the reviewer, with both figures', async () => {
+    const row = deposit(DEPOSIT_IDS.underReviewByMe);
+    serveDeposit(row);
+    server.use(
+      http.get(`${config.apiBaseUrl}/v1/admin/deposits/${row.id}/chain-check`, () =>
+        HttpResponse.json({
+          success: true,
+          data: {
+            outcome: 'mismatch',
+            network: 'TRC20',
+            summary: 'Less arrived than was claimed.',
+            arrived: { asset: 'USDT', scale: 6, minor: '99500000', amount: '99.500000' },
+            creditable: { minor: '131340000', amount: '1313400.00', currency: 'NSP' },
+            txHash: 'b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2',
+            fromAddress: 'TKrsHFVLvQ2vX1t7iGbPtPHY4Yz9xB8dqA',
+            confirmations: 19,
+            requiredConfirmations: 19,
+            checkedAt: new Date().toISOString(),
+          },
+          error: null,
+          meta: { correlationId: 'test', timestamp: new Date().toISOString() },
+        }),
+      ),
+    );
+
+    renderSheet(row.id);
+
+    const verdict = await screen.findByTestId('chain-verdict');
+    expect(await within(verdict).findByText('99.500000 USDT')).toBeInTheDocument();
+    expect(within(verdict).getByText('1,313,400.00 NSP')).toBeInTheDocument();
+  });
+
+  it('shows nothing for a bank transfer, which has no chain to ask', async () => {
+    // The default mock answers `skipped` for every seeded deposit — all of them are cash or bank —
+    // and a section reading "not applicable" on every one of those is how a reviewer learns to skip
+    // past the deposit where it does matter.
+    renderSheet(DEPOSIT_IDS.duplicateProof);
+
+    await screen.findByText('Deposit M2WX88');
+    await expect.poll(() => screen.queryByTestId('chain-verdict')).toBeNull();
+  });
+});

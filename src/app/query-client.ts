@@ -21,7 +21,19 @@ export function createQueryClient(): QueryClient {
           return failureCount < 2;
         },
         retryDelay: (attempt) => Math.min(1_000 * 2 ** attempt, 8_000),
-        refetchOnWindowFocus: false,
+        /*
+         * ON, and it is what let the polling timers be cut by roughly ten to one.
+         *
+         * With it off, no surface had any way to know a person had come back, so every one of them
+         * compensated with a timer — and the timers had to be fast, because they were the only
+         * thing keeping the screen honest. Focus is the cheaper and more accurate signal: it fires
+         * when somebody is actually looking, and never while nobody is.
+         *
+         * `staleTime` above still bounds it, so returning to a tab does not refetch everything —
+         * only what has gone stale. The one query that opts out is the player balance, where a
+         * refetch is a page of Ichancy calls through Cloudflare; see `usePlayerBalance`.
+         */
+        refetchOnWindowFocus: true,
       },
       mutations: {
         // Never retried: every mutation here moves money or changes authority, and the backend's

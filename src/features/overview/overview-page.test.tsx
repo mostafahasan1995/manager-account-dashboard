@@ -62,9 +62,7 @@ describe('in Arabic', () => {
   it('opens on the same shift, in the language the cashier reads', async () => {
     renderWithProviders(<OverviewPage />, { auth: { role: 'FINANCE_ADMIN' }, locale: 'ar' });
 
-    expect(
-      await screen.findByRole('heading', { level: 1, name: 'نظرة عامة' }),
-    ).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: 'نظرة عامة' })).toBeInTheDocument();
     expect(await screen.findByRole('link', { name: /بانتظار المراجعة/ })).toBeInTheDocument();
     expect(await screen.findByText('الأطول انتظاراً')).toBeInTheDocument();
     // A backend enum, through the shared bundle rather than through a label map.

@@ -143,9 +143,7 @@ describe('LoadMore', () => {
   });
 
   it('says the list has ended instead of leaving a dead button', () => {
-    renderPlain(
-      <LoadMore hasMore={false} loading={false} loadedCount={7} onLoadMore={vi.fn()} />,
-    );
+    renderPlain(<LoadMore hasMore={false} loading={false} loadedCount={7} onLoadMore={vi.fn()} />);
     expect(screen.getByText('End of list')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /load more/i })).not.toBeInTheDocument();
   });

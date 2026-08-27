@@ -41,7 +41,10 @@ export function SettingsAccess() {
           <ul className="space-y-2">
             {capabilities.map((capability) => (
               <li key={capability} className="flex items-start gap-2 text-sm">
-                <Check className="mt-0.5 size-4 shrink-0 text-[var(--success)]" aria-hidden="true" />
+                <Check
+                  className="mt-0.5 size-4 shrink-0 text-[var(--success)]"
+                  aria-hidden="true"
+                />
                 <span>
                   {t(`settings.capability.${capability}`)}
                   {/* The capability id itself is what the API refuses by name, so it is never

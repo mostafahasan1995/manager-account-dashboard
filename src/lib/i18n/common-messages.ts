@@ -14,13 +14,14 @@ import { defineMessages } from './messages';
 export const commonMessages = defineMessages({
   en: {
     // ── App chrome ───────────────────────────────────────────────────────────────────────────
-    'app.name': 'Cashier Console',
+    'app.name': 'Cashier Admin',
     'app.tagline': 'Deposit review, players, rails and reconciliation',
 
     'nav.overview': 'Overview',
     'nav.deposits': 'Deposits',
     'nav.players': 'Players',
     'nav.paymentMethods': 'Payment rails',
+    'nav.financial': 'Financial settings',
     'nav.reconciliation': 'Reconciliation',
     'nav.staff': 'Staff',
     'nav.tenants': 'Operators',
@@ -98,6 +99,13 @@ export const commonMessages = defineMessages({
       'The console cannot reach the backend. Check that it is running and that this origin is allowed by its CORS configuration.',
     'health.failing': 'Failing: {names}',
     'health.uptime': 'Role {role} · up {seconds}s',
+
+    // ── The agent float ──────────────────────────────────────────────────────────────────────
+    'agentFloat.label': 'Agent float',
+    'agentFloat.low': 'Low',
+    'agentFloat.detail': 'Player credits are paid out of this. It counts as low below {watermark}.',
+    'agentFloat.lowDetail':
+      'Below the {watermark} floor. Top the agent account up: once it empties, every deposit fails at the Ichancy step — on players who have already paid.',
 
     // ── Tenancy ──────────────────────────────────────────────────────────────────────────────
     'tenant.singleTenantTitle': 'Single-tenant mode.',
@@ -218,13 +226,14 @@ export const commonMessages = defineMessages({
   },
 
   ar: {
-    'app.name': 'لوحة الصرّاف',
+    'app.name': 'إدارة الصرّاف',
     'app.tagline': 'مراجعة الإيداعات، اللاعبون، قنوات الدفع، والتسوية',
 
     'nav.overview': 'نظرة عامة',
     'nav.deposits': 'الإيداعات',
     'nav.players': 'اللاعبون',
     'nav.paymentMethods': 'قنوات الدفع',
+    'nav.financial': 'الإعدادات المالية',
     'nav.reconciliation': 'التسوية',
     'nav.staff': 'الموظفون',
     'nav.tenants': 'المشغّلون',
@@ -304,13 +313,20 @@ export const commonMessages = defineMessages({
     'health.failing': 'المتعطّل: {names}',
     'health.uptime': 'الدور {role} · يعمل منذ {seconds} ثانية',
 
+    'agentFloat.label': 'رصيد الوكيل',
+    'agentFloat.low': 'منخفض',
+    'agentFloat.detail': 'منه تُصرف أرصدة اللاعبين. يُعدّ منخفضاً تحت {watermark}.',
+    'agentFloat.lowDetail':
+      'الرصيد تحت الحد الأدنى {watermark}. عبّي حساب الوكيل: إذا فرغ يفشل كل إيداع عند خطوة Ichancy — وعلى لاعبين دفعوا فعلاً.',
+
     'tenant.singleTenantTitle': 'وضع المشغّل الواحد.',
     'tenant.singleTenantBody':
       'الخادم لا يقبل بعد تحديد المشغّل في طلبات الإدارة، لذا تعرض الإيداعات واللاعبون وقنوات الدفع والموظفون والتسوية بيانات المشغّل الافتراضي. إدارة المشغّلين أدناه تشمل جميع المشغّلين فعلياً.',
     'tenant.switcher': 'المشغّل',
     'tenant.switcherHint': 'كل ما يلي يخص هذا المشغّل',
     'tenant.home': 'مشغّلك',
-    'tenant.viewingOther': 'أنت تطالع {tenant}. كل الشاشات عدا هذا المبدّل تعرض بيانات ذلك المشغّل.',
+    'tenant.viewingOther':
+      'أنت تطالع {tenant}. كل الشاشات عدا هذا المبدّل تعرض بيانات ذلك المشغّل.',
 
     'field.amount': 'المبلغ',
     'field.status': 'الحالة',

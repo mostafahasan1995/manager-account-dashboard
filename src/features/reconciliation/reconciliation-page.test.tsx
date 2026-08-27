@@ -35,7 +35,9 @@ describe('ReconciliationPage', () => {
     expect(await screen.findByRole('heading', { name: 'Reconciliation' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'Breaks' })).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByRole('button', { name: /sync agent float/i })).toBeInTheDocument();
-    expect(await screen.findByRole('button', { name: /agent float mismatch/i })).toBeInTheDocument();
+    expect(
+      await screen.findByRole('button', { name: /agent float mismatch/i }),
+    ).toBeInTheDocument();
   });
 
   it('puts the chosen tab in the URL so the view can be sent to somebody', async () => {
@@ -54,7 +56,9 @@ describe('ReconciliationPage', () => {
       'aria-selected',
       'true',
     );
-    expect(screen.getByRole('button', { name: /run ledger invariant checks/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /run ledger invariant checks/i }),
+    ).toBeInTheDocument();
   });
 
   it('opens the detail panel for the break named in the URL', async () => {
@@ -68,7 +72,9 @@ describe('ReconciliationPage', () => {
   it('shows a viewer the breaks without the float sync it cannot run', async () => {
     render('/reconciliation', { role: 'VIEWER' });
 
-    expect(await screen.findByRole('button', { name: /agent float mismatch/i })).toBeInTheDocument();
+    expect(
+      await screen.findByRole('button', { name: /agent float mismatch/i }),
+    ).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /sync agent float/i })).not.toBeInTheDocument();
   });
 

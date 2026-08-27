@@ -228,10 +228,9 @@ export function MethodFormDialog({
     } catch (caught) {
       // Both, deliberately: the toast outlives the dialog, the alert is where the eyes already are.
       setError('root', { message: errorMessage(caught) });
-      toast.error(
-        method === null ? t('rails.method.createFailed') : t('rails.method.saveFailed'),
-        { description: errorMessage(caught) },
-      );
+      toast.error(method === null ? t('rails.method.createFailed') : t('rails.method.saveFailed'), {
+        description: errorMessage(caught),
+      });
     }
   });
 

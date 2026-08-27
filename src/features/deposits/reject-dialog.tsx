@@ -21,11 +21,7 @@ import {
 } from '@/components/ui/select';
 import { useEnumLabel, useT } from '@/lib/i18n/use-translation';
 import type { AdminDeposit, RejectDepositBody } from '@/types';
-import {
-  REJECTION_CODES,
-  REJECTION_CODES_REQUIRING_NOTE,
-  type RejectionCode,
-} from '@/types/enums';
+import { REJECTION_CODES, REJECTION_CODES_REQUIRING_NOTE, type RejectionCode } from '@/types/enums';
 
 import { depositMessages } from './messages';
 

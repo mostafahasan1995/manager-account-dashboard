@@ -128,7 +128,11 @@ export function BreakList() {
                 <BreakStatusBadge status={row.status} />
               </TableCell>
               <TableCell className="text-end">
-                <MinorAmount minor={row.expected?.minor ?? null} currency={row.currencyCode} signed />
+                <MinorAmount
+                  minor={row.expected?.minor ?? null}
+                  currency={row.currencyCode}
+                  signed
+                />
               </TableCell>
               <TableCell className="text-end">
                 <MinorAmount minor={row.actual?.minor ?? null} currency={row.currencyCode} signed />
@@ -255,7 +259,9 @@ function Assignee({ adminId }: { adminId: string | null }) {
 
   if (adminId === null) {
     return (
-      <span className="text-sm text-[var(--muted-foreground)]">{t('recon.assignee.unassigned')}</span>
+      <span className="text-sm text-[var(--muted-foreground)]">
+        {t('recon.assignee.unassigned')}
+      </span>
     );
   }
   if (admin !== null && admin.id === adminId) {

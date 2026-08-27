@@ -14,6 +14,7 @@ import { DepositsPage } from '@/features/deposits/deposits-page';
 import { NotFoundPage } from '@/features/misc/not-found-page';
 import { RouteErrorPage } from '@/features/misc/route-error-page';
 import { OverviewPage } from '@/features/overview/overview-page';
+import { FinancialPage } from '@/features/payment-methods/financial-page';
 import { PaymentMethodsPage } from '@/features/payment-methods/payment-methods-page';
 import { PlayerDetailPage } from '@/features/players/player-detail-page';
 import { PlayersPage } from '@/features/players/players-page';
@@ -151,6 +152,18 @@ const paymentMethodsRoute = createRoute({
   component: PaymentMethodsPage,
 });
 
+/**
+ * The wallet addresses and the USDT rate, on their own route because that is what an operator goes
+ * looking for. READ, not write: a REVIEWER reads the rate off this page while deciding a crypto
+ * deposit, and each write control inside asks for the write capability separately.
+ */
+const financialRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/financial',
+  beforeLoad: guard('paymentMethods.read'),
+  component: FinancialPage,
+});
+
 const reconciliationRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/reconciliation',
@@ -197,6 +210,7 @@ export const routeTree = rootRoute.addChildren([
   playersRoute,
   playerDetailRoute,
   paymentMethodsRoute,
+  financialRoute,
   reconciliationRoute,
   staffRoute,
   staffDetailRoute,

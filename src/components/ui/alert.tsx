@@ -34,8 +34,7 @@ const ICON_COLORS = {
 } as const;
 
 export interface AlertProps
-  extends Omit<ComponentProps<'div'>, 'title'>,
-    VariantProps<typeof alertVariants> {
+  extends Omit<ComponentProps<'div'>, 'title'>, VariantProps<typeof alertVariants> {
   title?: ReactNode;
   tone?: keyof typeof ICONS;
   /** Hide the leading icon when the alert sits inside something that already has one. */

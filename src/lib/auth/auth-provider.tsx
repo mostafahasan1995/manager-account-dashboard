@@ -119,7 +119,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signIn = useCallback(
-    async (code: string): Promise<AdminSession> => adopt(await authApi.exchangeBotCode(code.trim())),
+    async (code: string): Promise<AdminSession> =>
+      adopt(await authApi.exchangeBotCode(code.trim())),
     [adopt],
   );
 

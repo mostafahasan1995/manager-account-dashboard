@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { config } from '@/config';
+import { allowApiSchemaDrift } from '@/test/api-drift';
 import { server } from '@/test/msw-server';
 
 import { api, buildQuery, configureApiClient, parseResponse, request } from './client';
@@ -81,6 +82,60 @@ describe('request', () => {
     );
 
     await request(z.object({ status: z.string() }), '/health/live', { anonymous: true });
+    expect(seen).toBeNull();
+  });
+
+  /*
+   * The operator header. Both directions are asserted because the dangerous one is silent: with the
+   * flag off and an operator selected, sending the header anyway would be a console that believes
+   * it switched and a backend that ignored it — one operator's money under another's name, which is
+   * the single failure this flag exists to prevent. The suite pins the flag OFF
+   * (`vitest.config.ts`), so the ON case stubs the getter rather than the environment.
+   */
+  it('sends no operator header when the flag is off, even with an operator selected', async () => {
+    vi.spyOn(config, 'tenantHeaderEnabled', 'get').mockReturnValue(false);
+    configureApiClient({ getTenantId: () => 't-2' });
+    let seen: string | null = 'unset';
+    server.use(
+      http.get(url('/v1/thing'), ({ request: received }) => {
+        seen = received.headers.get('x-tenant-id');
+        return HttpResponse.json(envelope({ id: 'abc' }));
+      }),
+    );
+
+    await request(thing, '/v1/thing');
+    expect(seen).toBeNull();
+  });
+
+  it('sends the selected operator when the flag is on', async () => {
+    vi.spyOn(config, 'tenantHeaderEnabled', 'get').mockReturnValue(true);
+    configureApiClient({ getTenantId: () => 't-2' });
+    let seen: string | null = null;
+    server.use(
+      http.get(url('/v1/thing'), ({ request: received }) => {
+        seen = received.headers.get('x-tenant-id');
+        return HttpResponse.json(envelope({ id: 'abc' }));
+      }),
+    );
+
+    await request(thing, '/v1/thing');
+    expect(seen).toBe('t-2');
+  });
+
+  it('sends no operator header when nothing is selected, so the backend uses the home operator', async () => {
+    // "No selection" means the caller's own operator, and the backend resolves that from the token's
+    // `tid`. Sending an empty header instead would be a value, and a value it would have to reject.
+    vi.spyOn(config, 'tenantHeaderEnabled', 'get').mockReturnValue(true);
+    configureApiClient({ getTenantId: () => null });
+    let seen: string | null = 'unset';
+    server.use(
+      http.get(url('/v1/thing'), ({ request: received }) => {
+        seen = received.headers.get('x-tenant-id');
+        return HttpResponse.json(envelope({ id: 'abc' }));
+      }),
+    );
+
+    await request(thing, '/v1/thing');
     expect(seen).toBeNull();
   });
 
@@ -164,7 +219,9 @@ describe('request', () => {
       ),
     );
 
-    const error = (await request(thing, '/v1/thing').catch((caught: unknown) => caught)) as ApiError;
+    const error = (await request(thing, '/v1/thing').catch(
+      (caught: unknown) => caught,
+    )) as ApiError;
     expect(error.isRateLimited).toBe(true);
     expect(error.retryAfterSeconds).toBe(30);
     expect(error.isRetryable).toBe(true);
@@ -194,7 +251,9 @@ describe('request', () => {
   it('turns an unreachable API into a NETWORK_UNREACHABLE ApiError, not a raw TypeError', async () => {
     server.use(http.get(url('/v1/thing'), () => HttpResponse.error()));
 
-    const error = (await request(thing, '/v1/thing').catch((caught: unknown) => caught)) as ApiError;
+    const error = (await request(thing, '/v1/thing').catch(
+      (caught: unknown) => caught,
+    )) as ApiError;
     expect(error).toBeInstanceOf(ApiError);
     expect(error.code).toBe('NETWORK_UNREACHABLE');
     expect(error.status).toBe(0);
@@ -213,7 +272,9 @@ describe('request', () => {
       ),
     );
 
-    const error = (await request(thing, '/v1/thing').catch((caught: unknown) => caught)) as ApiError;
+    const error = (await request(thing, '/v1/thing').catch(
+      (caught: unknown) => caught,
+    )) as ApiError;
     expect(error.status).toBe(502);
     expect(error.code).toBe('HTTP_502');
   });
@@ -253,7 +314,9 @@ describe('pagination', () => {
   it('reads cursor page metadata', async () => {
     server.use(
       http.get(url('/v1/rows'), () =>
-        HttpResponse.json(envelope([{ id: 'a' }], { limit: 20, nextCursor: 'next', hasMore: true })),
+        HttpResponse.json(
+          envelope([{ id: 'a' }], { limit: 20, nextCursor: 'next', hasMore: true }),
+        ),
       ),
     );
 
@@ -262,6 +325,9 @@ describe('pagination', () => {
   });
 
   it('treats a missing array as an empty page rather than crashing the screen', async () => {
+    // A body with no page meta at all IS drift, and asserting that it degrades gracefully is the
+    // whole point of this case — so it opts out of the check that would otherwise fail it.
+    allowApiSchemaDrift();
     server.use(http.get(url('/v1/rows'), () => HttpResponse.json(envelope(null))));
     const page = await api.page(z.object({ id: z.string() }), '/v1/rows');
     expect(page.data).toEqual([]);
@@ -270,6 +336,8 @@ describe('pagination', () => {
 
 describe('parseResponse', () => {
   beforeEach(() => {
+    // Replaces the drift detector for these cases as well as silencing the output, which is what
+    // they want: the warning is the thing under test here, not a symptom of a broken fixture.
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
   });
 

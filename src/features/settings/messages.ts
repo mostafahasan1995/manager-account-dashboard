@@ -138,8 +138,7 @@ export const settingsMessages = defineMessages({
   },
 
   ar: {
-    'settings.page.description':
-      'جلستك، وما يصل إليه دورك، وكيف ترتبط هذه اللوحة بالخادم.',
+    'settings.page.description': 'جلستك، وما يصل إليه دورك، وكيف ترتبط هذه اللوحة بالخادم.',
 
     'settings.profile.title': 'حسابك',
     'settings.profile.description': 'حساب الإدارة الذي تعمل به هذه اللوحة.',
@@ -155,8 +154,7 @@ export const settingsMessages = defineMessages({
       'يدير المنصّة: ينشئ المشغّلين ويضبطهم ويوقفهم. لا يرى بيانات أي مشغّل.',
     'settings.role.SUPER_ADMIN':
       'أعلى صلاحية داخل مشغّل واحد. كل ما فيه، بما في ذلك الموظفون وحدود الموافقة.',
-    'settings.role.FINANCE_ADMIN':
-      'يبتّ في الإيداعات، ويدير قنوات الدفع، ويعالج فروقات التسوية.',
+    'settings.role.FINANCE_ADMIN': 'يبتّ في الإيداعات، ويدير قنوات الدفع، ويعالج فروقات التسوية.',
     'settings.role.REVIEWER': 'يراجع الإيداعات ويبتّ فيها. لا يعدّل قنوات الدفع ولا الموظفين.',
     'settings.role.SUPPORT':
       'يطّلع على اللاعبين والإيداعات وقنوات الدفع ليجيب على الاستفسارات. لا يبتّ في شيء.',
@@ -211,7 +209,8 @@ export const settingsMessages = defineMessages({
       'طلبات الإدارة لا تحمل تحديداً للمشغّل، لذا يجيب كل شيء عدا المشغّلين ببيانات المشغّل الافتراضي — فجوة المشغّلين في docs/API-CONTRACT.md.',
     'settings.connection.health': 'حالة الخادم',
     'settings.connection.servedFrom': 'تُقدَّم هذه اللوحة من',
-    'settings.connection.corsHint': '، ويجب أن يظهر هذا العنوان في قائمة CORS المسموح بها على الخادم.',
+    'settings.connection.corsHint':
+      '، ويجب أن يظهر هذا العنوان في قائمة CORS المسموح بها على الخادم.',
     'settings.connection.liveness': 'نبض الخادم',
     'settings.connection.noAnswer': 'لا استجابة',
     'settings.connection.processRole': 'دور العملية',

@@ -85,8 +85,7 @@ export const authMessages = defineMessages({
       'This build is running against the built-in mock API — no backend, no database.',
     'auth.demo.signInWith': 'Sign in with',
     'auth.demo.roleHint': 'Each code signs in as a different role, so every screen can be seen:',
-    'auth.demo.agentHint':
-      'Or sign in as an operator: username {usernames}, password {password}.',
+    'auth.demo.agentHint': 'Or sign in as an operator: username {usernames}, password {password}.',
     'auth.demo.agentSuspended':
       '{username} is the suspended operator, so it shows what that refusal looks like.',
     'auth.api.label': 'API:',

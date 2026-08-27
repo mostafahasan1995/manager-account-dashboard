@@ -413,7 +413,12 @@ function CorrectFloatDialog({
           <Alert tone="warning" title={t('recon.correct.willRestate')} className="mt-4">
             <p>
               {t('recon.correct.amount')}{' '}
-              <MinorAmount minor={deltaMinor} currency={currencyCode} signed className="font-semibold" />
+              <MinorAmount
+                minor={deltaMinor}
+                currency={currencyCode}
+                signed
+                className="font-semibold"
+              />
             </p>
           </Alert>
 

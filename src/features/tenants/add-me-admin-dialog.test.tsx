@@ -70,7 +70,10 @@ function renderAction(options: DialogOptions = {}) {
     <AuthContext value={auth}>
       <AddMeAsAdminAction tenant={options.tenant ?? northern} />
     </AuthContext>,
-    { auth: { role, tenantId }, ...(options.locale === undefined ? {} : { locale: options.locale }) },
+    {
+      auth: { role, tenantId },
+      ...(options.locale === undefined ? {} : { locale: options.locale }),
+    },
   );
 
   return { ...rendered, setTenantId };

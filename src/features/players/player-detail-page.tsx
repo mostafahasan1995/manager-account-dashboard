@@ -141,9 +141,8 @@ export function PlayerDetailPage() {
           tone={linkResult.created ? 'success' : 'info'}
           title={linkResult.created ? t('players.link.created') : t('players.link.alreadyLinked')}
         >
-          {t('players.ichancy.login')}{' '}
-          <span className="font-mono">{linkResult.ichancyLogin}</span> ·{' '}
-          {t('players.field.ichancyPlayerId')}{' '}
+          {t('players.ichancy.login')} <span className="font-mono">{linkResult.ichancyLogin}</span>{' '}
+          · {t('players.field.ichancyPlayerId')}{' '}
           <span className="font-mono">{linkResult.ichancyPlayerId}</span> ·{' '}
           {t('players.ichancy.agent')} <span className="font-mono">{linkResult.agentId}</span>
           {linkResult.created ? null : t('players.link.nothingCreated')}

@@ -153,13 +153,13 @@ export const railMessages = defineMessages({
     'rails.form.saveFailedTitle': 'That did not save',
     'rails.form.saveChanges': 'Save changes',
     'rails.form.codeHint': 'How every deposit and every ledger entry will refer to this method.',
-    'rails.form.codeLocked':
-      'Deposits already point at this code; changing it would orphan them.',
+    'rails.form.codeLocked': 'Deposits already point at this code; changing it would orphan them.',
     'rails.form.namePlaceholder': 'Bank transfer',
     'rails.form.railLocked':
       'The rail decides how the money physically arrives, so a different one is a different method.',
     'rails.form.currencyHint': 'Three-letter code, uppercase.',
-    'rails.form.currencyLocked': "The ledger already holds this method's balances in this currency.",
+    'rails.form.currencyLocked':
+      "The ledger already holds this method's balances in this currency.",
     'rails.form.minHint': 'The smallest deposit this method accepts.',
     'rails.form.maxHint': 'The largest deposit this method accepts.',
     'rails.form.feeFixedHint': 'Taken from every deposit, on top of the percentage.',
@@ -168,8 +168,7 @@ export const railMessages = defineMessages({
     'rails.form.referencePatternHint':
       "Optional regular expression the player's reference must match. Only read when a reference is required.",
     'rails.form.instructionsHint': 'Shown to the player in the bot, word for word.',
-    'rails.form.instructionsPlaceholder':
-      'Transfer to the account shown, then upload the receipt.',
+    'rails.form.instructionsPlaceholder': 'Transfer to the account shown, then upload the receipt.',
     'rails.form.requiresReferenceHint':
       "The player must type the rail's transaction reference before they can submit.",
     'rails.form.requiresProofHint':
@@ -212,9 +211,113 @@ export const railMessages = defineMessages({
     'rails.validation.destinationLabel': 'Cashiers pick this account by its label.',
     'rails.validation.accountRequired':
       'This is the number players will pay into. It cannot be blank.',
+    // Describes both shapes rather than naming one: this rail's chain is read off the address, so
+    // until there is a valid address there is no "expected" network to name. Saying what an address
+    // looks like is what somebody staring at a rejected paste actually needs.
+    'rails.validation.walletShape':
+      'This is not a wallet address. A TRC20 address is 34 characters starting with T; a BEP20 address is 42 characters starting with 0x. Paste it again from your wallet app.',
+    'rails.form.walletHint':
+      'Paste it from your wallet app — do not type it. Then read every character back against your phone before saving: this cannot be changed afterwards, and USDT sent to a wrong address is gone.',
+    'rails.form.walletConfirm': 'I have read this address back against my wallet app',
+    // The chain read off what was just pasted. It is here, beside the tick, because this is the one
+    // moment a human is looking at the address — and "BEP20" under a rail they think of as TRC20 is
+    // the whole warning.
+    'rails.form.walletDetected':
+      'This is a {network} address. Players on this rail will be told to send on {network}, and USDT sent on any other network is lost.',
+    'rails.validation.walletUnconfirmed':
+      'Read the address back against your wallet app and tick the box. Every player on this rail will pay into it.',
     'rails.validation.capFormat':
       'A plain decimal, like 20000000.00 — or leave it empty for no cap.',
     'rails.validation.capNegative': 'A cap cannot be negative.',
+
+    // ── The rate that prices a crypto deposit ────────────────────────────────────────────────
+    'rails.rate.title': 'USDT rate',
+    'rails.rate.description':
+      'What one USDT is worth. It multiplies every deposit on the USDT rails, so read the example below before saving — a wrong decimal point is invisible in a rate and obvious in a credit.',
+    'rails.rate.field': 'One USDT is worth',
+    'rails.rate.noteField': 'Where you read it (optional)',
+    'rails.rate.noteHint':
+      'Kept with the rate, so a credit can be re-checked against the same source months later.',
+    'rails.rate.setLabel': 'Set',
+    'rails.rate.submit': 'Save rate',
+    'rails.rate.submitConfirm': 'Yes, save this rate',
+    'rails.rate.saved': 'Rate saved. Deposits from now on are priced with it.',
+    'rails.rate.readOnly': 'Your role can see this rate but not change it.',
+    'rails.rate.noneTitle': 'No rate is set',
+    'rails.rate.noneBody':
+      'The USDT rails cannot price a deposit until one is. Nothing on them is offered to players meanwhile.',
+    'rails.rate.staleTitle': 'This rate is too old to use',
+    'rails.rate.staleBody':
+      'The USDT rails are refusing deposits rather than pricing them at an old number. A rate is usable for {hours} hours; set a current one.',
+    'rails.rate.previewTitle': 'Check this before saving',
+    'rails.rate.previewHint':
+      'Exactly what a player would be credited, using the same arithmetic the server does.',
+    'rails.rate.previewEmpty': 'Enter a rate to see what it would credit.',
+    'rails.rate.jumpTitle': 'That is a long way from the current rate',
+    'rails.rate.jumpBody':
+      'Further than a rate normally moves. Check the decimal point, and check you have not mixed up the new pound with the old — they differ by a factor of a hundred. Press again only if it is genuinely right.',
+
+    // ── Financial settings ───────────────────────────────────────────────────────────────────
+    'financial.page.description':
+      'Every method a player can pay with, the accounts each one pays into, and the rate every USDT deposit is priced at.',
+    'financial.methods.emptyTitle': 'This operator has no payment method',
+    'financial.methods.emptyBody':
+      'Nothing can be paid in until there is one. Create it on the payment rails screen, then enter the account it pays into here.',
+    'financial.card.description':
+      'The accounts players are told to pay into when they pick this method.',
+    'financial.card.cryptoDescription':
+      'Players who pick this method send USDT to the address below, on the chain that address is on.',
+    'financial.address.heading': 'Wallet address',
+    'financial.address.emptyTitle': 'No wallet address yet',
+    'financial.address.emptyBody':
+      'Paste it from your own wallet app. Until it is here, nobody can pay into this rail.',
+    'financial.address.set': 'Enter the wallet address',
+    'financial.address.addAnother': 'Add another address',
+    'financial.account.heading': 'Accounts players pay into',
+    'financial.account.emptyTitle': 'No account yet',
+    'financial.account.emptyBody':
+      'Enter the account players will pay into. Until it is here, a player who picks this method is shown nothing.',
+    'financial.account.set': 'Enter the account',
+    'financial.account.addAnother': 'Add another account',
+    // Not a figure, and deliberately not a zero: this rail has no balance the console can read.
+    // Declared balances are what will fill this line — see `AccountBalance`.
+    'financial.balance.untracked': 'No balance is tracked for this account yet.',
+    'financial.notReady.title': 'This rail is not ready to take money',
+    'financial.notReady.body':
+      'It has no account to pay into, so a player who picked it would be shown nothing.',
+    'financial.notReady.placeholderBody':
+      'The only account on it is the one created automatically when this operator was set up. That is a marker, not a wallet: USDT sent to it is never received and nobody can recover it — not even us. Enter your own address before you take a single deposit.',
+    'financial.placeholder.title': 'Players are still being sent to the placeholder',
+    'financial.placeholder.body':
+      'The account created automatically when this operator was set up is still active, so players are still handed it — at least as often as the address you added, because it is offered ahead of it. USDT sent there is never received. Stop it before the next deposit.',
+    'financial.placeholder.stop': 'Stop sending players to the placeholder',
+    'financial.placeholder.confirmTitle': 'Stop sending players to the placeholder?',
+    // Split around the identifier, which stays in its own element so it can be bidi-isolated.
+    'financial.placeholder.confirmLead': 'No new deposit will be pointed at',
+    'financial.placeholder.confirmRest':
+      'Your own address keeps taking them. Nothing is deleted, and any deposit already waiting on it is untouched.',
+    'financial.placeholder.stopped': 'The placeholder is off',
+    'financial.placeholder.stoppedBody': 'Players are now handed only the addresses you entered.',
+    'financial.placeholder.stopFailed': 'Could not stop the placeholder',
+    'financial.activate.title': 'This rail is not on the menu yet',
+    'financial.activate.body':
+      'It has an address now and players are still not offered it. The USDT rails start switched off on purpose — a rail that cannot be priced must not be on the menu. Check the rate at the bottom of this page, then turn it on.',
+    'financial.activate.action': 'Activate this rail',
+    'financial.activate.done': '{name} is live',
+    'financial.activate.doneBody': 'Players are offered it from their next deposit.',
+    'financial.activate.failed': 'Could not activate {name}',
+
+    // ── What the wallet behind a rail actually holds ─────────────────────────────────────────
+    'rails.walletBalance.label': 'On-chain balance',
+    'rails.walletBalance.hint':
+      'What the chain reports for this address. It is not the Ichancy float players are credited from.',
+    'rails.walletBalance.loading': 'Reading the chain…',
+    'rails.walletBalance.checked': 'Checked',
+    'rails.walletBalance.refresh': 'Check again',
+    'rails.walletBalance.unavailableTitle': 'This balance could not be read',
+    // The sentence the whole feature exists for. It has to say what the blank is NOT.
+    'rails.walletBalance.unavailableBody':
+      'The chain was not reached, so how much this wallet holds is unknown. Unknown is not zero — nothing here says the wallet is empty.',
   },
 
   ar: {
@@ -337,8 +440,7 @@ export const railMessages = defineMessages({
     'rails.destination.deactivatedBody': 'لن يُوجَّه أي إيداع جديد إلى هذا الحساب.',
     'rails.destination.deactivateFailed': 'تعذّر إيقاف {name}',
     'rails.destination.added': 'تمت إضافة {name}',
-    'rails.destination.addedBody':
-      'صار بالإمكان تسليم هذا الحساب للاعبين الذين يختارون {method}.',
+    'rails.destination.addedBody': 'صار بالإمكان تسليم هذا الحساب للاعبين الذين يختارون {method}.',
     'rails.destination.saved': 'تم حفظ {name}',
     'rails.destination.savedBody': 'رقم الحساب نفسه لم يتغيّر.',
     'rails.destination.addFailed': 'تعذّرت إضافة الوجهة',
@@ -349,7 +451,8 @@ export const railMessages = defineMessages({
     'rails.form.codeHint': 'هكذا سيشير كل إيداع وكل قيد محاسبي إلى هذه الطريقة.',
     'rails.form.codeLocked': 'هناك إيداعات تشير إلى هذا الرمز، وتغييره يقطع صلتها بها.',
     'rails.form.namePlaceholder': 'حوالة بنكية',
-    'rails.form.railLocked': 'القناة تحدد كيف يصل المال فعلياً، فالقناة المختلفة تعني طريقة مختلفة.',
+    'rails.form.railLocked':
+      'القناة تحدد كيف يصل المال فعلياً، فالقناة المختلفة تعني طريقة مختلفة.',
     'rails.form.currencyHint': 'رمز من ثلاثة أحرف كبيرة.',
     'rails.form.currencyLocked': 'الدفاتر تحتفظ بأرصدة هذه الطريقة بهذه العملة.',
     'rails.form.minHint': 'أصغر إيداع تقبله هذه الطريقة.',
@@ -395,11 +498,102 @@ export const railMessages = defineMessages({
       'بصيغة SCREAMING_SNAKE_CASE: من حرفين إلى 48 حرفاً، يبدأ بحرف ثم حروف أو أرقام أو شرطات سفلية.',
     'rails.validation.displayName': 'اللاعبون يرون هذا الاسم، فلا يمكن تركه فارغاً.',
     'rails.validation.currency': 'ثلاثة أحرف كبيرة، مثل NSP.',
-    'rails.validation.maxBelowMin': 'يجب ألا يقل الحد الأعلى عن الحد الأدنى، وإلا لن يستطيع أحد الإيداع.',
+    'rails.validation.maxBelowMin':
+      'يجب ألا يقل الحد الأعلى عن الحد الأدنى، وإلا لن يستطيع أحد الإيداع.',
     'rails.validation.destinationLabel': 'الصرّافون يختارون هذا الحساب من تسميته.',
-    'rails.validation.accountRequired': 'هذا هو الرقم الذي سيدفع إليه اللاعبون. لا يمكن تركه فارغاً.',
+    'rails.validation.accountRequired':
+      'هذا هو الرقم الذي سيدفع إليه اللاعبون. لا يمكن تركه فارغاً.',
+    'rails.validation.walletShape':
+      'هذا ليس عنوان محفظة. عنوان TRC20 من 34 خانة ويبدأ بحرف T، وعنوان BEP20 من 42 خانة ويبدأ بـ 0x. الصقه مرة أخرى من تطبيق محفظتك.',
+    'rails.form.walletHint':
+      'الصقه من تطبيق محفظتك ولا تكتبه يدوياً. ثم أعد قراءة كل حرف منه على هاتفك قبل الحفظ: لا يمكن تعديله لاحقاً، وأي USDT يُرسل إلى عنوان خاطئ يضيع.',
+    'rails.form.walletConfirm': 'راجعتُ هذا العنوان وطابقته مع تطبيق محفظتي',
+    'rails.form.walletDetected':
+      'هذا عنوان {network}. سيُطلب من اللاعبين على هذه القناة الإرسال على شبكة {network}، وأي USDT يُرسل على شبكة أخرى يضيع.',
+    'rails.validation.walletUnconfirmed':
+      'طابق العنوان مع تطبيق محفظتك ثم علّم الخانة. كل لاعب على هذه القناة سيدفع إليه.',
     'rails.validation.capFormat': 'رقم عشري بسيط، مثل 20000000.00 — أو اتركه فارغاً لبلا حدّ.',
     'rails.validation.capNegative': 'لا يمكن أن يكون الحد سالباً.',
+
+    'rails.rate.title': 'سعر صرف USDT',
+    'rails.rate.description':
+      'كم يساوي USDT واحد. يُضرب بهذا الرقم كل إيداع على قنوات USDT، فاقرأ المثال أدناه قبل الحفظ — خطأ الفاصلة العشرية لا يُرى في السعر ويُرى في المبلغ المُضاف.',
+    'rails.rate.field': 'USDT واحد يساوي',
+    'rails.rate.noteField': 'من أين قرأته (اختياري)',
+    'rails.rate.noteHint': 'يُحفظ مع السعر، ليتسنى التحقق من أي إضافة لاحقاً من المصدر نفسه.',
+    'rails.rate.setLabel': 'حُدِّد',
+    'rails.rate.submit': 'حفظ السعر',
+    'rails.rate.submitConfirm': 'نعم، احفظ هذا السعر',
+    'rails.rate.saved': 'حُفظ السعر. الإيداعات من الآن تُسعَّر به.',
+    'rails.rate.readOnly': 'دورك يرى هذا السعر ولا يغيّره.',
+    'rails.rate.noneTitle': 'لا يوجد سعر محدَّد',
+    'rails.rate.noneBody':
+      'قنوات USDT لا تستطيع تسعير أي إيداع قبل تحديده، ولا تُعرض على اللاعبين حتى ذلك الحين.',
+    'rails.rate.staleTitle': 'هذا السعر قديم ولا يصلح للاستخدام',
+    'rails.rate.staleBody':
+      'قنوات USDT ترفض الإيداعات بدل تسعيرها برقم قديم. السعر صالح {hours} ساعة؛ حدِّد سعراً حالياً.',
+    'rails.rate.previewTitle': 'تحقّق من هذا قبل الحفظ',
+    'rails.rate.previewHint': 'ما سيُضاف للاعب بالضبط، بالحساب نفسه الذي يستخدمه الخادم.',
+    'rails.rate.previewEmpty': 'أدخل سعراً لترى ما سيُضاف.',
+    'rails.rate.jumpTitle': 'هذا بعيد كثيراً عن السعر الحالي',
+    'rails.rate.jumpBody':
+      'أبعد مما يتحرك السعر عادةً. تحقّق من الفاصلة العشرية، وتحقّق من أنك لم تخلط بين الليرة الجديدة والقديمة — بينهما فرق مئة ضعف. اضغط مرة أخرى فقط إذا كان صحيحاً فعلاً.',
+
+    'financial.page.description':
+      'كل طريقة يستطيع اللاعب الدفع بها، والحسابات التي تدفع إليها كل طريقة، والسعر الذي يُسعَّر به كل إيداع USDT.',
+    'financial.methods.emptyTitle': 'لا توجد طريقة دفع لدى هذا المشغّل',
+    'financial.methods.emptyBody':
+      'لا يمكن استقبال أي مبلغ قبل وجود طريقة واحدة على الأقل. أنشئها من شاشة قنوات الدفع، ثم أدخل هنا الحساب الذي تدفع إليه.',
+    'financial.card.description':
+      'الحسابات التي يُطلب من اللاعبين الدفع إليها عند اختيار هذه الطريقة.',
+    'financial.card.cryptoDescription':
+      'اللاعب الذي يختار هذه الطريقة يرسل USDT إلى العنوان أدناه، على الشبكة التي ينتمي إليها ذلك العنوان.',
+    'financial.address.heading': 'عنوان المحفظة',
+    'financial.address.emptyTitle': 'لا يوجد عنوان محفظة بعد',
+    'financial.address.emptyBody':
+      'الصقه من تطبيق محفظتك. قبل وجوده هنا لا يستطيع أحد الدفع على هذه القناة.',
+    'financial.address.set': 'أدخل عنوان المحفظة',
+    'financial.address.addAnother': 'أضف عنواناً آخر',
+    'financial.account.heading': 'الحسابات التي يدفع إليها اللاعبون',
+    'financial.account.emptyTitle': 'لا يوجد حساب بعد',
+    'financial.account.emptyBody':
+      'أدخل الحساب الذي سيدفع إليه اللاعبون. قبل وجوده هنا لن يُعرض شيء على من يختار هذه الطريقة.',
+    'financial.account.set': 'أدخل الحساب',
+    'financial.account.addAnother': 'أضف حساباً آخر',
+    'financial.balance.untracked': 'لا يوجد رصيد متابَع لهذا الحساب بعد.',
+    'financial.notReady.title': 'هذه القناة غير جاهزة لاستقبال الأموال',
+    'financial.notReady.body':
+      'لا يوجد عليها حساب للدفع إليه، واللاعب الذي يختارها لن يُعرض عليه شيء.',
+    'financial.notReady.placeholderBody':
+      'الحساب الوحيد عليها هو الحساب الذي أُنشئ تلقائياً عند تجهيز هذا المشغّل. هذا علامة وليس محفظة: أي USDT يُرسل إليه لا يصل إلى أحد ولا يستطيع أحد استرجاعه، ولا نحن. أدخل عنوانك قبل أن تقبل أي إيداع.',
+    'financial.placeholder.title': 'اللاعبون ما زالوا يُوجَّهون إلى الحساب المؤقت',
+    'financial.placeholder.body':
+      'الحساب الذي أُنشئ تلقائياً عند تجهيز هذا المشغّل ما زال نشطاً، فما زال يُعطى للاعبين — بمعدل لا يقل عن العنوان الذي أضفته، لأنه يُعرض قبله. أي USDT يُرسل إليه لا يصل إلى أحد. أوقفه قبل الإيداع التالي.',
+    'financial.placeholder.stop': 'أوقف توجيه اللاعبين إلى الحساب المؤقت',
+    'financial.placeholder.confirmTitle': 'إيقاف توجيه اللاعبين إلى الحساب المؤقت؟',
+    'financial.placeholder.confirmLead': 'لن يُوجَّه أي إيداع جديد إلى',
+    'financial.placeholder.confirmRest':
+      'عنوانك يبقى يستقبلها. لا يُحذف شيء، وأي إيداع معلّق عليه يبقى كما هو.',
+    'financial.placeholder.stopped': 'أُوقف الحساب المؤقت',
+    'financial.placeholder.stoppedBody': 'لن يُعطى اللاعبون سوى العناوين التي أدخلتها.',
+    'financial.placeholder.stopFailed': 'تعذّر إيقاف الحساب المؤقت',
+    'financial.activate.title': 'هذه القناة ليست معروضة على اللاعبين بعد',
+    'financial.activate.body':
+      'صار لها عنوان ومع ذلك لا تُعرض على اللاعبين. قنوات USDT تبدأ موقوفة عن قصد — قناة لا يمكن تسعيرها يجب ألّا تكون على القائمة. تأكّد من السعر في أسفل هذه الصفحة ثم شغّلها.',
+    'financial.activate.action': 'تشغيل هذه القناة',
+    'financial.activate.done': '{name} تعمل الآن',
+    'financial.activate.doneBody': 'ستُعرض على اللاعبين ابتداءً من الإيداع التالي.',
+    'financial.activate.failed': 'تعذّر تشغيل {name}',
+
+    'rails.walletBalance.label': 'الرصيد على الشبكة',
+    'rails.walletBalance.hint':
+      'ما تُظهره الشبكة لهذا العنوان. ليس رصيد الوكيل لدى Ichancy الذي يُضاف منه للاعبين.',
+    'rails.walletBalance.loading': 'جارٍ قراءة الشبكة…',
+    'rails.walletBalance.checked': 'قُرئ',
+    'rails.walletBalance.refresh': 'أعد القراءة',
+    'rails.walletBalance.unavailableTitle': 'تعذّرت قراءة هذا الرصيد',
+    'rails.walletBalance.unavailableBody':
+      'لم يُتَّصل بالشبكة، فما تحمله هذه المحفظة غير معروف. غير معروف لا يعني صفراً — لا شيء هنا يقول إن المحفظة فارغة.',
   },
 });
 

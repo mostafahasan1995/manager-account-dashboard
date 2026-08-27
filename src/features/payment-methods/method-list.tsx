@@ -205,9 +205,7 @@ export function MethodList({
           <ErrorState error={error} onRetry={onRetry} />
         ) : rows.length === 0 ? (
           <EmptyState
-            title={
-              hasFilters ? t('rails.method.emptyFilteredTitle') : t('rails.method.emptyTitle')
-            }
+            title={hasFilters ? t('rails.method.emptyFilteredTitle') : t('rails.method.emptyTitle')}
             description={
               hasFilters ? t('rails.method.emptyFilteredBody') : t('rails.method.emptyBody')
             }
@@ -302,7 +300,9 @@ export function MethodList({
                     </TableCell>
                     <TableCell>
                       {free ? (
-                        <span className="text-[var(--muted-foreground)]">{t('rails.fee.none')}</span>
+                        <span className="text-[var(--muted-foreground)]">
+                          {t('rails.fee.none')}
+                        </span>
                       ) : (
                         // No `dir` override: the bidi algorithm already puts the fixed fee first in
                         // reading order in both languages, and pinning it to LTR would reverse the

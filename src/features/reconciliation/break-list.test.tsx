@@ -69,7 +69,9 @@ describe('BreakList', () => {
   it('lists the open and investigating breaks by default and leaves the resolved one out', async () => {
     render('/reconciliation');
 
-    expect(await screen.findByRole('button', { name: /agent float mismatch/i })).toBeInTheDocument();
+    expect(
+      await screen.findByRole('button', { name: /agent float mismatch/i }),
+    ).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /missing credit/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /duplicate credit/i })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /unidentified receipt/i })).not.toBeInTheDocument();
@@ -168,7 +170,9 @@ describe('BreakList', () => {
     render('/reconciliation');
 
     await screen.findByRole('button', { name: /agent float mismatch/i });
-    expect(within(rowFor(/agent float mismatch/i) as HTMLElement).getByText('Unassigned')).toBeInTheDocument();
+    expect(
+      within(rowFor(/agent float mismatch/i) as HTMLElement).getByText('Unassigned'),
+    ).toBeInTheDocument();
   });
 
   it('marks a break assigned to the signed-in admin as theirs', async () => {
@@ -186,7 +190,9 @@ describe('BreakList', () => {
     render('/reconciliation');
 
     await screen.findByRole('button', { name: /missing credit/i });
-    expect(within(rowFor(/missing credit/i) as HTMLElement).getByText('aaaaaaaa…')).toBeInTheDocument();
+    expect(
+      within(rowFor(/missing credit/i) as HTMLElement).getByText('aaaaaaaa…'),
+    ).toBeInTheDocument();
   });
 
   it('says a break points at nothing rather than leaving the cell blank', async () => {

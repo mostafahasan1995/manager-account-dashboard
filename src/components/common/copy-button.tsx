@@ -57,7 +57,11 @@ export function CopyButton({
         onClick={copy}
         aria-label={copied ? t('common.copied') : action}
       >
-        {copied ? <Check className="size-3.5 text-[var(--success)]" /> : <Copy className="size-3.5" />}
+        {copied ? (
+          <Check className="size-3.5 text-[var(--success)]" />
+        ) : (
+          <Copy className="size-3.5" />
+        )}
       </Button>
     </Tooltip>
   );

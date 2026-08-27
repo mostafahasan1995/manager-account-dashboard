@@ -2,10 +2,23 @@
 
 What actually happens under the hood, what the console offers, and the state of the backend work.
 
-> **Status, 2026-08-22.** Sections 3, 4 (rows 1–2) and 5 described things that were broken; all of
+> **Status, 2026-08-25.** Sections 3, 4 (rows 1–2) and 5 described things that were broken; all of
 > them are now fixed and covered by tests. The Ichancy session is keyed by agent identity, proof
 > downloads use the operator's own bot token, the adapter reads the operator's currency, and the six
 > endpoints in section 6 exist. What is still open is listed in section 8.
+>
+> **The HTTP tenant claim is closed too**, verified 2026-08-25: the admin token carries `tid`,
+> `tenant-context.middleware.ts` enters that operator on every request, and a tenant-zero
+> `PLATFORM_ADMIN` may point one request elsewhere with `X-Tenant-Id`. Measured against the running
+> API — same token, header varied, different operators' player counts came back, and an unknown id
+> answered 400 rather than falling back. See `docs/API-CONTRACT.md` §5. Section 8's open items are
+> about the Cloudflare/cookie layer and the two UNauthenticated player routes; none of them is the
+> admin tenant claim, and all four were re-checked on this date and are still open.
+>
+> **Section 5 is now stale in the other direction** and section 7 with it: creating an operator
+> registers its webhook, pushes its menus, provisions its payment rails and activates it, all inside
+> `TenantService.create` → `provision()`. Rewriting those two sections is CC-017's job, not this
+> note's — it is flagged here so nobody reads §5 and believes a new operator is unreachable.
 
 ---
 

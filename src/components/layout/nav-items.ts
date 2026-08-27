@@ -1,6 +1,7 @@
 import {
   Banknote,
   Building2,
+  HandCoins,
   LayoutDashboard,
   Scale,
   Settings,
@@ -38,6 +39,17 @@ export const NAV_ITEMS: readonly NavItem[] = [
     to: '/payment-methods',
     labelKey: 'nav.paymentMethods',
     icon: Wallet,
+    capability: 'paymentMethods.read',
+  },
+  /*
+   * The same capability as the rails screen, deliberately: a REVIEWER or a SUPPORT agent reads the
+   * USDT rate off here while deciding a crypto deposit. Gating the ROUTE on write would take that
+   * away from them; the write controls inside are gated one by one instead.
+   */
+  {
+    to: '/financial',
+    labelKey: 'nav.financial',
+    icon: HandCoins,
     capability: 'paymentMethods.read',
   },
   {

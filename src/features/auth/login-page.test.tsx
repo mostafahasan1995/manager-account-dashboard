@@ -49,7 +49,12 @@ async function openCodeTab(user: ReturnType<typeof render>['user']): Promise<voi
 }
 
 const apiError = (status: number, code: string, details?: unknown) =>
-  new ApiError({ status, code, message: `server said ${code}`, ...(details === undefined ? {} : { details }) });
+  new ApiError({
+    status,
+    code,
+    message: `server said ${code}`,
+    ...(details === undefined ? {} : { details }),
+  });
 
 describe('what it tells you', () => {
   it('offers both accounts, and opens on the one an operator holds', async () => {
@@ -359,6 +364,24 @@ describe('in Arabic', () => {
     expect(await screen.findByRole('heading', { name: 'تسجيل الدخول' })).toBeInTheDocument();
     expect(screen.getByLabelText('اسم مستخدم Ichancy')).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'رمز البوت' })).toBeInTheDocument();
+  });
+
+  it('calls itself by its Arabic name, not by an English one baked in at build time', async () => {
+    /*
+     * The product name used to come from `VITE_APP_NAME`, an env string, so a fully Arabic screen
+     * carried "Cashier Console" in the one place a person looks to find out where they are. The
+     * translated name existed the whole time and nothing rendered it.
+     */
+    render({ locale: 'ar' });
+
+    expect(await screen.findByText('إدارة الصرّاف')).toBeInTheDocument();
+    expect(screen.queryByText(/cashier/i)).not.toBeInTheDocument();
+  });
+
+  it('calls itself Cashier Admin in English', async () => {
+    render({ locale: 'en' });
+
+    expect(await screen.findByText('Cashier Admin')).toBeInTheDocument();
   });
 
   it('leaves the bot command in Latin, because it is typed into Telegram exactly as shown', async () => {

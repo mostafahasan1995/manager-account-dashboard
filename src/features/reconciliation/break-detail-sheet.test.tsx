@@ -79,7 +79,9 @@ describe('BreakDetailSheet', () => {
   it('shows the three figures and what the check recorded', async () => {
     render(BREAK_IDS.floatMismatch);
 
-    expect(await screen.findByRole('heading', { name: 'Agent float mismatch' })).toBeInTheDocument();
+    expect(
+      await screen.findByRole('heading', { name: 'Agent float mismatch' }),
+    ).toBeInTheDocument();
     expect(screen.getByText('+4,500,000.00 NSP')).toBeInTheDocument();
     expect(screen.getByText('+4,437,500.00 NSP')).toBeInTheDocument();
     expect(screen.getByText('-62,500.00 NSP')).toBeInTheDocument();
@@ -161,7 +163,9 @@ describe('BreakDetailSheet', () => {
   it('gives a viewer the whole break and none of the actions', async () => {
     render(BREAK_IDS.floatMismatch, { role: 'VIEWER' });
 
-    expect(await screen.findByRole('heading', { name: 'Agent float mismatch' })).toBeInTheDocument();
+    expect(
+      await screen.findByRole('heading', { name: 'Agent float mismatch' }),
+    ).toBeInTheDocument();
     expect(screen.getByText('-62,500.00 NSP')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /assign to me/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /correct float/i })).not.toBeInTheDocument();
@@ -171,7 +175,9 @@ describe('BreakDetailSheet', () => {
   it('offers nothing to act on once the break is already closed', async () => {
     render(BREAK_IDS.resolved);
 
-    expect(await screen.findByRole('heading', { name: 'Unidentified receipt' })).toBeInTheDocument();
+    expect(
+      await screen.findByRole('heading', { name: 'Unidentified receipt' }),
+    ).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /assign to me/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^resolve$/i })).not.toBeInTheDocument();
   });

@@ -78,9 +78,7 @@ describe('RoleBadge', () => {
 
     renderPlain(<RoleBadge role="SUPER_ADMIN" />);
     expect(screen.getByText('Super admin')).toBeInTheDocument();
-    expect(platform).not.toBe(
-      screen.getByText('Super admin').className,
-    );
+    expect(platform).not.toBe(screen.getByText('Super admin').className);
   });
 });
 

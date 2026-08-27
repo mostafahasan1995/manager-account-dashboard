@@ -115,9 +115,7 @@ describe('PlayerTable — balances', () => {
 
     expect(await screen.findByText('Unknown')).toBeInTheDocument();
     expect(screen.queryByText(/^0\.00$/)).not.toBeInTheDocument();
-    expect(
-      screen.getByRole('button', { name: /Retry the balance/i }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Retry the balance/i })).toBeInTheDocument();
   });
 
   it('does not ask for a balance a player cannot have', async () => {

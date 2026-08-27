@@ -24,6 +24,7 @@ import { useEnumLabel, useT } from '@/lib/i18n/use-translation';
 import { differsFrom, formatMoney } from '@/lib/money';
 import type { AdminDeposit } from '@/types';
 
+import { ChainVerdict } from './chain-verdict';
 import { DepositActions } from './deposit-actions';
 import { isRetryable } from './deposit-model';
 import { DepositProofs } from './deposit-proofs';
@@ -57,7 +58,9 @@ export function DepositReviewSheet({
       <SheetContent>
         <SheetHeader>
           <span className="flex flex-wrap items-center gap-2">
-            <SheetTitle>{t('deposits.sheet.title', { shortId: deposit?.shortId ?? '' })}</SheetTitle>
+            <SheetTitle>
+              {t('deposits.sheet.title', { shortId: deposit?.shortId ?? '' })}
+            </SheetTitle>
             {deposit === undefined ? null : <DepositStatusBadge status={deposit.status} />}
           </span>
           <SheetDescription>
@@ -130,6 +133,10 @@ function ReviewBody({ deposit }: { deposit: AdminDeposit }) {
           </DetailRow>
         </DetailList>
       </Section>
+
+      {/* Directly under the money, and only ever for the ONE deposit open in this panel — the queue
+          must never ask, or it would spend a chain call per row on a screen that also polls. */}
+      <ChainVerdict depositId={deposit.id} />
 
       <Section title={t('deposits.section.destination')}>
         {destination === null ? (

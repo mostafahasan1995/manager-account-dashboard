@@ -3,7 +3,6 @@ import { z } from 'zod';
 import { isoDateTime } from './api';
 import {
   creditVerifiedBySchema,
-  playerCreditStatusSchema,
   playerDebitStatusSchema,
   playerStatusSchema,
   type PlayerStatus,
@@ -100,40 +99,6 @@ export type PlayerDebit = z.infer<typeof playerDebitSchema>;
 
 /** The request body. `amountMinor` is minor units as a decimal string — never a JS number. */
 export interface DebitPlayerBody {
-  amountMinor: string;
-  reason: string;
-}
-
-// ── Manual credits ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * `POST /v1/admin/players/:id/credit` — money sent INTO a player's Ichancy account.
- *
- * The exact mirror of the debit route, field for field, and mirrored here rather than reused so
- * that the id keeps the name the backend gives it (`creditId`) and the status keeps its own union.
- * Everything the debit schema says about `amountMinor` being a STRING and about `status` tolerating
- * a value this console has never heard of applies here unchanged.
- *
- * What is NOT mirrored is the safety of a repeat. It is just as unrepeatable in this direction: the
- * money comes out of the agent float and lands in a live betting account, and Ichancy has no
- * idempotency key to make a second attempt harmless.
- */
-export const playerCreditSchema = z.looseObject({
-  creditId: z.string(),
-  playerId: z.string(),
-  amountMinor: z.string(),
-  status: z.union([playerCreditStatusSchema, z.string()]),
-  playerBalanceBeforeMinor: z.string(),
-  playerBalanceAfterMinor: z.string(),
-  verifiedBy: z.union([creditVerifiedBySchema, z.string()]).nullable(),
-  reason: z.string(),
-  decidedBy: z.string(),
-  createdAt: isoDateTime,
-});
-export type PlayerCredit = z.infer<typeof playerCreditSchema>;
-
-/** The request body. Same shape as a debit, and the same rule: minor units, as a string. */
-export interface CreditPlayerBody {
   amountMinor: string;
   reason: string;
 }

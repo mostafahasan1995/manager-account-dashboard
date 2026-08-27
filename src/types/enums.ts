@@ -33,7 +33,8 @@ export const ADMIN_ROLE_LABELS: Record<AdminRole, string> = {
 };
 
 export const ADMIN_ROLE_DESCRIPTIONS: Record<AdminRole, string> = {
-  PLATFORM_ADMIN: 'Runs the platform: creates, configures and suspends tenants. Sees no tenant data.',
+  PLATFORM_ADMIN:
+    'Runs the platform: creates, configures and suspends tenants. Sees no tenant data.',
   SUPER_ADMIN: 'Top of one tenant. Everything inside it, including staff and approval limits.',
   FINANCE_ADMIN: 'Decides deposits, manages payment rails, and works reconciliation breaks.',
   REVIEWER: 'Reviews and decides deposits. Cannot change rails or staff.',
@@ -229,32 +230,6 @@ export const PLAYER_DEBIT_STATUS_LABELS: Record<PlayerDebitStatus, string> = {
 
 export const PLAYER_DEBIT_STATUS_TONES: Record<PlayerDebitStatus, Tone> = {
   DEBITED: 'success',
-  REJECTED: 'warning',
-  NEEDS_RECONCILIATION: 'danger',
-};
-
-// ── Manual player credits ──────────────────────────────────────────────────────────────────────
-
-/**
- * How a manual credit ended — the same three endings as a debit, with the first one renamed.
- *
- * The symmetry is the point. Money going IN is not the safe direction of money going out: Ichancy
- * still has no idempotency key, so a credit the console repeats is a second gift of the operator's
- * float, and `NEEDS_RECONCILIATION` still means a human reads the real balance before anybody
- * touches that account again. The one asymmetry is who is out of pocket when it goes wrong.
- */
-export const PLAYER_CREDIT_STATUSES = ['CREDITED', 'REJECTED', 'NEEDS_RECONCILIATION'] as const;
-export const playerCreditStatusSchema = z.enum(PLAYER_CREDIT_STATUSES);
-export type PlayerCreditStatus = (typeof PLAYER_CREDIT_STATUSES)[number];
-
-export const PLAYER_CREDIT_STATUS_LABELS: Record<PlayerCreditStatus, string> = {
-  CREDITED: 'Credited',
-  REJECTED: 'Refused by Ichancy',
-  NEEDS_RECONCILIATION: 'Needs reconciliation',
-};
-
-export const PLAYER_CREDIT_STATUS_TONES: Record<PlayerCreditStatus, Tone> = {
-  CREDITED: 'success',
   REJECTED: 'warning',
   NEEDS_RECONCILIATION: 'danger',
 };

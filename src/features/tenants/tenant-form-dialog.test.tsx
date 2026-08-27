@@ -481,7 +481,9 @@ describe('TenantFormDialog — edit', () => {
     const currency = screen.getByLabelText('Currency code');
     expect(currency).toHaveValue('NSP');
     expect(currency).toHaveAttribute('readonly');
-    expect(screen.getByText(/every amount already recorded is denominated in it/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/every amount already recorded is denominated in it/i),
+    ).toBeInTheDocument();
   });
 
   it('does not offer the secrets, which the API would not accept here anyway', () => {

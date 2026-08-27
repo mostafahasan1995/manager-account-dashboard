@@ -74,7 +74,9 @@ describe('choosing an operator', () => {
  * modes are opposite and equally bad: absent while another operator is selected, or present while
  * you are reading your own — the second is what teaches people to stop reading it.
  */
-const renderStrip = (options: { tenantId: string | null; homeTenantId?: string } = { tenantId: TENANT_IDS.second }) => {
+const renderStrip = (
+  options: { tenantId: string | null; homeTenantId?: string } = { tenantId: TENANT_IDS.second },
+) => {
   vi.spyOn(config, 'tenantHeaderEnabled', 'get').mockReturnValue(true);
   const setTenantId = vi.fn();
   const base = createTestAuth({ role: 'PLATFORM_ADMIN', tenantId: options.tenantId });
@@ -120,7 +122,9 @@ describe('the strip under the top bar', () => {
 
   it('names the id while the operator list is still loading, rather than nothing', async () => {
     server.use(
-      http.get(`${config.apiBaseUrl}/v1/admin/tenants`, () => HttpResponse.json(null, { status: 500 })),
+      http.get(`${config.apiBaseUrl}/v1/admin/tenants`, () =>
+        HttpResponse.json(null, { status: 500 }),
+      ),
     );
 
     renderStrip({ tenantId: 'a-tenant-nobody-has-listed' });

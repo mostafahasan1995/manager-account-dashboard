@@ -18,6 +18,21 @@ test('finds an account by name and keeps the search in the URL', async ({ signed
   await expect(signedIn.getByRole('cell', { name: /maya/i })).toBeHidden();
 });
 
+test('a hand-typed "linked=no" shows everyone, and never the opposite of what it says', async ({
+  signedIn,
+}) => {
+  /*
+   * `?linked=no` is not a value this console ever writes — it writes real JSON booleans — but a
+   * shared link is a thing people edit by hand, and this one used to filter to LINKED. The schema
+   * now reads an unparseable boolean as ABSENT, so the honest answer is the unfiltered list: an
+   * unlinked player must still be visible on a link that asked for unlinked players.
+   */
+  await signedIn.goto('/players?linked=no');
+
+  await expect(signedIn.getByRole('row', { name: /maya/i })).toContainText(/not linked/i);
+  await expect(signedIn.getByRole('cell', { name: /karim nasser/i })).toBeVisible();
+});
+
 test('shows which players cannot be credited yet', async ({ signedIn }) => {
   const row = signedIn.getByRole('row', { name: /maya/i });
   await expect(row).toContainText(/pending ichancy/i);
@@ -44,7 +59,7 @@ test('creates the missing Ichancy account and reports the login it got', async (
   await expect(signedIn.getByText(/tg512340002/).first()).toBeVisible();
 });
 
-test("a player id that does not exist explains itself rather than blanking", async ({
+test('a player id that does not exist explains itself rather than blanking', async ({
   signedIn,
 }) => {
   await signedIn.goto('/players/bbbbbbbb-0000-4000-8000-000000009999');

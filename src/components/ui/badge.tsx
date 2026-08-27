@@ -22,8 +22,7 @@ const badgeVariants = cva(
 );
 
 export interface BadgeProps
-  extends Omit<ComponentProps<'span'>, 'color'>,
-    VariantProps<typeof badgeVariants> {
+  extends Omit<ComponentProps<'span'>, 'color'>, VariantProps<typeof badgeVariants> {
   tone?: Tone;
 }
 

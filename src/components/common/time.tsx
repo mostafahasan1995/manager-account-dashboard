@@ -17,7 +17,8 @@ export function TimeAgo({
   prefix?: string;
 }) {
   const formatters = useFormatters();
-  if (value == null) return <span className={cn('text-[var(--muted-foreground)]', className)}>—</span>;
+  if (value == null)
+    return <span className={cn('text-[var(--muted-foreground)]', className)}>—</span>;
   return (
     <Tooltip content={formatters.dateTimeSeconds(value)}>
       <span className={cn('cursor-help whitespace-nowrap', className)}>

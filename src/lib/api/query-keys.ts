@@ -22,6 +22,23 @@ export const depositKeys = {
     [...depositKeys.all, 'proof', depositId, proofId] as const,
 };
 
+/**
+ * The on-chain verdict for one deposit. OUTSIDE `depositKeys.all` on purpose, and this is the whole
+ * reason it has a root of its own.
+ *
+ * `useDepositMutation` invalidates `depositKeys.all` after EVERY claim, release, approve, reject
+ * and retry — see it in queries.ts. Nested under there, claiming a deposit you are about to read
+ * would spend a chain call, and releasing it would spend another; a reviewer who claims, looks and
+ * releases would bill three. The chain's answer about a transfer that already happened does not
+ * change because somebody in this console pressed a button, so nothing about a review action should
+ * refetch it. Same argument as `walletBalanceKeys` and `tenantHealthKeys`: related in meaning,
+ * unrelated in cache lifetime.
+ */
+export const depositChainCheckKeys = {
+  all: ['deposit-chain-checks'] as const,
+  detail: (depositId: string) => [...depositChainCheckKeys.all, depositId] as const,
+};
+
 export const playerKeys = {
   all: ['players'] as const,
   lists: () => [...playerKeys.all, 'list'] as const,
@@ -49,6 +66,20 @@ export const paymentMethodKeys = {
     [...paymentMethodKeys.all, 'destinations', methodId, { includeInactive }] as const,
 };
 
+/**
+ * A payout wallet's on-chain balance, one key per destination.
+ *
+ * OUTSIDE `paymentMethodKeys` on purpose, and for the same reason `tenantHealthKeys` sits outside
+ * `tenantKeys`: every other key under payment methods reads this console's own database and is
+ * invalidated by anything that edits a rail, while this one costs a round trip to a third-party
+ * chain explorer that is rate-limited and answers the same number either way. Renaming a
+ * destination must not spend a chain read, and a chain read must not look like reading a rail.
+ */
+export const walletBalanceKeys = {
+  all: ['wallet-balances'] as const,
+  detail: (destinationId: string) => [...walletBalanceKeys.all, destinationId] as const,
+};
+
 export const adminKeys = {
   all: ['admins'] as const,
   lists: () => [...adminKeys.all, 'list'] as const,
@@ -64,6 +95,24 @@ export const reconciliationKeys = {
   breakList: (query: BreakListQuery) => [...reconciliationKeys.breaks(), query] as const,
   breakDetail: (id: string) => [...reconciliationKeys.breaks(), 'detail', id] as const,
   railAgeing: () => [...reconciliationKeys.all, 'rail-ageing'] as const,
+};
+
+/**
+ * The platform's own defaults. OUTSIDE `tenantKeys` on purpose: creating or editing an operator
+ * must not invalidate this row, and editing this row must not refetch every operator. They are
+ * related in meaning and unrelated in cache lifetime.
+ */
+/**
+ * The crypto rate. Its own key: setting it must not refetch every payment method, and editing a
+ * method must not refetch it. They are related in meaning and unrelated in cache lifetime.
+ */
+export const exchangeRateKeys = {
+  all: ['exchange-rates'] as const,
+  usdt: () => [...exchangeRateKeys.all, 'usdt'] as const,
+};
+
+export const platformDefaultsKeys = {
+  all: ['platform-defaults'] as const,
 };
 
 export const tenantKeys = {
@@ -87,4 +136,17 @@ export const tenantHealthKeys = {
 export const healthKeys = {
   all: ['health'] as const,
   snapshot: () => [...healthKeys.all, 'snapshot'] as const,
+};
+
+/**
+ * The agent float. Its own root, deliberately OUTSIDE `reconciliationKeys`.
+ *
+ * The top bar holds this query open on every screen in the console, so putting it under
+ * reconciliation would make assigning a break — or any other prefix invalidation on that page —
+ * refetch a piece of chrome for everybody. They are related in meaning and unrelated in cache
+ * lifetime, the same argument `tenantHealthKeys` makes above.
+ */
+export const agentFloatKeys = {
+  all: ['agent-float'] as const,
+  current: () => [...agentFloatKeys.all, 'current'] as const,
 };

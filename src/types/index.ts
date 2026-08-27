@@ -7,3 +7,4 @@ export * from './admin';
 export * from './reconciliation';
 export * from './tenant';
 export * from './health';
+export * from './agent-float';

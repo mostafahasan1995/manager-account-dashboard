@@ -45,7 +45,11 @@ describe('RouteErrorPage', () => {
   it('lets the operator try the route again', async () => {
     const reset = vi.fn();
     const { user } = renderWithProviders(
-      <RouteErrorPage error={new Error('render blew up')} reset={reset} info={{ componentStack: '' }} />,
+      <RouteErrorPage
+        error={new Error('render blew up')}
+        reset={reset}
+        info={{ componentStack: '' }}
+      />,
     );
 
     await user.click(await screen.findByRole('button', { name: /try again/i }));

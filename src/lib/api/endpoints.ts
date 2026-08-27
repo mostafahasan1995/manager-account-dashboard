@@ -10,7 +10,6 @@ import type {
   CreatePaymentDestinationBody,
   CreatePaymentMethodBody,
   CreateTenantBody,
-  CreditPlayerBody,
   DebitPlayerBody,
   DepositQueueQuery,
   PaymentMethodListQuery,
@@ -21,16 +20,20 @@ import type {
   UpdateAdminBody,
   UpdatePaymentDestinationBody,
   UpdatePaymentMethodBody,
+  SetExchangeRateBody,
   UpdateTenantBody,
   UpdateTenantBotBody,
   UpdateTenantIchancyBody,
+  UpdatePlatformDefaultsBody,
 } from '@/types';
 import {
   adminDepositSchema,
   adminPlayerSchema,
   adminSessionSchema,
   adminUserSchema,
+  agentFloatSchema,
   approvalLimitSchema,
+  depositChainCheckSchema,
   floatCorrectionSchema,
   floatSyncResultSchema,
   ichancyAccountSchema,
@@ -38,8 +41,8 @@ import {
   livenessSchema,
   paymentDestinationSchema,
   paymentMethodSchema,
+  exchangeRateSchema,
   playerBalanceSchema,
-  playerCreditSchema,
   playerDebitSchema,
   proofUrlSchema,
   railAgeingReportSchema,
@@ -52,7 +55,10 @@ import {
   tenantHealthSchema,
   tenantListSchema,
   tenantSchema,
+  tenantCreatedSchema,
+  platformDefaultsSchema,
   tenantWebhookSchema,
+  walletBalanceSchema,
 } from '@/types';
 
 import { createLimiter } from '@/lib/concurrency';
@@ -144,6 +150,25 @@ export const depositsApi = {
   sweep: () => api.post(sweepReportSchema, '/v1/admin/deposits/maintenance/sweep'),
 };
 
+/**
+ * What the chain says about ONE deposit.
+ *
+ * Its own object rather than a member of `depositsApi`, for the same reason `walletBalancesApi` is
+ * not a member of `paymentMethodsApi`: everything in there reads the backend's own tables, and this
+ * one goes on to a chain explorer that is rate-limited, sometimes slow and sometimes down. Keeping
+ * it apart is what stops somebody folding it into the deposit view — where the QUEUE endpoint would
+ * then pay for one chain call per row.
+ *
+ * Deliberately has no `queue` sibling and never will. If a list ever needs chain state it wants a
+ * batch endpoint, not this one called N times.
+ */
+export const depositChainChecksApi = {
+  read: (depositId: string, signal?: AbortSignal) =>
+    api.get(depositChainCheckSchema, `/v1/admin/deposits/${depositId}/chain-check`, {
+      ...(signal === undefined ? {} : { signal }),
+    }),
+};
+
 // ── Players ────────────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -185,16 +210,6 @@ export const playersApi = {
     api.post(playerDebitSchema, `/v1/admin/players/${id}/debit`, { body }),
 
   /**
-   * Sends funds the other way: out of the agent float and INTO the player's Ichancy account.
-   *
-   * Mirrors `debit` in every respect including the dangerous one — not idempotent, not safe to
-   * repeat. The server refuses before it calls Ichancy when the agent float is smaller than the
-   * amount, which is the one refusal a caller may safely offer to try again after fixing.
-   */
-  credit: (id: string, body: CreditPlayerBody) =>
-    api.post(playerCreditSchema, `/v1/admin/players/${id}/credit`, { body }),
-
-  /**
    * What Ichancy holds for one player.
    *
    * Routed through a SHARED gate rather than called directly, and the gate is the whole design of
@@ -233,13 +248,16 @@ export const paymentMethodsApi = {
     api.patch(paymentMethodSchema, `/v1/admin/payment-methods/${id}`, { body }),
 
   /** Deactivates. Nothing on the money path is ever really deleted. */
-  deactivate: (id: string) =>
-    api.delete(paymentMethodSchema, `/v1/admin/payment-methods/${id}`),
+  deactivate: (id: string) => api.delete(paymentMethodSchema, `/v1/admin/payment-methods/${id}`),
 
   destinations: (methodId: string, includeInactive = false) =>
-    api.get(z.array(paymentDestinationSchema), `/v1/admin/payment-methods/${methodId}/destinations`, {
-      query: includeInactive ? { includeInactive: 'true' } : {},
-    }),
+    api.get(
+      z.array(paymentDestinationSchema),
+      `/v1/admin/payment-methods/${methodId}/destinations`,
+      {
+        query: includeInactive ? { includeInactive: 'true' } : {},
+      },
+    ),
 
   createDestination: (methodId: string, body: CreatePaymentDestinationBody) =>
     api.post(paymentDestinationSchema, `/v1/admin/payment-methods/${methodId}/destinations`, {
@@ -247,10 +265,47 @@ export const paymentMethodsApi = {
     }),
 
   updateDestination: (destinationId: string, body: UpdatePaymentDestinationBody) =>
-    api.patch(paymentDestinationSchema, `/v1/admin/payment-destinations/${destinationId}`, { body }),
+    api.patch(paymentDestinationSchema, `/v1/admin/payment-destinations/${destinationId}`, {
+      body,
+    }),
 
   deactivateDestination: (destinationId: string) =>
     api.delete(paymentDestinationSchema, `/v1/admin/payment-destinations/${destinationId}`),
+};
+
+// ── What the chain says a payout wallet holds ──────────────────────────────────────────────────
+
+/**
+ * The on-chain balance of ONE payout wallet.
+ *
+ * Its own object rather than a member of `paymentMethodsApi`, because it is not the same kind of
+ * call. Everything there reads the backend's own tables; this one goes on to a third-party chain
+ * explorer, which is rate-limited, sometimes slow and sometimes down — and which answers `200` with
+ * a NULL balance when it could not read, rather than an error. Keeping it separate is what stops a
+ * screen treating a wallet balance as the cheap read a destination list is.
+ */
+export const walletBalancesApi = {
+  read: (destinationId: string, signal?: AbortSignal) =>
+    api.get(walletBalanceSchema, `/v1/admin/payment-destinations/${destinationId}/balance`, {
+      ...(signal === undefined ? {} : { signal }),
+    }),
+};
+
+// ── The rate that prices a crypto deposit ──────────────────────────────────────────────────────
+
+/**
+ * One rate per asset per operator. `get` answers `null` when nobody has set one — a normal state a
+ * screen renders as an empty form, not a missing resource.
+ */
+export const exchangeRatesApi = {
+  getUsdt: (signal?: AbortSignal) =>
+    api.get(exchangeRateSchema.nullable(), '/v1/admin/exchange-rates/usdt', {
+      ...(signal === undefined ? {} : { signal }),
+    }),
+
+  /** PUT: there is one current rate, even though every set records a new version behind it. */
+  setUsdt: (body: SetExchangeRateBody) =>
+    api.post(exchangeRateSchema, '/v1/admin/exchange-rates/usdt', { body }),
 };
 
 // ── Admin directory and approval limits ────────────────────────────────────────────────────────
@@ -282,6 +337,26 @@ export const adminsApi = {
   /** Ends a version without replacing it — the admin is left unable to approve anything. */
   endApprovalLimit: (limitId: string) =>
     api.delete(approvalLimitSchema, `/v1/admin/approval-limits/${limitId}`),
+};
+
+// ── The agent float ────────────────────────────────────────────────────────────────────────────
+
+/**
+ * The Ichancy agent balance, read out of the local ledger.
+ *
+ * NOT a member of `reconciliationApi`, even though the float sync lives there. This one is chrome:
+ * the top bar asks for it on every screen, and hanging it off reconciliation would tie a permanent
+ * background read to a page most people never open — and would invite somebody to invalidate it
+ * from a break resolution, which refetches it for everybody looking at anything.
+ *
+ * Cheap by contract: a ledger balance, not an Ichancy round trip. That is the whole reason the top
+ * bar is allowed to poll it at all — compare `tenantsApi.health`, which costs a real signin.
+ */
+export const agentFloatApi = {
+  get: (signal?: AbortSignal) =>
+    api.get(agentFloatSchema, '/v1/admin/agent-float', {
+      ...(signal === undefined ? {} : { signal }),
+    }),
 };
 
 // ── Reconciliation ─────────────────────────────────────────────────────────────────────────────
@@ -317,6 +392,25 @@ export const reconciliationApi = {
   runInvariants: () => api.post(invariantReportSchema, '/v1/admin/reconciliation/invariants/run'),
 };
 
+// ── Platform defaults (PLATFORM_ADMIN) ─────────────────────────────────────────────────────────
+
+/**
+ * The values every NEW operator inherits.
+ *
+ * Not a tenant, and deliberately not hung off `/v1/admin/tenants`: it is the platform's own row,
+ * and a sub-path of a collection it is not a member of would read as one.
+ */
+export const platformDefaultsApi = {
+  get: (signal?: AbortSignal) =>
+    api.get(platformDefaultsSchema, '/v1/admin/platform-defaults', {
+      ...(signal === undefined ? {} : { signal }),
+    }),
+
+  /** Answers the same view as `get`, so a screen never has to guess what it saved. */
+  update: (body: UpdatePlatformDefaultsBody) =>
+    api.patch(platformDefaultsSchema, '/v1/admin/platform-defaults', { body }),
+};
+
 // ── Tenants (PLATFORM_ADMIN) ───────────────────────────────────────────────────────────────────
 
 export const tenantsApi = {
@@ -330,8 +424,16 @@ export const tenantsApi = {
 
   byId: (id: string) => api.get(tenantSchema, `/v1/admin/tenants/${id}`),
 
-  /** Lands SUSPENDED on purpose — activating is a second, deliberate act. */
-  create: (body: CreateTenantBody) => api.post(tenantSchema, '/v1/admin/tenants', { body }),
+  /**
+   * Creates an operator and finishes the job: the backend registers the webhook, pushes the command
+   * menus, provisions the default payment rails and attempts activation, then reports each outcome
+   * in `provisioning`.
+   *
+   * Parsed with `tenantCreatedSchema` rather than `tenantSchema`, which is the whole point: that
+   * block was arriving on every response and being dropped on the floor, including the one field
+   * that says the new operator's rails point at placeholder accounts.
+   */
+  create: (body: CreateTenantBody) => api.post(tenantCreatedSchema, '/v1/admin/tenants', { body }),
 
   update: (id: string, body: UpdateTenantBody) =>
     api.patch(tenantSchema, `/v1/admin/tenants/${id}`, { body }),

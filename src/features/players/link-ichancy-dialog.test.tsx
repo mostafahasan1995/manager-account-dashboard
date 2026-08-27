@@ -104,8 +104,6 @@ describe('LinkIchancyDialog', () => {
     renderDialog(pending);
 
     expect(await screen.findByRole('button', { name: 'Create account' })).toBeInTheDocument();
-    expect(
-      screen.queryByText('This player is not waiting for an account'),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByText('This player is not waiting for an account')).not.toBeInTheDocument();
   });
 });

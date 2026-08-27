@@ -52,7 +52,9 @@ export function TenantSwitcher() {
           <Building2 className="size-4 shrink-0" />
           <span className="truncate">{label}</span>
           {selected !== null && selected.status !== 'ACTIVE' ? (
-            <Badge tone="warning">{t(`enum.tenantStatus.${selected.status}` as 'common.all')}</Badge>
+            <Badge tone="warning">
+              {t(`enum.tenantStatus.${selected.status}` as 'common.all')}
+            </Badge>
           ) : null}
         </Button>
       </DropdownMenuTrigger>
@@ -86,9 +88,7 @@ export function TenantSwitcher() {
             <span className="min-w-0 flex-1 truncate">{tenant.displayName}</span>
             {/* A suspended operator still has data worth reading; say which one it is up front. */}
             {tenant.status === 'ACTIVE' ? null : (
-              <Badge tone="muted">
-                {t(`enum.tenantStatus.${tenant.status}` as 'common.all')}
-              </Badge>
+              <Badge tone="muted">{t(`enum.tenantStatus.${tenant.status}` as 'common.all')}</Badge>
             )}
           </DropdownMenuItem>
         ))}
@@ -122,10 +122,7 @@ export function TenantScopeStrip() {
   // then the only thing that means home, which is exactly what the null check below says.
   const homeTenantId = session?.tenantId ?? null;
   const viewingOther =
-    isPlatformAdmin &&
-    config.tenantHeaderEnabled &&
-    tenantId !== null &&
-    tenantId !== homeTenantId;
+    isPlatformAdmin && config.tenantHeaderEnabled && tenantId !== null && tenantId !== homeTenantId;
 
   if (!viewingOther) return null;
 

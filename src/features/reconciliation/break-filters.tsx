@@ -43,7 +43,9 @@ export function BreakFilters() {
   const statuses = search.status ?? DEFAULT_BREAK_STATUSES;
   const categories = search.category ?? [];
   const filtered =
-    search.status !== undefined || search.category !== undefined || search.minSeverity !== undefined;
+    search.status !== undefined ||
+    search.category !== undefined ||
+    search.minSeverity !== undefined;
 
   const setStatus = (value: BreakStatus[]) => {
     void navigate({ to: '.', search: (prev) => pruneSearch({ ...prev, status: value }) });
@@ -58,7 +60,10 @@ export function BreakFilters() {
   };
 
   const clearAll = () => {
-    void navigate({ to: '.', search: (prev) => pruneSearch({ tab: prev.tab, selected: prev.selected }) });
+    void navigate({
+      to: '.',
+      search: (prev) => pruneSearch({ tab: prev.tab, selected: prev.selected }),
+    });
   };
 
   return (

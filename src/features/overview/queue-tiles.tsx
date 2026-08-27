@@ -2,7 +2,7 @@ import { AlertTriangle, Hourglass, Inbox, Scale, UserCheck, type LucideIcon } fr
 
 import { Can, ErrorState, StatCard } from '@/components/common';
 import { Card } from '@/components/ui';
-import { flattenPages, useBreaks, useDepositQueue } from '@/lib/api/queries';
+import { OVERVIEW_POLL_MS, flattenPages, useBreaks, useDepositQueue } from '@/lib/api/queries';
 import { useT, type TranslatorKey } from '@/lib/i18n/use-translation';
 import { ATTENTION_DEPOSIT_STATUSES, type Tone } from '@/types/enums';
 import type { DepositQueueQuery } from '@/types';
@@ -58,11 +58,24 @@ interface TileSpec {
   activeTone: Tone;
   query: DepositQueueQuery;
   search: Record<string, unknown>;
+  /**
+   * How live this tile has to be. Only the two a reviewer races for are worth a timer; "stuck
+   * money" and "second approval" change when somebody acts, and that already invalidates them.
+   */
+  poll?: number | false;
 }
 
-function DepositCountTile({ labelKey, hintKey, icon, activeTone, query, search }: TileSpec) {
+function DepositCountTile({
+  labelKey,
+  hintKey,
+  icon,
+  activeTone,
+  query,
+  search,
+  poll = false,
+}: TileSpec) {
   const t = useT(overviewMessages);
-  const { data, isLoading, error, refetch } = useDepositQueue(query);
+  const { data, isLoading, error, refetch } = useDepositQueue(query, { poll });
   const label = t(labelKey);
 
   if (error !== null) {
@@ -140,6 +153,8 @@ const DEPOSIT_TILES: TileSpec[] = [
     activeTone: 'info',
     query: WAITING_QUERY,
     search: { status: ['SUBMITTED'] },
+    // Live: a deposit arriving is the thing this screen exists to notice.
+    poll: OVERVIEW_POLL_MS,
   },
   {
     labelKey: 'overview.tiles.unclaimed',
@@ -148,6 +163,8 @@ const DEPOSIT_TILES: TileSpec[] = [
     activeTone: 'warning',
     query: UNCLAIMED_QUERY,
     search: { status: ['SUBMITTED'], unclaimedOnly: true },
+    // Live: this is the number a reviewer decides whether to pick something up from.
+    poll: OVERVIEW_POLL_MS,
   },
   {
     // This tile counts exactly one status, so it is named by that status rather than by a second
@@ -158,6 +175,8 @@ const DEPOSIT_TILES: TileSpec[] = [
     activeTone: 'warning',
     query: SECOND_APPROVAL_QUERY,
     search: { status: ['PENDING_SECOND_APPROVAL'] },
+    // No timer: a deposit only reaches this state because somebody in this console approved it,
+    // and that approval already invalidated this key.
   },
   {
     labelKey: 'overview.tiles.stuck',
@@ -166,6 +185,8 @@ const DEPOSIT_TILES: TileSpec[] = [
     activeTone: 'danger',
     query: STUCK_MONEY_QUERY,
     search: { status: [...ATTENTION_DEPOSIT_STATUSES] },
+    // No timer, and this is the tile that made the case for cutting them: nine stuck deposits that
+    // had not changed in days were being re-fetched four times a minute, for ever.
   },
 ];
 

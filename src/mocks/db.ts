@@ -13,6 +13,7 @@ import type {
   PlayerDebitStatus,
   ReconciliationBreak,
   Tenant,
+  TenantProvisioning,
   TenantHealth,
   TenantWebhook,
 } from '@/types';
@@ -81,9 +82,11 @@ export interface MockOperatorOps {
    */
   webhookPathToken: string;
   /**
-   * Where Telegram currently delivers, or null when it has never been told. A NEW operator starts
-   * null even though its path token exists: that gap is exactly what stops a new bot working today
-   * — see docs/TENANT-OPERATIONS.md section 5.
+   * Where Telegram currently delivers, or null when it has never been told.
+   *
+   * A new operator is no longer created in that state: `createTenant` registers the webhook, as
+   * `TenantService.provision()` does. Null now means somebody removed it, or an operator that
+   * predates provisioning — both real, and both worth being able to see.
    */
   webhookUrl: string | null;
   pendingUpdateCount: number;
@@ -124,6 +127,10 @@ export interface MockState {
    * the backend adds a defaulted field.
    */
   platformDefaults: PlatformDefaults;
+  /** Null until somebody prices the crypto rail, which is where every operator starts. */
+  usdtRate: MockExchangeRate | null;
+  /** When that row was last written, so the screen can tell an edit from the seed. */
+  platformDefaultsUpdatedAt: string;
   /** The admin the mock session belongs to. Switchable so tests can log in as any role. */
   currentAdmin: AdminIdentity;
   /** Ledger side of the agent float, so a float sync produces a believable delta. */
@@ -205,6 +212,8 @@ function seed(): MockState {
     railAgeing: clone(mockRailAgeing),
     // Seeded once, exactly as the backend seeds the settings row from env on first run.
     platformDefaults: clone(mockPlatformDefaults),
+    usdtRate: null,
+    platformDefaultsUpdatedAt: '2026-08-01T00:00:00.000Z',
     currentAdmin: {
       id: superAdmin.id,
       telegramUserId: superAdmin.telegramUserId,
@@ -267,7 +276,10 @@ export function approveDeposit(
   deposit.decidedAt = nowIso();
   deposit.decidedByAdminId = db.currentAdmin.id;
 
-  if (deposit.status !== 'PENDING_SECOND_APPROVAL' && verifiedMinor > dualApprovalThresholdMinor()) {
+  if (
+    deposit.status !== 'PENDING_SECOND_APPROVAL' &&
+    verifiedMinor > dualApprovalThresholdMinor()
+  ) {
     deposit.status = 'PENDING_SECOND_APPROVAL';
     deposit.requiresSecondApproval = true;
     return { kind: 'awaiting_second_approval', ledgerTransactionId: '' };
@@ -377,7 +389,8 @@ export function createMethod(body: Record<string, unknown>): PaymentMethod {
     displayName: str(body.displayName, 'New method'),
     rail: (body.rail ?? 'BANK_TRANSFER') as PaymentMethod['rail'],
     currencyCode: str(body.currencyCode, MOCK_CURRENCY),
-    verificationMode: (body.verificationMode ?? 'MANUAL_PROOF') as PaymentMethod['verificationMode'],
+    verificationMode: (body.verificationMode ??
+      'MANUAL_PROOF') as PaymentMethod['verificationMode'],
     minAmount: str(body.minAmount, '0.00'),
     maxAmount: str(body.maxAmount, '0.00'),
     feeFixed: str(body.feeFixed, '0.00'),
@@ -521,7 +534,10 @@ export function resolveIchancyAgentId(body: Record<string, unknown>): string | n
  * ABSENT field is filled in here, and the response carries the resolved value so the detail panel
  * can show what the operator actually got.
  */
-export function createTenant(body: Record<string, unknown>): Tenant {
+export function createTenant(body: Record<string, unknown>): {
+  tenant: Tenant;
+  provisioning: TenantProvisioning;
+} {
   const defaults = platformDefaults();
   const displayName = str(body.displayName, 'New tenant');
 
@@ -552,7 +568,195 @@ export function createTenant(body: Record<string, unknown>): Tenant {
     counts: { players: 0, deposits: 0 },
   };
   db.tenants.push(tenant);
-  return tenant;
+
+  /*
+   * The provisioning report, mirroring `TenantService.provision()`: the backend registers the
+   * webhook, pushes the command menus and provisions the default payment rails on create, and says
+   * how each went.
+   *
+   * ACTIVATION IS THE ONE STEP THIS MOCK HONESTLY CANNOT DO. The real one activates only after a
+   * live Ichancy signin proves the agent credentials, and there is no Ichancy here — so the
+   * operator stays SUSPENDED and the report says why, rather than claiming a verification that
+   * never happened. That is also the more useful demo: it is the arm an operator actually hits when
+   * a password was pasted wrong.
+   */
+  // The real create tells Telegram where to deliver; `registerWebhook` is that same step.
+  const webhook = registerWebhook(tenant.id);
+  tenant.botUsername = `${tenant.slug.replace(/-/g, '_')}_bot`;
+
+  const provisioning: TenantProvisioning = {
+    webhookRegistered: webhook.registered,
+    webhookUrl: webhook.url,
+    webhookError: null,
+    menusPushed: true,
+    menuScopes: ['default', 'all_private_chats'],
+    menuError: null,
+    activated: false,
+    activationError:
+      'The mock API cannot sign in to Ichancy, so the agent was not verified. Activate the operator once its credentials are real.',
+    paymentMethodsCreated: DEFAULT_RAIL_COUNT,
+    paymentMethodsError: null,
+    // Every seeded rail points at a placeholder until somebody enters a real account.
+    paymentMethodsNeedAccounts: true,
+  };
+
+  return { tenant, provisioning };
+}
+
+/** How many rails `provisionDefaultPaymentMethods` seeds: bank, e-wallet, Sham Cash, Syriatel. */
+const DEFAULT_RAIL_COUNT = 4;
+
+// ── The rate that prices a crypto deposit ──────────────────────────────────────────────────────
+
+/**
+ * The mock mirrors the real guards, not just the happy path.
+ *
+ * A demo where any number is accepted would let the console ship a rate form that looks finished
+ * and has no protection behind it — and the protection is the entire point of this feature. The
+ * 20% jump refusal in particular is what catches the 100x denomination mistake, so demo mode has
+ * to be able to show somebody what that refusal looks like.
+ */
+export const RATE_MAX_JUMP_BPS = 2_000;
+export const RATE_MAX_AGE_HOURS = 24;
+
+export interface MockExchangeRate {
+  quoteAsset: string;
+  currencyCode: string;
+  rateMinor: bigint;
+  source: string;
+  sourceNote: string | null;
+  setByAdminId: string | null;
+  effectiveFrom: string;
+}
+
+export function usdtRateView(): Record<string, unknown> | null {
+  const rate = db.usdtRate;
+  if (rate === null) return null;
+
+  const ageMs = Date.now() - new Date(rate.effectiveFrom).getTime();
+  return {
+    quoteAsset: rate.quoteAsset,
+    currencyCode: rate.currencyCode,
+    rate: formatMinorToDecimal(rate.rateMinor),
+    rateMinor: rate.rateMinor.toString(),
+    source: rate.source,
+    sourceNote: rate.sourceNote,
+    setByAdminId: rate.setByAdminId,
+    effectiveFrom: rate.effectiveFrom,
+    isStale: ageMs > RATE_MAX_AGE_HOURS * 3_600_000,
+    maxAgeHours: RATE_MAX_AGE_HOURS,
+  };
+}
+
+/** Mirrors the server order: shape, then positivity, then the jump guard. */
+export function setUsdtRate(
+  body: Record<string, unknown>,
+):
+  | { ok: true }
+  | { ok: false; status: 400; field: string }
+  | { ok: false; status: 422; movedPercent: number } {
+  const raw = typeof body.rate === 'string' ? body.rate : '';
+  if (!/^\d{1,12}(\.\d{1,2})?$/.test(raw)) {
+    return { ok: false, status: 400, field: 'rate: must be a decimal amount, e.g. "13200.00"' };
+  }
+
+  const rateMinor = parseDecimalToMinor(raw);
+  if (rateMinor <= 0n) {
+    return { ok: false, status: 400, field: `rate: got ${raw}` };
+  }
+
+  const previous = db.usdtRate;
+  if (previous !== null && body.confirmLargeChange !== true) {
+    const delta =
+      rateMinor > previous.rateMinor
+        ? rateMinor - previous.rateMinor
+        : previous.rateMinor - rateMinor;
+    const movedBps = (delta * 10_000n) / previous.rateMinor;
+    if (movedBps > BigInt(RATE_MAX_JUMP_BPS)) {
+      return { ok: false, status: 422, movedPercent: Number(movedBps) / 100 };
+    }
+  }
+
+  db.usdtRate = {
+    quoteAsset: 'USDT',
+    currencyCode: MOCK_CURRENCY,
+    rateMinor,
+    source: 'MANUAL',
+    sourceNote: typeof body.sourceNote === 'string' ? body.sourceNote : null,
+    setByAdminId: db.currentAdmin.id,
+    effectiveFrom: nowIso(),
+  };
+  return { ok: true };
+}
+
+// ── Platform defaults ──────────────────────────────────────────────────────────────────────────
+
+/**
+ * The row a new operator inherits from, shaped as the API answers it.
+ *
+ * `appliesToNewOperatorsOnly` is always true and is sent anyway, because it is the assumption most
+ * likely to be wrong: editing a default changes what the NEXT operator inherits and does not reach
+ * back into the ones already created. Their values were copied onto their own rows at creation.
+ */
+export function platformDefaultsView(): {
+  ichancyBaseUrl: string;
+  ichancyAgentId: string | null;
+  currencyCode: string;
+  dualApprovalThresholdMinor: string;
+  agentFloatLowWatermarkMinor: string;
+  depositExpiryMinutes: number;
+  updatedAt: string;
+  appliesToNewOperatorsOnly: true;
+} {
+  const defaults = platformDefaults();
+  return {
+    ichancyBaseUrl: defaults.ichancyBaseUrl,
+    ichancyAgentId: defaults.ichancyAgentId,
+    currencyCode: defaults.currencyCode,
+    dualApprovalThresholdMinor: defaults.dualApprovalThresholdMinor,
+    agentFloatLowWatermarkMinor: defaults.agentFloatLowWatermarkMinor,
+    depositExpiryMinutes: defaults.depositExpiryMinutes,
+    updatedAt: db.platformDefaultsUpdatedAt,
+    appliesToNewOperatorsOnly: true,
+  };
+}
+
+/**
+ * A PATCH. An ABSENT key leaves the stored value alone — which is the behaviour worth mirroring
+ * faithfully, because getting it wrong on the real backend would un-name the platform's house agent
+ * and break the NEXT tenant creation with an error naming a field nobody touched.
+ *
+ * Answers the offending field rather than throwing, so the handler can shape the 400 the backend
+ * would send. The currency is checked here for the same reason the backend checks it: it is a
+ * foreign key on tenants, so an unknown code fails later, on somebody else's creation.
+ */
+export function updatePlatformDefaults(
+  body: Record<string, unknown>,
+): { ok: true } | { ok: false; field: string } {
+  const currency = optionalStr(body.currencyCode);
+  if (currency !== null && currency !== MOCK_CURRENCY) {
+    return { ok: false, field: `currencyCode: no Currency row for ${currency}` };
+  }
+
+  const defaults = db.platformDefaults;
+  const assign = <K extends keyof PlatformDefaults>(
+    key: K,
+    value: PlatformDefaults[K] | null,
+  ): void => {
+    if (value !== null) defaults[key] = value;
+  };
+
+  assign('ichancyBaseUrl', optionalStr(body.ichancyBaseUrl));
+  assign('ichancyAgentId', optionalStr(body.ichancyAgentId));
+  assign('currencyCode', currency);
+  assign('dualApprovalThresholdMinor', optionalStr(body.dualApprovalThresholdMinor));
+  assign('agentFloatLowWatermarkMinor', optionalStr(body.agentFloatLowWatermarkMinor));
+  if (typeof body.depositExpiryMinutes === 'number') {
+    defaults.depositExpiryMinutes = body.depositExpiryMinutes;
+  }
+
+  db.platformDefaultsUpdatedAt = nowIso();
+  return { ok: true };
 }
 
 // ── Operator operations: webhook, bot, Ichancy agent ───────────────────────────────────────────
@@ -665,8 +869,7 @@ export function operatorsSharingAgent(tenant: Tenant): string[] {
   const identity = `${tenant.ichancyBaseUrl}|${tenant.ichancyUsername}`;
   return db.tenants
     .filter(
-      (row) =>
-        row.id !== tenant.id && `${row.ichancyBaseUrl}|${row.ichancyUsername}` === identity,
+      (row) => row.id !== tenant.id && `${row.ichancyBaseUrl}|${row.ichancyUsername}` === identity,
     )
     .map((row) => row.slug);
 }
@@ -711,6 +914,39 @@ export function tenantHealth(tenant: Tenant): TenantHealth {
   };
 }
 
+// ── The agent float ────────────────────────────────────────────────────────────────────────────
+
+/**
+ * What the top-bar pill reads.
+ *
+ * The ICHANCY side, not the ledger side, and the same precedence the backend's own `/float` command
+ * applies: an approval is drawn against what the agent wallet actually holds, so that is the figure
+ * worth judging against the watermark. Our books are the fallback there and are not the answer
+ * here — the two differ by design in these fixtures, and a mock that quietly showed the ledger
+ * figure would hide exactly the drift the reconciliation screen exists to find.
+ */
+export function agentFloatView(): {
+  currencyCode: string;
+  balanceMinor: string;
+  balance: string;
+  lowWatermarkMinor: string;
+  isLow: boolean;
+  checkedAt: string;
+} {
+  const tenant = db.tenants[0];
+  const watermark = tenant === undefined ? 0n : minorFromString(tenant.agentFloatLowWatermarkMinor);
+  const balance = db.agentFloatIchancyMinor;
+
+  return {
+    currencyCode: MOCK_CURRENCY,
+    balanceMinor: balance.toString(),
+    balance: formatMinorToDecimal(balance),
+    lowWatermarkMinor: watermark.toString(),
+    isLow: balance < watermark,
+    checkedAt: nowIso(),
+  };
+}
+
 // ── Reconciliation ─────────────────────────────────────────────────────────────────────────────
 
 export function syncAgentFloat(): {
@@ -723,8 +959,7 @@ export function syncAgentFloat(): {
 } {
   const delta = db.agentFloatIchancyMinor - db.agentFloatLedgerMinor;
   const tenant = db.tenants[0];
-  const watermark =
-    tenant === undefined ? 0n : minorFromString(tenant.agentFloatLowWatermarkMinor);
+  const watermark = tenant === undefined ? 0n : minorFromString(tenant.agentFloatLowWatermarkMinor);
 
   return {
     currencyCode: MOCK_CURRENCY,
@@ -749,7 +984,10 @@ export function correctFloat(breakId: string, note: string) {
     found.resolutionTxId = nextId('66666666');
   }
 
-  return { ledgerTransactionId: found?.resolutionTxId ?? nextId('66666666'), deltaMinor: delta.toString() };
+  return {
+    ledgerTransactionId: found?.resolutionTxId ?? nextId('66666666'),
+    deltaMinor: delta.toString(),
+  };
 }
 
 export { nextId };

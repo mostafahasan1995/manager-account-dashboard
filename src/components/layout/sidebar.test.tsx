@@ -24,6 +24,7 @@ describe('what each role can navigate to', () => {
     expect(await screen.findByRole('link', { name: /deposits/i })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /players/i })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /payment rails/i })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /financial settings/i })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /reconciliation/i })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /staff/i })).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /operators/i })).not.toBeInTheDocument();
@@ -54,6 +55,17 @@ describe('what each role can navigate to', () => {
     expect(await screen.findByRole('link', { name: /deposits/i })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /reconciliation/i })).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /players/i })).not.toBeInTheDocument();
+  });
+
+  /**
+   * The wallet addresses and the USDT rate are READ by roles that cannot change them: SUPPORT
+   * answers 'where do I send my USDT' off this screen, and a REVIEWER reads the rate while deciding
+   * a crypto deposit. Gating the link on write would have hidden it from the people who read it.
+   */
+  it('offers financial settings to a role that can read the rails but not write them', async () => {
+    renderSidebar('SUPPORT');
+
+    expect(await screen.findByRole('link', { name: /financial settings/i })).toBeInTheDocument();
   });
 
   it('always offers settings, which every role can open', async () => {

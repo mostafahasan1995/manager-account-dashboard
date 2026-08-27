@@ -1,11 +1,6 @@
 import { useMemo } from 'react';
 
-import {
-  formatDate,
-  formatDateTime,
-  formatDateTimeSeconds,
-  formatRelative,
-} from '@/lib/format';
+import { formatDate, formatDateTime, formatDateTimeSeconds, formatRelative } from '@/lib/format';
 
 import { useI18n } from './use-translation';
 

@@ -56,6 +56,36 @@ describe('Topbar', () => {
 
     expect(await screen.findByRole('button', { name: /currently light/i })).toBeInTheDocument();
   });
+
+  /*
+   * ── The float is IN the bar, not merely built ─────────────────────────────────────────────
+   *
+   * The two cases below are the guard for a failure that has already happened once: the agent float
+   * had a component and a green test file of its own, and appeared on no screen in the console,
+   * because nothing rendered it. A component test cannot catch that — it mounts the component
+   * itself. Only the bar can say whether the bar carries it.
+   *
+   * The operator asked three times for this number. Whatever else changes about the top bar, the
+   * float stays in it, and the request behind it stays unable to take the bar down with it.
+   */
+  it('carries the agent float, because a pill on no screen is a pill nobody reads', async () => {
+    renderWithProviders(<Topbar onOpenNav={vi.fn()} />, { auth: { role: 'FINANCE_ADMIN' } });
+
+    expect(await screen.findByText('Agent float')).toBeInTheDocument();
+    expect(screen.getByText('4,437,500.00 NSP')).toBeInTheDocument();
+  });
+
+  it('survives a float read that fails, since this bar renders above every screen', async () => {
+    server.use(http.get(`${config.apiBaseUrl}/v1/admin/agent-float`, () => HttpResponse.error()));
+
+    renderWithProviders(<Topbar onOpenNav={vi.fn()} />, { auth: { role: 'FINANCE_ADMIN' } });
+
+    // The endpoint does not exist on the backend yet, so this is today's state on every route: the
+    // pill goes quiet and everything an operator navigates and signs out with is still there.
+    expect(await screen.findByText('Test Admin')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /open navigation/i })).toBeInTheDocument();
+    expect(screen.queryByText('Agent float')).not.toBeInTheDocument();
+  });
 });
 
 describe('HealthPill', () => {

@@ -14,16 +14,19 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/input';
+import { useDepositChainCheck } from '@/lib/api/queries';
 import { useT } from '@/lib/i18n/use-translation';
 import {
+  differsFrom,
   formatMinorToDecimal,
   formatMoney,
   minorFromString,
   parseDecimalToMinor,
   toMoneyBody,
 } from '@/lib/money';
-import type { AdminDeposit, ApproveDepositBody, MoneyView } from '@/types';
+import type { AdminDeposit, ApproveDepositBody, DepositChainCheck, MoneyView } from '@/types';
 
+import { arrivedAsMoney } from './chain-money';
 import { depositMessages } from './messages';
 
 /**
@@ -78,6 +81,11 @@ function ApproveForm({
   const [amount, setAmount] = useState(deposit.claimed.amount);
   const [note, setNote] = useState('');
   const [submitted, setSubmitted] = useState(false);
+
+  // Same query key the review panel behind this dialog already holds, so opening the dialog costs
+  // no second chain read. Mounted with the form rather than with the dialog, so a reviewer who
+  // never opens it never asks.
+  const chainOffer = creditableOffer(useDepositChainCheck(deposit.id).data, deposit.claimed);
 
   const claimedMinor = minorFromString(deposit.claimed.minor);
   const verifiedMinor = readMinor(amount);
@@ -163,6 +171,36 @@ function ApproveForm({
         </Alert>
       ) : null}
 
+      {chainOffer === null ? null : (
+        <Alert tone="warning" title={t('deposits.approve.chainTitle')}>
+          <p>
+            {t('deposits.approve.chainBody', {
+              arrived: formatMoney(chainOffer.arrived),
+              creditable: formatMoney(chainOffer.creditable),
+            })}
+          </p>
+          {/*
+           * A BUTTON, never a pre-filled value. Read the comment beside `verifiedAmount` in
+           * handleSubmit: the amount is sent only when a human changed it, because an unchanged
+           * amount is the backend's own default and echoing it would file every approval as a
+           * correction. A field this dialog filled in by itself would be indistinguishable from one
+           * the reviewer typed — the console would then be quietly authoring corrections and
+           * signing them with somebody's name.
+           */}
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            className="mt-2"
+            onClick={() => {
+              setAmount(chainOffer.creditable.amount);
+            }}
+          >
+            {t('deposits.approve.useChainAmount', { amount: formatMoney(chainOffer.creditable) })}
+          </Button>
+        </Alert>
+      )}
+
       <div className="space-y-1.5">
         <Label htmlFor="approve-amount">
           {t('deposits.approve.amountLabel', { currency: deposit.claimed.currency })}
@@ -217,6 +255,37 @@ function ApproveForm({
       </DialogFooter>
     </form>
   );
+}
+
+/**
+ * The chain's own figure, when it is worth offering — and null the rest of the time.
+ *
+ * Three gates, each of which would otherwise put a wrong or pointless number under a reviewer's
+ * cursor:
+ *
+ *   1. **There has to be a creditable amount.** `suspect` and `pending` deliberately carry none:
+ *      one paid somebody else and the other has not confirmed, and a figure beside either reads as
+ *      permission to approve it.
+ *   2. **The currency has to match the deposit.** A different one in this box would be approved as
+ *      if it were NSP.
+ *   3. **It has to differ from what the player claimed.** When the chain agrees with the claim the
+ *      field already holds that number, and a button that sets a field to what it already contains
+ *      is a control that does nothing — beside a money input, that is worse than no control.
+ *
+ * The arrived USDT travels with it because the sentence needs both halves: `99.500000 USDT` is the
+ * fact, and the NSP figure is only what it is worth at today's rate.
+ */
+function creditableOffer(
+  verdict: DepositChainCheck | undefined,
+  claimed: MoneyView,
+): { creditable: MoneyView; arrived: MoneyView | null } | null {
+  const creditable = verdict?.creditable;
+  // One condition for the first two gates: no verdict yet, no creditable figure in it, and a figure
+  // priced in some other currency all come to the same answer — there is nothing to put in the box.
+  if (creditable?.currency !== claimed.currency) return null;
+  if (!differsFrom(creditable, claimed)) return null;
+
+  return { creditable, arrived: arrivedAsMoney(verdict?.arrived ?? null) };
 }
 
 /** Null rather than a thrown error: an amount half-typed is not yet wrong, it is just not ready. */

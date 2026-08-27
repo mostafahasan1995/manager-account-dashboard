@@ -48,11 +48,15 @@ describe('ResolveBreakDialog', () => {
   it('spells out what each closing status means', async () => {
     render();
 
-    expect(await screen.findByText('The difference was explained and corrected.')).toBeInTheDocument();
+    expect(
+      await screen.findByText('The difference was explained and corrected.'),
+    ).toBeInTheDocument();
     expect(
       screen.getByText('Real money is missing and we are accepting the loss.'),
     ).toBeInTheDocument();
-    expect(screen.getByText('There was never a difference; the check was wrong.')).toBeInTheDocument();
+    expect(
+      screen.getByText('There was never a difference; the check was wrong.'),
+    ).toBeInTheDocument();
   });
 
   it('closes a break as resolved and says so', async () => {
@@ -71,7 +75,10 @@ describe('ResolveBreakDialog', () => {
     const { user, onOpenChange } = render();
 
     await user.click(screen.getByRole('radio', { name: 'Written off' }));
-    await user.type(screen.getByLabelText('Resolution note'), 'Unrecoverable after three attempts.');
+    await user.type(
+      screen.getByLabelText('Resolution note'),
+      'Unrecoverable after three attempts.',
+    );
     await user.click(screen.getByRole('button', { name: 'Close break' }));
 
     expect(await screen.findByText('This accepts a real loss')).toBeInTheDocument();

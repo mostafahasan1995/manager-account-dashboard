@@ -139,9 +139,7 @@ function AccountCard({ row, stale }: { row: RailAgeingRow; stale: boolean }) {
                 <TableCell className="text-end">
                   <MinorAmount minor={bucket.netMinor} currency={row.currencyCode} signed />
                 </TableCell>
-                <TableCell className="tabular text-end">
-                  {formatCount(bucket.entryCount)}
-                </TableCell>
+                <TableCell className="tabular text-end">{formatCount(bucket.entryCount)}</TableCell>
               </TableRow>
             ))}
           </TableBody>

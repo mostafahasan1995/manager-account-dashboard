@@ -11,7 +11,9 @@ export function Table({ className, ...props }: ComponentProps<'table'>) {
 }
 
 export function TableHeader({ className, ...props }: ComponentProps<'thead'>) {
-  return <thead className={cn('[&_tr]:border-b [&_tr]:border-[var(--border)]', className)} {...props} />;
+  return (
+    <thead className={cn('[&_tr]:border-b [&_tr]:border-[var(--border)]', className)} {...props} />
+  );
 }
 
 export function TableBody({ className, ...props }: ComponentProps<'tbody'>) {
@@ -47,5 +49,7 @@ export function TableCell({ className, ...props }: ComponentProps<'td'>) {
 }
 
 export function TableCaption({ className, ...props }: ComponentProps<'caption'>) {
-  return <caption className={cn('mt-3 text-sm text-[var(--muted-foreground)]', className)} {...props} />;
+  return (
+    <caption className={cn('mt-3 text-sm text-[var(--muted-foreground)]', className)} {...props} />
+  );
 }

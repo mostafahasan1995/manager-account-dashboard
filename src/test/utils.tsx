@@ -80,8 +80,7 @@ export function createTestAuth(overrides: AuthOverrides = {}): AuthState {
     expiresInMs: isAuthenticated ? 60 * 60_000 : 0,
     expiringSoon: false,
     signIn: overrides.signIn ?? (() => Promise.resolve(createTestSession(role))),
-    signInWithAgent:
-      overrides.signInWithAgent ?? (() => Promise.resolve(createTestSession(role))),
+    signInWithAgent: overrides.signInWithAgent ?? (() => Promise.resolve(createTestSession(role))),
     signOut: overrides.signOut ?? (() => undefined),
     can: (capability) => (isAuthenticated ? can(role, capability) : false),
     tenantId: overrides.tenantId ?? null,

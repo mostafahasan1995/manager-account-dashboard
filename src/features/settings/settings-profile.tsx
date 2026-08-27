@@ -74,8 +74,7 @@ export function SettingsProfile() {
           {/* The command is split out of the sentence rather than interpolated into it: it has to
               stay a <code> element so it reads as something you type, and it stays left-to-right
               inside an Arabic paragraph. */}
-          {t('settings.profile.noRefreshBefore')}{' '}
-          <code className="font-mono">/console</code>{' '}
+          {t('settings.profile.noRefreshBefore')} <code className="font-mono">/console</code>{' '}
           {t('settings.profile.noRefreshAfter')}
         </Alert>
 

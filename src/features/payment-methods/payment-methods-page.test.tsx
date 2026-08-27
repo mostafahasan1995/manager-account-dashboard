@@ -85,6 +85,17 @@ describe('PaymentMethodsPage', () => {
     expect(await screen.findByText('The rails did not load.')).toBeInTheDocument();
   });
 
+  /**
+   * The rate moved to /financial and was not copied. Two write forms over one stored value means
+   * two places to read a stale number off, with nothing on either saying which was saved last.
+   */
+  it('leaves the rate form to the financial screen rather than keeping a second copy', async () => {
+    render();
+
+    await screen.findByRole('button', { name: /^BANK_SYR/ });
+    expect(screen.queryByText('USDT rate')).toBeNull();
+  });
+
   it('gives a REVIEWER the whole screen and none of the write actions', async () => {
     render(`/payment-methods?selected=${METHOD_IDS.bank}`, { auth: { role: 'REVIEWER' } });
 

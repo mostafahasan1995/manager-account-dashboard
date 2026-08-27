@@ -144,13 +144,20 @@ export function LedgerChecksTab() {
                       <code className="font-mono text-xs break-all">{violation.subject}</code>
                     </TableCell>
                     <TableCell className="text-end">
-                      <MinorCell value={violation.expectedMinor} currency={violation.currencyCode} />
+                      <MinorCell
+                        value={violation.expectedMinor}
+                        currency={violation.currencyCode}
+                      />
                     </TableCell>
                     <TableCell className="text-end">
                       <MinorCell value={violation.actualMinor} currency={violation.currencyCode} />
                     </TableCell>
                     <TableCell className="text-end">
-                      <MinorCell value={violation.deltaMinor} currency={violation.currencyCode} signed />
+                      <MinorCell
+                        value={violation.deltaMinor}
+                        currency={violation.currencyCode}
+                        signed
+                      />
                     </TableCell>
                     <TableCell className="text-sm">{violation.detail}</TableCell>
                   </TableRow>

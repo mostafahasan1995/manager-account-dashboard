@@ -79,9 +79,7 @@ describe('PlayerDeposits', () => {
     // The pending-link player has exactly two deposits in the fixtures.
     renderDeposits(PLAYER_IDS.pendingLink);
 
-    expect(
-      await screen.findByText(/Showing the 2 most recent deposits\./),
-    ).toBeInTheDocument();
+    expect(await screen.findByText(/Showing the 2 most recent deposits\./)).toBeInTheDocument();
   });
 
   it("uses Arabic's dual for the two deposits it found, not the plural", async () => {

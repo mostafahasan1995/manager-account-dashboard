@@ -85,9 +85,7 @@ describe('PlayerDetailPage', () => {
   it('creates the account behind a confirmation and shows the login and agent it got', async () => {
     const { user } = renderDetail(PLAYER_IDS.pendingLink);
 
-    await user.click(
-      await screen.findByRole('button', { name: /^create ichancy account$/i }),
-    );
+    await user.click(await screen.findByRole('button', { name: /^create ichancy account$/i }));
     expect(await screen.findByText('Create an Ichancy account?')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Create account' }));
@@ -185,9 +183,7 @@ describe('PlayerDetailPage: taking money back out', () => {
     expect(within(outcome).getByText('3,200.00 NSP')).toBeInTheDocument();
     expect(within(outcome).getByText('1,700.00 NSP')).toBeInTheDocument();
     expect(within(outcome).getByText('Proved by balance re-read')).toBeInTheDocument();
-    expect(
-      within(outcome).getByText('Chargeback on the original deposit'),
-    ).toBeInTheDocument();
+    expect(within(outcome).getByText('Chargeback on the original deposit')).toBeInTheDocument();
 
     await waitFor(() => {
       expect(reads.length).toBeGreaterThan(1);

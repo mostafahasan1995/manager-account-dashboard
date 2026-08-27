@@ -1,6 +1,7 @@
 import { HttpResponse, http, type HttpHandler } from 'msw';
 
 import { config } from '@/config';
+import { can } from '@/lib/auth/permissions';
 import { minorFromString, parseDecimalToMinor } from '@/lib/money';
 import {
   ADMIN_ROLES,
@@ -11,6 +12,7 @@ import {
 } from '@/types';
 
 import {
+  agentFloatView,
   approveDeposit,
   claimDeposit,
   correctFloat,
@@ -23,6 +25,11 @@ import {
   findDeposit,
   nextId,
   nowIso,
+  platformDefaultsView,
+  updatePlatformDefaults,
+  usdtRateView,
+  setUsdtRate,
+  RATE_MAX_JUMP_BPS,
   registerWebhook,
   rejectDeposit,
   releaseDeposit,
@@ -42,6 +49,8 @@ import {
   TENANT_IDS,
   TENANT_ZERO_ID,
 } from './fixtures';
+import { mockDepositChainCheck } from './deposit-chain-check';
+import { mockNetworkForAddress, mockWalletBalance } from './wallet-balance';
 
 /**
  * The mock backend.
@@ -114,7 +123,10 @@ const forTenant = <T>(request: Request, rows: T[]): T[] =>
 const listParam = (request: Request, key: string): string[] => {
   const raw = new URL(request.url).searchParams.get(key);
   if (raw === null || raw.length === 0) return [];
-  return raw.split(',').map((entry) => entry.trim()).filter((entry) => entry.length > 0);
+  return raw
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
 };
 
 const param = (request: Request, key: string): string | null =>
@@ -332,6 +344,87 @@ export const handlers: HttpHandler[] = [
     });
   }),
 
+  // ── The rate that prices a crypto deposit ────────────────────────────────────────────────────
+
+  /*
+   * Read by anyone who can read the rails; set only by the roles that own the operator money.
+   * The same boundary the backend argues for a payout account: PLATFORM_ADMIN reads and does not
+   * write, however senior it sounds.
+   */
+  http.get(url('/v1/admin/exchange-rates/usdt'), ({ request }) => {
+    // `role !== null`, as the debit route explains: a token with no role in it is a test client,
+    // not a signed-in operator, and the mock login route never issues one. Refusing it would make
+    // every component test read this endpoint as a 403 it never asked for.
+    const role = callerRole(request);
+    if (role !== null && !can(role, 'paymentMethods.read')) {
+      return fail(403, 'INSUFFICIENT_ROLE', 'Your role cannot read the payment configuration.');
+    }
+    return ok(usdtRateView());
+  }),
+
+  http.post(url('/v1/admin/exchange-rates/usdt'), async ({ request }) => {
+    const role = callerRole(request);
+    if (role !== null && !can(role, 'paymentMethods.write')) {
+      return fail(403, 'INSUFFICIENT_ROLE', 'Your role cannot change the payment configuration.');
+    }
+
+    const body = (await request.json()) as Record<string, unknown>;
+    const result = setUsdtRate(body);
+
+    if (!result.ok && result.status === 400) {
+      return fail(400, 'VALIDATION_FAILED', 'The request payload is invalid.', {
+        fields: [result.field],
+      });
+    }
+
+    if (!result.ok) {
+      // The guard that catches a misplaced decimal, and the 100x denomination confusion.
+      return fail(
+        422,
+        'RATE_IMPLAUSIBLE_JUMP',
+        `That rate is ${result.movedPercent.toFixed(1)}% away from the current one, which is ` +
+          'further than a rate normally moves. Check the decimal point and the denomination; ' +
+          'confirm it deliberately if it is genuinely right.',
+        { movedPercent: result.movedPercent, maxPercent: RATE_MAX_JUMP_BPS / 100 },
+      );
+    }
+
+    return ok(usdtRateView());
+  }),
+
+  // ── Platform defaults ────────────────────────────────────────────────────────────────────────
+
+  /*
+   * What the NEXT operator inherits. PLATFORM_ADMIN only, like every route on the tenants surface —
+   * this row sets the terms for every operator on the platform, so a tenant's own owner editing it
+   * would be setting them for their competitors too.
+   */
+  http.get(url('/v1/admin/platform-defaults'), ({ request }) => {
+    if (callerRole(request) !== 'PLATFORM_ADMIN') {
+      return fail(403, 'INSUFFICIENT_ROLE', 'This endpoint is for platform administrators.');
+    }
+    return ok(platformDefaultsView());
+  }),
+
+  http.patch(url('/v1/admin/platform-defaults'), async ({ request }) => {
+    if (callerRole(request) !== 'PLATFORM_ADMIN') {
+      return fail(403, 'INSUFFICIENT_ROLE', 'This endpoint is for platform administrators.');
+    }
+
+    const body = (await request.json()) as Record<string, unknown>;
+
+    // The same check the backend makes, and for the same reason: `currencyCode` is a foreign key on
+    // `tenants`, so an unknown code would otherwise fail later, on somebody else's tenant creation.
+    const result = updatePlatformDefaults(body);
+    if (!result.ok) {
+      return fail(400, 'VALIDATION_FAILED', 'The request payload is invalid.', {
+        fields: [result.field],
+      });
+    }
+
+    return ok(platformDefaultsView());
+  }),
+
   // ── Deposits ─────────────────────────────────────────────────────────────────────────────────
   http.get(url('/v1/admin/deposits'), ({ request }) => {
     const statuses = listParam(request, 'status');
@@ -373,7 +466,10 @@ export const handlers: HttpHandler[] = [
       rows = rows.filter((row) => Date.parse(row.createdAt) <= Date.parse(createdTo));
     }
 
-    const page = cursorPage(forTenant(request, sortDeposits(rows, param(request, 'sort'))), request);
+    const page = cursorPage(
+      forTenant(request, sortDeposits(rows, param(request, 'sort'))),
+      request,
+    );
     return ok(page.data, page.meta);
   }),
 
@@ -382,6 +478,44 @@ export const handlers: HttpHandler[] = [
     return deposit === undefined
       ? fail(404, 'DEPOSIT_NOT_FOUND', 'Deposit not found.')
       : ok(deposit);
+  }),
+
+  /*
+   * The on-chain verdict for ONE deposit, and the only deposit route that leaves the building.
+   *
+   * A route of its own rather than fields on the deposit view: the queue above would otherwise call
+   * a chain explorer once per row, on a screen that also refetches itself every thirty seconds.
+   *
+   * ── THE RAIL SAYS WHETHER THERE IS A CHAIN; THE ADDRESS SAYS WHICH ──────────────────────────
+   * Crypto-ness comes from `rail === 'CRYPTO'` and the network from the DESTINATION ADDRESS. Not
+   * from the method code: the operator's live USDT rail is coded plain `USDT`, and a check keyed on
+   * `USDT_TRC20`/`USDT_BEP20` quietly answered "skipped" for every real deposit for months. A mock
+   * that keyed on the code would agree with that bug instead of catching it.
+   */
+  http.get(url('/v1/admin/deposits/:id/chain-check'), ({ params, request }) => {
+    const role = callerRole(request);
+    if (role !== null && !can(role, 'deposits.read')) {
+      return fail(403, 'INSUFFICIENT_ROLE', 'Your role cannot read deposits.');
+    }
+
+    const deposit = findDeposit(String(params.id));
+    if (deposit === undefined) return fail(404, 'DEPOSIT_NOT_FOUND', 'Deposit not found.');
+
+    const method = db.methods.find((row) => row.id === deposit.paymentMethodId);
+    const address = deposit.destination?.accountIdentifier ?? '';
+    const network =
+      method?.rail === 'CRYPTO' && address.length > 0 ? mockNetworkForAddress(address) : null;
+
+    return ok(
+      mockDepositChainCheck({
+        network,
+        claimedMinor: deposit.claimed.minor,
+        currency: deposit.claimed.currency,
+        txHash: deposit.externalReference,
+        rateMinor: db.usdtRate?.rateMinor ?? null,
+        checkedAt: nowIso(),
+      }),
+    );
   }),
 
   http.post(url('/v1/admin/deposits/:id/claim'), ({ params }) => {
@@ -655,7 +789,11 @@ export const handlers: HttpHandler[] = [
   http.post(url('/v1/admin/payment-methods'), async ({ request }) => {
     const body = (await request.json()) as Record<string, unknown>;
     if (db.methods.some((row) => row.code === body.code)) {
-      return fail(409, 'PAYMENT_METHOD_ALREADY_EXISTS', 'A record with these values already exists.');
+      return fail(
+        409,
+        'PAYMENT_METHOD_ALREADY_EXISTS',
+        'A record with these values already exists.',
+      );
     }
     return ok(createMethod(body), {}, 201);
   }),
@@ -701,6 +839,49 @@ export const handlers: HttpHandler[] = [
     destination.isActive = false;
     destination.updatedAt = nowIso();
     return ok(destination);
+  }),
+
+  /*
+   * The one read on this screen that leaves the building.
+   *
+   * It answers 200 with a NULL balance when the chain could not be read — see ./wallet-balance for
+   * which wallets do that and why the mock insists on being able to fail. A failure is not a 5xx
+   * here because the request was fine; it is the ANSWER that is missing, and a screen has to be
+   * able to say that without pretending the wallet is empty.
+   */
+  http.get(url('/v1/admin/payment-destinations/:id/balance'), ({ params, request }) => {
+    // Roleless tokens pass, for the reason the exchange-rate route above gives.
+    const role = callerRole(request);
+    if (role !== null && !can(role, 'paymentMethods.read')) {
+      return fail(403, 'INSUFFICIENT_ROLE', 'Your role cannot read the payment configuration.');
+    }
+
+    const destination = db.destinations.find((row) => row.id === String(params.id));
+    if (destination === undefined) {
+      return fail(404, 'DESTINATION_NOT_FOUND', 'That destination does not exist.');
+    }
+
+    /*
+     * The RAIL decides whether there is a chain to ask, exactly as the chain-check route above does
+     * and exactly as the financial card does before it mounts the balance at all. Never the CODE:
+     * this handler used to consult a `USDT_TRC20`/`USDT_BEP20` table first, which answered for none
+     * of the rails an operator actually creates and overrode the address for the two it knew.
+     *
+     * A non-crypto rail is refused rather than answered, because the question is malformed: a bank
+     * account has no chain, and a 200 carrying `network: null` would invite a screen to render an
+     * empty balance beside a Damascus cashier's account number.
+     */
+    const method = db.methods.find((row) => row.id === destination.paymentMethodId);
+    if (method?.rail !== 'CRYPTO') {
+      return fail(
+        409,
+        'DESTINATION_NOT_ON_CHAIN',
+        'That destination is a bank or wallet account, not a chain address. There is no chain to ask.',
+      );
+    }
+
+    // Which chain comes from the address, the one thing here that cannot lie about it.
+    return ok(mockWalletBalance(destination.accountIdentifier.trim(), nowIso()));
   }),
 
   // ── Admin directory ──────────────────────────────────────────────────────────────────────────
@@ -794,6 +975,12 @@ export const handlers: HttpHandler[] = [
     return ok(page.data, page.meta);
   }),
 
+  /*
+   * The top bar asks for this on every screen, so it is deliberately the cheapest handler here:
+   * one ledger figure and the operator's watermark, no Ichancy call and no pagination.
+   */
+  http.get(url('/v1/admin/agent-float'), () => ok(agentFloatView())),
+
   http.get(url('/v1/admin/reconciliation/rail-ageing'), () =>
     ok({ ...db.railAgeing, generatedAt: nowIso() }),
   ),
@@ -835,10 +1022,13 @@ export const handlers: HttpHandler[] = [
     return ok(row);
   }),
 
-  http.post(url('/v1/admin/reconciliation/breaks/:id/correct-float'), async ({ params, request }) => {
-    const body = (await request.json()) as { note?: string };
-    return ok(correctFloat(String(params.id), body.note ?? ''));
-  }),
+  http.post(
+    url('/v1/admin/reconciliation/breaks/:id/correct-float'),
+    async ({ params, request }) => {
+      const body = (await request.json()) as { note?: string };
+      return ok(correctFloat(String(params.id), body.note ?? ''));
+    },
+  ),
 
   // ── Tenants ──────────────────────────────────────────────────────────────────────────────────
   http.get(url('/v1/admin/tenants'), () => ok({ tenants: db.tenants })),
@@ -860,7 +1050,9 @@ export const handlers: HttpHandler[] = [
     // tenant zero cannot be invented — 400 naming the field, like every other validation failure.
     if (resolveIchancyAgentId(body) === null) {
       return fail(400, 'VALIDATION_FAILED', 'The request payload is invalid.', {
-        fields: ['ichancyAgentId is required: no platform default and no tenant zero to fall back to'],
+        fields: [
+          'ichancyAgentId is required: no platform default and no tenant zero to fall back to',
+        ],
       });
     }
 
@@ -871,7 +1063,9 @@ export const handlers: HttpHandler[] = [
       });
     }
 
-    return ok(createTenant(body), {}, 201);
+    const { tenant, provisioning } = createTenant(body);
+    // Flattened, exactly as the backend answers it: `{ ...TenantView, provisioning }`.
+    return ok({ ...tenant, provisioning }, {}, 201);
   }),
 
   http.patch(url('/v1/admin/tenants/:id'), async ({ params, request }) => {

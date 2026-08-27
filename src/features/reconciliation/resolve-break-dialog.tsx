@@ -167,7 +167,11 @@ export function ResolveBreakDialog({
                   {t('recon.resolve.noteHint')}
                 </p>
               ) : (
-                <p id={`${fieldId}-note-error`} role="alert" className="text-sm text-[var(--danger)]">
+                <p
+                  id={`${fieldId}-note-error`}
+                  role="alert"
+                  className="text-sm text-[var(--danger)]"
+                >
                   {noteError}
                 </p>
               )}

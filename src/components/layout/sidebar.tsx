@@ -2,8 +2,8 @@ import { Link } from '@tanstack/react-router';
 import { Coins, X, type LucideIcon } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
-import { config } from '@/config';
 import { useAuth } from '@/lib/auth/use-auth';
+import { useAppName } from '@/lib/i18n/use-app-name';
 import { useT } from '@/lib/i18n/use-translation';
 import { cn } from '@/lib/utils';
 
@@ -53,6 +53,7 @@ export function Sidebar({
 }) {
   const { can } = useAuth();
   const t = useT();
+  const appName = useAppName();
   const items = NAV_ITEMS.filter((item) => can(item.capability));
 
   return (
@@ -78,7 +79,7 @@ export function Sidebar({
             <span className="flex size-7 items-center justify-center rounded-md bg-[var(--primary)] text-[var(--primary-foreground)]">
               <Coins className="size-4" />
             </span>
-            <span className="truncate text-sm font-semibold tracking-tight">{config.appName}</span>
+            <span className="truncate text-sm font-semibold tracking-tight">{appName}</span>
           </div>
           <Button
             variant="ghost"

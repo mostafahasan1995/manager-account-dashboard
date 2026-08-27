@@ -229,3 +229,62 @@ describe('DepositsPage in Arabic', () => {
     expect(await screen.findByText(/· إثباتان$/)).toBeInTheDocument();
   });
 });
+
+/**
+ * The rule that shapes the chain-check endpoint: it is a resource of its own, fetched for the ONE
+ * deposit under review and never for a row in a list.
+ *
+ * A verdict folded into the deposit view — or a hook dropped into `DepositTable` because it looked
+ * like the balance column next to it — would have this screen calling a third-party chain explorer
+ * once per row, on the one surface in the console that also polls itself every thirty seconds. That
+ * is a mistake nothing else would catch: the queue would still render, still pass every other test,
+ * and quietly burn the rate limit the real verdicts depend on.
+ */
+describe('the deposit queue and the chain', () => {
+  const stubChainCheck = () => {
+    const asked = vi.fn();
+    server.use(
+      http.get(`${config.apiBaseUrl}/v1/admin/deposits/:id/chain-check`, ({ params }) => {
+        asked(String(params.id));
+        return HttpResponse.json({
+          success: true,
+          data: {
+            outcome: 'skipped',
+            network: null,
+            summary: 'nothing to read',
+            arrived: null,
+            creditable: null,
+            txHash: null,
+            fromAddress: null,
+            confirmations: null,
+            requiredConfirmations: null,
+            checkedAt: new Date().toISOString(),
+          },
+          error: null,
+          meta: { correlationId: 'test', timestamp: new Date().toISOString() },
+        });
+      }),
+    );
+    return asked;
+  };
+
+  it('asks the chain about no row in the queue', async () => {
+    const asked = stubChainCheck();
+
+    renderPage();
+
+    await screen.findByRole('button', { name: 'K7QP42' });
+    expect(screen.getByRole('button', { name: 'M2WX88' })).toBeInTheDocument();
+    expect(asked).not.toHaveBeenCalled();
+  });
+
+  it('asks about exactly the one deposit opened for review, and nothing else', async () => {
+    const asked = stubChainCheck();
+
+    renderPage(`/deposits?selected=${DEPOSIT_IDS.awaitingReview}`);
+
+    await screen.findByText('Deposit K7QP42');
+    await expect.poll(() => asked.mock.calls.length).toBe(1);
+    expect(asked).toHaveBeenCalledWith(DEPOSIT_IDS.awaitingReview);
+  });
+});

@@ -96,10 +96,9 @@ export function DepositActions({ deposit }: { deposit: AdminDeposit }) {
           ...(reason.length === 0 ? {} : { reason }),
         });
         toast.success(
-          t(
-            result.requeued ? 'deposits.retry.queuedTitle' : 'deposits.retry.notQueuedTitle',
-            { shortId: deposit.shortId },
-          ),
+          t(result.requeued ? 'deposits.retry.queuedTitle' : 'deposits.retry.notQueuedTitle', {
+            shortId: deposit.shortId,
+          }),
           { description: t('deposits.retry.epochBody', { epoch: result.creditKeyEpoch }) },
         );
         setRetryOpen(false);
@@ -142,9 +141,7 @@ export function DepositActions({ deposit }: { deposit: AdminDeposit }) {
                   variant={claimState === 'unclaimed' ? 'primary' : 'secondary'}
                   loading={claim.isPending}
                   onClick={() => {
-                    void runOutcome(t('deposits.error.claim'), () =>
-                      claim.mutateAsync(deposit.id),
-                    );
+                    void runOutcome(t('deposits.error.claim'), () => claim.mutateAsync(deposit.id));
                   }}
                 >
                   <Hand className="size-4" />

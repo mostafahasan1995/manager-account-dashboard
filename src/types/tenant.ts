@@ -177,3 +177,94 @@ export interface UpdateTenantIchancyBody {
 export interface UpdateTenantBotBody {
   botToken: string;
 }
+
+// ── What creation actually did, and what a new operator inherits ───────────────────────────────
+
+/**
+ * The report `POST /v1/admin/tenants` returns beside the new operator.
+ *
+ * ══ WHY THIS TYPE HAS TO EXIST ════════════════════════════════════════════════════════════════
+ * Creating an operator is no longer one write. `TenantService.create` calls `provision()`, which
+ * registers the Telegram webhook, pushes the command menus, provisions the default payment rails
+ * and attempts activation — and reports the outcome of each. `tenantSchema` is a `looseObject`, so
+ * this block was arriving on every create response and passing straight through untyped and unread.
+ *
+ * The console was therefore showing a six-step setup checklist for steps the backend had usually
+ * already done, and — the part that matters — was silent about `paymentMethodsNeedAccounts`.
+ *
+ * ══ WHY `paymentMethodsNeedAccounts` IS THE FIELD TO CARE ABOUT ═══════════════════════════════
+ * A freshly provisioned operator has payment methods whose destinations are placeholders
+ * (`SEED-PLACEHOLDER-…`, account holder `REPLACE ME`). That operator can be activated, can be shown
+ * to a player, and can take a deposit — and the player will have sent their money to a string that
+ * is not an account. Nothing is recoverable from there. The backend's own DTO comment says the
+ * console "must say it out loud until real accounts replace them"; until now it could not, because
+ * it had no idea the field existed.
+ *
+ * Every step is reported as a boolean AND a nullable error, never as one tri-state: "did not run"
+ * and "ran and failed" send an operator to two different places, and a single `webhookOk?: boolean`
+ * would collapse them.
+ */
+export const tenantProvisioningSchema = z.looseObject({
+  webhookRegistered: z.boolean(),
+  /** Carries the path token, so it is a credential — shown to the platform admin who just created
+   *  this operator, and to nobody else. Null when registration never succeeded. */
+  webhookUrl: z.string().nullable(),
+  webhookError: z.string().nullable(),
+
+  menusPushed: z.boolean(),
+  menuScopes: z.array(z.string()),
+  menuError: z.string().nullable(),
+
+  activated: z.boolean(),
+  activationError: z.string().nullable(),
+
+  paymentMethodsCreated: z.number(),
+  paymentMethodsError: z.string().nullable(),
+  /** True while any provisioned method still points at a placeholder account. */
+  paymentMethodsNeedAccounts: z.boolean(),
+});
+export type TenantProvisioning = z.infer<typeof tenantProvisioningSchema>;
+
+/**
+ * `POST /v1/admin/tenants` — the operator, plus what provisioning managed.
+ *
+ * `provisioning` is optional because a backend older than `provision()` answers a bare `TenantView`,
+ * and a console that refused to parse that would fail a creation which actually succeeded.
+ */
+export const tenantCreatedSchema = tenantSchema.extend({
+  provisioning: tenantProvisioningSchema.optional(),
+});
+export type TenantCreated = z.infer<typeof tenantCreatedSchema>;
+
+/**
+ * `GET` / `PATCH /v1/admin/platform-defaults` — what the NEXT operator inherits.
+ *
+ * Minor units are strings, like every amount in this API. `ichancyAgentId` is the only nullable
+ * member: Ichancy's `signin()` returns a token pair and nothing else, so an agent id can never be
+ * derived from credentials, and a platform that has not named a house agent genuinely has none.
+ *
+ * `appliesToNewOperatorsOnly` is always true and is sent anyway, because it is the assumption most
+ * likely to be wrong: editing a default changes what the next operator inherits and does not reach
+ * back into the ones already created. Their values were copied onto their own rows and are theirs.
+ */
+export const platformDefaultsSchema = z.looseObject({
+  ichancyBaseUrl: z.string(),
+  ichancyAgentId: z.string().nullable(),
+  currencyCode: z.string(),
+  dualApprovalThresholdMinor: z.string(),
+  agentFloatLowWatermarkMinor: z.string(),
+  depositExpiryMinutes: z.number(),
+  updatedAt: isoDateTime,
+  appliesToNewOperatorsOnly: z.boolean(),
+});
+export type PlatformDefaults = z.infer<typeof platformDefaultsSchema>;
+
+/** Every field optional: it is a PATCH, and an absent key leaves the stored value alone. */
+export interface UpdatePlatformDefaultsBody {
+  ichancyBaseUrl?: string;
+  ichancyAgentId?: string;
+  currencyCode?: string;
+  dualApprovalThresholdMinor?: string;
+  agentFloatLowWatermarkMinor?: string;
+  depositExpiryMinutes?: number;
+}

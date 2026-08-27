@@ -9,6 +9,7 @@ import {
   type rejectionCodeSchema,
   type DepositStatus,
 } from './enums';
+import { chainNetworkSchema } from './payment-method';
 
 export const depositDestinationSchema = z.looseObject({
   methodCode: z.string(),
@@ -133,3 +134,82 @@ export interface RejectDepositBody {
   rejectionCode: z.infer<typeof rejectionCodeSchema>;
   rejectionNote?: string;
 }
+
+// ── What the chain says about ONE deposit ──────────────────────────────────────────────────────
+
+/**
+ * The seven answers `GET /v1/admin/deposits/:id/chain-check` can give.
+ *
+ * Two of them are the reason the whole shape exists, and they are the two most likely to be
+ * collapsed into "not verified" by somebody skimming:
+ *
+ *   - `suspect` — the transfer is REAL, CONFIRMED, and paid somebody else. Everything a reviewer
+ *     normally looks for is present, which is exactly what makes it convincing.
+ *   - `unavailable` — OUR node did not answer. It says nothing whatsoever about the deposit, and a
+ *     screen that renders it alongside the refusals turns an outage into an accusation.
+ */
+export const chainCheckOutcomeSchema = z.enum([
+  'verified',
+  'pending',
+  'mismatch',
+  'suspect',
+  'missing',
+  'unavailable',
+  'skipped',
+]);
+export type ChainCheckOutcome = z.infer<typeof chainCheckOutcomeSchema>;
+
+/**
+ * What actually landed on chain — USDT, at SIX decimals.
+ *
+ * ══ THIS IS NOT A `MoneyView`, AND MUST NEVER BECOME ONE ══════════════════════════════════════
+ * Every money helper in this console defaults to scale 2, because every currency it has ever
+ * carried is minor-unit hundredths. USDT is millionths. Run `99500000` through the default scale
+ * and the screen reads `995,000.00` — ten thousand times the truth, in the exact number a reviewer
+ * is about to decide somebody's deposit on.
+ *
+ * The defence is structural rather than careful: the field is called `asset`, not `currency`, so
+ * this object is NOT assignable to `MoneyView` and `formatMoney(arrived)` does not compile. Render
+ * it by parsing `minor` at the `scale` the response carries — see `arrivedAsMoney` in
+ * `src/features/deposits/chain-verdict.tsx`.
+ *
+ * `scale` travels rather than being assumed for the reason the backend learned the hard way: BSC's
+ * USDT contract reports 18 decimals, not 6, and a scale taken on faith credited 10¹² times the
+ * value. The server canonicalises to 6 and says so here.
+ */
+export const chainArrivalSchema = z.looseObject({
+  /** `'USDT'` on every rail that exists today. A string, not an enum — the next asset is not this
+   *  console's to predict. */
+  asset: z.string(),
+  scale: z.number(),
+  minor: z.string(),
+  /** The same figure the server already formatted, kept for comparison rather than for display. */
+  amount: z.string(),
+});
+export type ChainArrival = z.infer<typeof chainArrivalSchema>;
+
+/**
+ * The on-chain verdict for one deposit, as its own resource.
+ *
+ * A resource and not a field on `AdminDeposit` on purpose: answering it costs a call to a chain
+ * explorer, and hanging it off the deposit view would make the QUEUE endpoint do that once per row.
+ *
+ * `creditable` IS tenant currency at the normal scale — it is what the arrived USDT is worth at the
+ * operator's rate, ready to be approved. `arrived` is the chain's own figure and is a different
+ * kind of number; the two are deliberately different types so neither can be rendered as the other.
+ */
+export const depositChainCheckSchema = z.looseObject({
+  outcome: chainCheckOutcomeSchema,
+  network: chainNetworkSchema.nullable(),
+  /** The server's one sentence about what it found. Shown as it arrived: it names the specifics. */
+  summary: z.string(),
+  arrived: chainArrivalSchema.nullable(),
+  creditable: moneyViewSchema.nullable(),
+  txHash: z.string().nullable(),
+  /** The wallet the transfer came FROM — the only thing tying a transfer to a person. */
+  fromAddress: z.string().nullable(),
+  confirmations: z.number().nullable(),
+  requiredConfirmations: z.number().nullable(),
+  checkedAt: isoDateTime,
+});
+export type DepositChainCheck = z.infer<typeof depositChainCheckSchema>;

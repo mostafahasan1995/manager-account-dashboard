@@ -13,6 +13,7 @@ import { config } from '@/config';
 import { errorMessage, isApiError } from '@/lib/api/errors';
 import { can } from '@/lib/auth/permissions';
 import { useAuth } from '@/lib/auth/use-auth';
+import { useAppName } from '@/lib/i18n/use-app-name';
 import { useEnumLabel, useT, type Translator } from '@/lib/i18n/use-translation';
 import {
   MOCK_AGENT_PASSWORD,
@@ -66,6 +67,7 @@ type Door = 'agent' | 'code';
 export function LoginPage() {
   const { signOutReason } = useAuth();
   const t = useT(authMessages);
+  const appName = useAppName();
   const [door, setDoor] = useState<Door>('agent');
 
   return (
@@ -76,7 +78,7 @@ export function LoginPage() {
             <Coins className="size-5" />
           </span>
           <div>
-            <h1 className="text-xl font-semibold tracking-tight">{config.appName}</h1>
+            <h1 className="text-xl font-semibold tracking-tight">{appName}</h1>
             <p className="text-sm text-[var(--muted-foreground)]">{t('app.tagline')}</p>
           </div>
         </div>
@@ -416,11 +418,7 @@ function BotCodeForm({ t }: { t: AuthTranslator }) {
   };
 
   return (
-    <form
-      onSubmit={(event) => void handleSubmit(event)}
-      className="space-y-4"
-      noValidate
-    >
+    <form onSubmit={(event) => void handleSubmit(event)} className="space-y-4" noValidate>
       <p className="text-sm text-[var(--muted-foreground)]">
         {t('auth.code.who')} {t('auth.signIn.sendCommand')}{' '}
         <code className="font-mono" dir="ltr">
