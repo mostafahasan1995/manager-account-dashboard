@@ -16,6 +16,7 @@ import type {
   BreakListQuery,
   CreateAdminBody,
   CreatePaymentDestinationBody,
+  SetDeclaredBalanceBody,
   CreatePaymentMethodBody,
   CreateTenantBody,
   DebitPlayerBody,
@@ -33,6 +34,7 @@ import type {
   UpdateTenantIchancyBody,
   UpdatePlatformDefaultsBody,
   SetExchangeRateBody,
+  SetShamCashSessionBody,
 } from '@/types';
 
 import {
@@ -46,6 +48,7 @@ import {
   reconciliationApi,
   tenantsApi,
   exchangeRatesApi,
+  shamCashApi,
   platformDefaultsApi,
   walletBalancesApi,
 } from './endpoints';
@@ -63,6 +66,7 @@ import {
   tenantHealthKeys,
   tenantKeys,
   exchangeRateKeys,
+  shamCashKeys,
   platformDefaultsKeys,
   walletBalanceKeys,
 } from './query-keys';
@@ -466,6 +470,15 @@ export const useUpdateDestination = () =>
 export const useDeactivateDestination = () =>
   usePaymentMutation((id: string) => paymentMethodsApi.deactivateDestination(id));
 
+/**
+ * Set or clear an account's hand-typed balance. Reuses usePaymentMutation, so a save invalidates
+ * the whole payment-method namespace and the account card refreshes with the new figure.
+ */
+export const useSetDeclaredBalance = () =>
+  usePaymentMutation((input: { id: string; body: SetDeclaredBalanceBody }) =>
+    paymentMethodsApi.setDeclaredBalance(input.id, input.body),
+  );
+
 // ── What the chain says a payout wallet holds ──────────────────────────────────────────────────
 
 /**
@@ -538,6 +551,48 @@ export function useSetUsdtRate() {
     retry: false,
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: exchangeRateKeys.all });
+    },
+  });
+}
+
+/** Whether a Sham Cash session is linked, and when. The cookies are never returned. */
+export function useShamCashStatus(options: { enabled?: boolean } = {}) {
+  return useQuery({
+    queryKey: shamCashKeys.status(),
+    queryFn: ({ signal }) => shamCashApi.getStatus(signal),
+    enabled: options.enabled ?? true,
+  });
+}
+
+/** Link a Sham Cash session by pasting its cookies. */
+export function useSetShamCashSession() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: SetShamCashSessionBody) => shamCashApi.setSession(body),
+    retry: false,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: shamCashKeys.all });
+    },
+  });
+}
+
+/** Read the live balance by replaying the session in a headless browser. A POST because it
+ *  launches a browser and hits a third party — an action, not a cheap read. */
+export function useCheckShamCashBalance() {
+  return useMutation({
+    mutationFn: () => shamCashApi.checkBalance(),
+    retry: false,
+  });
+}
+
+/** Unlink it — clears the sealed session on the backend. */
+export function useClearShamCashSession() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => shamCashApi.clearSession(),
+    retry: false,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: shamCashKeys.all });
     },
   });
 }

@@ -106,6 +106,11 @@ export const reconciliationKeys = {
  * The crypto rate. Its own key: setting it must not refetch every payment method, and editing a
  * method must not refetch it. They are related in meaning and unrelated in cache lifetime.
  */
+export const shamCashKeys = {
+  all: ['shamcash'] as const,
+  status: () => [...shamCashKeys.all, 'status'] as const,
+};
+
 export const exchangeRateKeys = {
   all: ['exchange-rates'] as const,
   usdt: () => [...exchangeRateKeys.all, 'usdt'] as const,

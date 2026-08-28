@@ -334,9 +334,16 @@ DELETE /v1/admin/payment-methods/:id                    (deactivates — nothing
 GET    /v1/admin/payment-methods/:id/destinations?includeInactive=true
 POST   /v1/admin/payment-methods/:id/destinations
 PATCH  /v1/admin/payment-destinations/:id
+PATCH  /v1/admin/payment-destinations/:id/declared-balance
 DELETE /v1/admin/payment-destinations/:id
 GET    /v1/admin/payment-destinations/:id/balance       (chain wallets only — see below)
 ```
+
+`PATCH .../declared-balance` sets a hand-typed balance for an account no chain can be asked about
+(a cash office, a bank): `{ balance, currency }` to set — a decimal string and a 2–8 letter code —
+or `{ balance: null, currency: null }` to clear. Display-only bookkeeping; it never moves money.
+Returns the destination view, whose `declaredBalance` / `declaredBalanceCurrency` /
+`declaredBalanceUpdatedAt` carry it back. Manager roles only.
 
 Create method: `{ code (SCREAMING_SNAKE), displayName, rail, currencyCode, verificationMode,
 minAmount, maxAmount, feeFixed?, feeBps?, requiresReference?, referencePattern?, instructions?,
@@ -567,6 +574,37 @@ reads and does not write.
 - `GET` answers `null` when nobody has set a rate, and reports a stale one with `isStale: true`
   rather than as an error — a screen has to be able to say _why_ the rail is refusing deposits, and
   it cannot say that from a 4xx. Only the deposit path treats staleness as a refusal.
+
+### Sham Cash session — `/v1/admin/shamcash`
+
+The operator's external Sham Cash cashier account, linked by pasting its **browser-session cookies**.
+Sham Cash encrypts every API call with a key its own front-end mints per request, which we cannot
+reproduce — so the balance is read by replaying the operator's session in a headless browser and
+parsing the rendered page, not through their API. This resource stores that session.
+
+```
+GET    /v1/admin/shamcash/session   -> { linked, updatedAt }
+POST   /v1/admin/shamcash/session   { accessToken, authToken, forge? }  -> { linked, updatedAt }
+DELETE /v1/admin/shamcash/session   -> { linked, updatedAt }
+POST   /v1/admin/shamcash/balance   -> ShamCashReadResult
+```
+
+`POST .../balance` replays the session in a headless browser and reads the rendered home page.
+`ShamCashReadResult` is a discriminated union on `status`: `ok` carries `balances[]` (currency,
+available, locked) and `transactions[]`; `not_linked`, `expired` and `unavailable` (with a `detail`)
+carry no balance — an expired session or an outage is **never** returned as a wallet of zeros. POST,
+not GET: it launches a browser and hits a third party, so it is an action with a cost.
+
+**Roles: `SUPER_ADMIN` and `FINANCE_ADMIN`** — managing an external cashier account is a money
+action.
+
+- The cookies are **sealed** (AES-256-GCM, its own key) the instant they arrive and are **never
+  returned** by any endpoint. `GET` answers only whether a session is linked and when — a leak of the
+  console exposes the status, not the session.
+- `accessToken` and `authToken` are required (they are what say "signed in"); `forge` is the optional
+  anti-forgery cookie. Nothing else is collected — the reader forces the locale itself.
+- A lapsed session reads as "expired, re-link", never as a zero balance. The reader (headless browser
+  + `@core/shamcash` parser) is validated on first run in the deployment, against the live account.
 
 ### Platform defaults — `/v1/admin/platform-defaults` (PLATFORM_ADMIN only)
 

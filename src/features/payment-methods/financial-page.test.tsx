@@ -40,6 +40,11 @@ const realTrc20Address: PaymentDestination = {
   isActive: true,
   priority: 1,
   dailyCap: null,
+  declaredBalance: null,
+  declaredBalanceMinor: null,
+  declaredBalanceCurrency: null,
+  declaredBalanceUpdatedAt: null,
+  declaredBalanceSetByAdminId: null,
   createdAt: '2026-08-01T00:00:00.000Z',
   updatedAt: '2026-08-01T00:00:00.000Z',
 };
@@ -63,6 +68,11 @@ const destinationLike = (
   isActive: true,
   priority: 1,
   dailyCap: null,
+  declaredBalance: null,
+  declaredBalanceMinor: null,
+  declaredBalanceCurrency: null,
+  declaredBalanceUpdatedAt: null,
+  declaredBalanceSetByAdminId: null,
   createdAt: '2026-08-01T00:00:00.000Z',
   updatedAt: '2026-08-01T00:00:00.000Z',
   ...over,
@@ -150,6 +160,42 @@ describe('FinancialPage', () => {
       within(card).getByText('No balance is tracked for this account yet.'),
     ).toBeInTheDocument();
     expect(within(card).queryByTestId('wallet-balance')).toBeNull();
+  });
+
+  it('shows a recorded balance with its currency and how recently it was set', async () => {
+    // The figure a human typed for a rail no chain can answer for. It always carries WHEN, because
+    // a recorded balance with no date is a number of unknown age dressed up as a current one.
+    addOperatorMethods();
+    db.destinations.push(
+      destinationLike({
+        id: 'dddddddd-0000-4000-8000-000000000203',
+        paymentMethodId: OPERATOR_SHAM,
+        label: 'Aleppo office',
+        accountIdentifier: 'SHAM-ALP-0002',
+        declaredBalance: '2000000.00',
+        declaredBalanceMinor: '200000000',
+        declaredBalanceCurrency: 'NSP',
+        declaredBalanceUpdatedAt: '2026-08-27T00:00:00.000Z',
+      }),
+    );
+    render();
+
+    const card = await cardFor('sham cash dollar');
+
+    expect(await within(card).findByText('2000000.00')).toBeInTheDocument();
+    expect(within(card).getByText('NSP')).toBeInTheDocument();
+    expect(within(card).getByText(/updated/i)).toBeInTheDocument();
+  });
+
+  it('offers a manager an Add balance control on an account that has none', async () => {
+    addOperatorMethods();
+    render();
+
+    const card = await cardFor('sham cash dollar');
+
+    expect(
+      await within(card).findByRole('button', { name: /add balance/i }),
+    ).toBeInTheDocument();
   });
 
   /**
@@ -312,6 +358,9 @@ describe('FinancialPage', () => {
     expect(screen.queryByRole('button', { name: /add another account/i })).toBeNull();
     expect(screen.queryByRole('button', { name: /stop sending players/i })).toBeNull();
     expect(screen.queryByRole('button', { name: /activate this rail/i })).toBeNull();
+    // The recorded-balance controls are write actions too — a reader sees the figure, not the pencil.
+    expect(screen.queryByRole('button', { name: /^add balance$/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^edit$/i })).toBeNull();
     expect(screen.getByText('Your role can see this rate but not change it.')).toBeInTheDocument();
   });
 });

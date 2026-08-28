@@ -131,6 +131,8 @@ export interface MockState {
   usdtRate: MockExchangeRate | null;
   /** When that row was last written, so the screen can tell an edit from the seed. */
   platformDefaultsUpdatedAt: string;
+  /** Whether a Sham Cash browser session is linked, and when. The cookies are never held here. */
+  shamCashSession: { linked: boolean; updatedAt: string | null };
   /** The admin the mock session belongs to. Switchable so tests can log in as any role. */
   currentAdmin: AdminIdentity;
   /** Ledger side of the agent float, so a float sync produces a believable delta. */
@@ -214,6 +216,7 @@ function seed(): MockState {
     platformDefaults: clone(mockPlatformDefaults),
     usdtRate: null,
     platformDefaultsUpdatedAt: '2026-08-01T00:00:00.000Z',
+    shamCashSession: { linked: false, updatedAt: null },
     currentAdmin: {
       id: superAdmin.id,
       telegramUserId: superAdmin.telegramUserId,
@@ -424,6 +427,11 @@ export function createDestination(
     isActive: bool(body.isActive, true),
     priority: num(body.priority, 1),
     dailyCap: optionalStr(body.dailyCap),
+    declaredBalance: null,
+    declaredBalanceMinor: null,
+    declaredBalanceCurrency: null,
+    declaredBalanceUpdatedAt: null,
+    declaredBalanceSetByAdminId: null,
     createdAt: nowIso(),
     updatedAt: nowIso(),
   };

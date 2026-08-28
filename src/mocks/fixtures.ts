@@ -529,9 +529,19 @@ export const mockPaymentMethods: PaymentMethod[] = [
   },
 ];
 
+/** No hand-typed balance recorded — the default for every account until an operator sets one. */
+const noDeclaredBalance = {
+  declaredBalance: null,
+  declaredBalanceMinor: null,
+  declaredBalanceCurrency: null,
+  declaredBalanceUpdatedAt: null,
+  declaredBalanceSetByAdminId: null,
+} as const;
+
 export const mockDestinations: PaymentDestination[] = [
   {
     id: DESTINATION_IDS.bankPrimary,
+    ...noDeclaredBalance,
     paymentMethodId: METHOD_IDS.bank,
     label: 'Main branch account',
     accountIdentifier: 'SY84 0000 0000 0001 2345',
@@ -545,6 +555,7 @@ export const mockDestinations: PaymentDestination[] = [
   },
   {
     id: DESTINATION_IDS.bankSecondary,
+    ...noDeclaredBalance,
     paymentMethodId: METHOD_IDS.bank,
     label: 'Overflow account',
     accountIdentifier: 'SY84 0000 0000 0009 8765',
@@ -558,6 +569,12 @@ export const mockDestinations: PaymentDestination[] = [
   },
   {
     id: DESTINATION_IDS.walletMain,
+    ...noDeclaredBalance,
+    declaredBalance: '200.00',
+    declaredBalanceMinor: '20000',
+    declaredBalanceCurrency: 'USD',
+    declaredBalanceUpdatedAt: minutesAgo(180),
+    declaredBalanceSetByAdminId: 'mock-admin',
     paymentMethodId: METHOD_IDS.wallet,
     label: 'Primary wallet',
     accountIdentifier: '0999-000-111',
@@ -571,6 +588,7 @@ export const mockDestinations: PaymentDestination[] = [
   },
   {
     id: DESTINATION_IDS.walletRetired,
+    ...noDeclaredBalance,
     paymentMethodId: METHOD_IDS.wallet,
     label: 'Old wallet (closed)',
     accountIdentifier: '0999-000-222',
@@ -589,6 +607,7 @@ export const mockDestinations: PaymentDestination[] = [
    */
   {
     id: DESTINATION_IDS.usdtTrc20Placeholder,
+    ...noDeclaredBalance,
     paymentMethodId: METHOD_IDS.usdtTrc20,
     label: 'USDT TRC20',
     accountIdentifier: 'SEED-PLACEHOLDER-USDT-TRC20-0000',
@@ -602,6 +621,7 @@ export const mockDestinations: PaymentDestination[] = [
   },
   {
     id: DESTINATION_IDS.usdtBep20Placeholder,
+    ...noDeclaredBalance,
     paymentMethodId: METHOD_IDS.usdtBep20,
     label: 'USDT BEP20',
     accountIdentifier: 'SEED-PLACEHOLDER-USDT-BEP20-0000',

@@ -351,6 +351,79 @@ export const handlers: HttpHandler[] = [
    * The same boundary the backend argues for a payout account: PLATFORM_ADMIN reads and does not
    * write, however senior it sounds.
    */
+  // ── Sham Cash session (external cashier account, linked by pasting cookies) ────────────────────
+  http.get(url('/v1/admin/shamcash/session'), ({ request }) => {
+    const role = callerRole(request);
+    if (role !== null && !can(role, 'paymentMethods.read')) {
+      return fail(403, 'INSUFFICIENT_ROLE', 'Your role cannot read the payment configuration.');
+    }
+    return ok(db.shamCashSession);
+  }),
+
+  http.post(url('/v1/admin/shamcash/session'), async ({ request }) => {
+    const role = callerRole(request);
+    if (role !== null && !can(role, 'paymentMethods.write')) {
+      return fail(403, 'INSUFFICIENT_ROLE', 'Your role cannot change the payment configuration.');
+    }
+    const body = (await request.json()) as { accessToken?: string; authToken?: string };
+    if (!body.accessToken || !body.authToken) {
+      return fail(400, 'VALIDATION_FAILED', 'accessToken and authToken are required.');
+    }
+    // The cookies are never stored in the mock — only the fact that a session now exists, which is
+    // all the real backend ever returns.
+    db.shamCashSession = { linked: true, updatedAt: nowIso() };
+    return ok(db.shamCashSession);
+  }),
+
+  http.delete(url('/v1/admin/shamcash/session'), ({ request }) => {
+    const role = callerRole(request);
+    if (role !== null && !can(role, 'paymentMethods.write')) {
+      return fail(403, 'INSUFFICIENT_ROLE', 'Your role cannot change the payment configuration.');
+    }
+    db.shamCashSession = { linked: false, updatedAt: null };
+    return ok(db.shamCashSession);
+  }),
+
+  http.post(url('/v1/admin/shamcash/balance'), ({ request }) => {
+    const role = callerRole(request);
+    if (role !== null && !can(role, 'paymentMethods.write')) {
+      return fail(403, 'INSUFFICIENT_ROLE', 'Your role cannot read the payment configuration.');
+    }
+    if (!db.shamCashSession.linked) {
+      return ok({ status: 'not_linked' });
+    }
+    // A plausible read: the account holds SYP, and the last two transfers are the +/-10 test moves.
+    return ok({
+      status: 'ok',
+      balances: [
+        { currency: 'SYP', available: '250,000', locked: '10,000' },
+        { currency: 'USD', available: '0', locked: '0' },
+        { currency: 'EUR', available: '0', locked: '0' },
+      ],
+      transactions: [
+        {
+          transactionId: '100000001',
+          date: '2026-08-26 - 16:10:31',
+          amount: '10',
+          currency: 'SYP',
+          direction: 'out',
+          username: 'Counterparty One',
+          maskedCard: '**** **** **** 0000',
+        },
+        {
+          transactionId: '100000002',
+          date: '2026-08-26 - 16:08:45',
+          amount: '10',
+          currency: 'SYP',
+          direction: 'in',
+          username: 'Counterparty Two',
+          maskedCard: '**** **** **** 1111',
+        },
+      ],
+      checkedAt: nowIso(),
+    });
+  }),
+
   http.get(url('/v1/admin/exchange-rates/usdt'), ({ request }) => {
     // `role !== null`, as the debit route explains: a token with no role in it is a test client,
     // not a signed-in operator, and the mock login route never issues one. Refusing it would make
@@ -840,6 +913,39 @@ export const handlers: HttpHandler[] = [
     destination.updatedAt = nowIso();
     return ok(destination);
   }),
+
+  /*
+   * The hand-typed ("declared") balance. A nulled `balance` clears all four fields together, because
+   * a balance is one fact — an amount without its currency, or the reverse, is not a state this
+   * screen can render. The real backend stores minor units and returns them formatted; the mock does
+   * not recompute minor units (nothing reads them), it just echoes the figure the operator typed.
+   */
+  http.patch(
+    url('/v1/admin/payment-destinations/:id/declared-balance'),
+    async ({ params, request }) => {
+      const destination = db.destinations.find((row) => row.id === String(params.id));
+      if (destination === undefined) {
+        return fail(404, 'DESTINATION_NOT_FOUND', 'That destination does not exist.');
+      }
+      const body = (await request.json()) as { balance: string | null; currency: string | null };
+
+      if (body.balance === null || body.currency === null) {
+        destination.declaredBalance = null;
+        destination.declaredBalanceMinor = null;
+        destination.declaredBalanceCurrency = null;
+        destination.declaredBalanceUpdatedAt = null;
+        destination.declaredBalanceSetByAdminId = null;
+      } else {
+        destination.declaredBalance = body.balance;
+        destination.declaredBalanceMinor = body.balance;
+        destination.declaredBalanceCurrency = body.currency;
+        destination.declaredBalanceUpdatedAt = nowIso();
+        destination.declaredBalanceSetByAdminId = 'mock-admin';
+      }
+      destination.updatedAt = nowIso();
+      return ok(destination);
+    },
+  ),
 
   /*
    * The one read on this screen that leaves the building.

@@ -42,10 +42,31 @@ export const paymentDestinationSchema = z.looseObject({
   isActive: z.boolean(),
   priority: z.number(),
   dailyCap: z.string().nullable(),
+  /**
+   * A balance the operator typed in by hand, for a rail no chain or API can be asked what it holds
+   * (a cash office, a bank). Display-only bookkeeping — it never moves money. Null when unset, and
+   * `declaredBalance` is deliberately kept distinct from a chain wallet's live balance so the two
+   * are never confused. `declaredBalanceMinor` is the raw figure; `declaredBalance` is it formatted.
+   */
+  declaredBalance: z.string().nullable(),
+  declaredBalanceMinor: z.string().nullable(),
+  declaredBalanceCurrency: z.string().nullable(),
+  declaredBalanceUpdatedAt: isoDateTime.nullable(),
+  declaredBalanceSetByAdminId: z.string().nullable(),
   createdAt: isoDateTime,
   updatedAt: isoDateTime,
 });
 export type PaymentDestination = z.infer<typeof paymentDestinationSchema>;
+
+/**
+ * Setting the declared balance replaces the amount and its currency together, or clears both with
+ * nulls — it is one fact, not two independently-editable fields. Matches the backend
+ * SetDeclaredBalanceDto: a decimal string, and a 2–8 letter currency label.
+ */
+export interface SetDeclaredBalanceBody {
+  balance: string | null;
+  currency: string | null;
+}
 
 export interface PaymentMethodListQuery {
   isActive?: boolean;

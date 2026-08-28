@@ -9,9 +9,36 @@ Handoff note. Two repos:
 
 | | |
 |---|---|
-| Backend | **1750 tests / 110 suites passing**, `tsc` clean, `eslint` clean |
-| Console | **97 files / 1259 tests passing**, `tsc` clean, `eslint` clean, coverage **90.97 / 85.77 / 90.30 / 92.32** over the 90/84/89/91 gate. Integrator pass over both agents' work completed 2026-08-26. |
+| Backend | **1787 tests / 114 suites passing**, `tsc` clean, `eslint` clean |
+| Console | **1266 tests / 98 files passing**, `tsc` clean, `eslint` clean, coverage **90.57 / 85.70 / 90.16 / 91.88** over the 90/84/89/91 gate. |
 | Committed | Nothing since `2cd2463`. Everything below is working-tree only. |
+
+## Latest additions (this session)
+
+- **Declared account balance — COMPLETE (both repos).** A hand-typed balance per payment account for
+  rails no chain/API can be asked (cash offices, banks) — the operator's "200 usd sham cash /
+  2,000,000 nsp sham cash". Backend: 4 nullable columns on `PaymentDestination`
+  (`declaredBalanceMinor/Currency/UpdatedAt/SetByAdminId`, the last a real FK to `AdminUser`),
+  `PATCH /v1/admin/payment-destinations/:id/declared-balance` (manager roles), on the
+  `AdminPaymentDestinationView`. Console: shown on `method-account-card.tsx` as a "recorded balance"
+  line (always with WHEN — distinct from the live chain balance), edited via `declared-balance-dialog.tsx`.
+  Display-only; a static test (`declared-balance-not-in-money-paths.spec.ts`) asserts it is never read
+  by any deposit/credit/ledger/reconciliation code.
+- **SECURITY FIX (CC-021).** `PATCH /v1/admin/payment-destinations/:id` shipped with **no role guard**
+  — auth was required but any authenticated caller (VIEWER/SUPPORT/REVIEWER) could re-route player
+  deposits by editing a destination. Now `PAYMENT_METHOD_MANAGER_ROLES`, with
+  `admin-payment-method-roles.spec.ts` asserting **every** mutating route on that controller names a
+  role, so the class can't recur.
+- **Sham Cash automation — still blocked**, by design: needs the RSA public key + client encrypt code
+  from their web JS (the `aesKey` field is a per-request AES key RSA-wrapped to their server; a
+  captured sample can't be decrypted without their private key). The declared balance is the working
+  stand-in until then.
+
+### Migrations — TWO now pending, neither applied
+- `20260826120000_exchange_rates` — applied ✅
+- `20260826140000_chain_settlements` — **written, not applied.**
+- `20260827100000_declared_account_balance` — **written, not applied.**
+Run `npm run prisma:deploy` for both pending ones.
 
 ---
 

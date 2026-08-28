@@ -107,6 +107,7 @@ Every task in section 3 follows this shape. Use it for new tasks too.
 | [CC-014](#cc-014--automated-accessibility-checks)                                                       | Automated accessibility checks                               | Hardening  | P3  | M    |
 | [CC-015](#cc-015--decide-whether-money-path-posts-carry-an-idempotency-key)                             | Decide whether money-path POSTs carry an Idempotency-Key     | Enhancement | P2  | M    |
 | [CC-019](#cc-019--validate-a-payout-address-on-every-crypto-rail-not-on-the-two-the-seeder-named)       | Validate a payout address on every crypto rail, not on the two the seeder named | Defect      | P1  | S    |
+| [CC-021](#cc-021--guard-patch-v1adminpayment-destinationsid--it-currently-has-none)                     | Guard `PATCH /v1/admin/payment-destinations/:id` — it currently has none | Defect      | P1  | S    |
 
 Feature tickets (section 4) — raised by the product owner, not found by analysis:
 
@@ -115,6 +116,7 @@ Feature tickets (section 4) — raised by the product owner, not found by analys
 | [CC-016](#cc-016--bind-and-verify-the-telegram-group-chats-an-operator-publishes-into) | Bind and verify the Telegram group chats an operator publishes into | Feature | P1  | L    | backend + console |
 | [CC-017](#cc-017--make-the-defaults-a-new-operator-inherits-visible-and-editable)      | Make the defaults a new operator inherits visible and editable | Feature | P1  | M    | backend + console |
 | [CC-018](#cc-018--usdt-and-usd-rails-and-who-may-change-a-payout-account)              | USDT and USD rails, and who may change a payout account     | Feature | P1  | L    | backend + console |
+| [CC-020](#cc-020--let-an-operator-hand-declare-a-balance-for-every-non-chain-payment-account) | Let an operator hand-declare a balance for every non-chain payment account | Feature | P1  | L    | backend + console |
 
 ---
 
@@ -1153,6 +1155,111 @@ _Console:_ `src/features/payment-methods/wallet-address.ts` (comment only, if th
 
 ---
 
+### CC-021 — Guard `PATCH /v1/admin/payment-destinations/:id` — it currently has none
+
+|                                     |                                                       |
+| ----------------------------------- | ----------------------------------------------------- |
+| **Type**                            | Defect                                                |
+| **Priority**                        | P1 (correctness/honesty)                              |
+| **Size**                            | S (< half a day)                                      |
+| **Blocked by**                      | —                                                     |
+| **Needs a decision from the owner** | no                                                    |
+
+**Problem.** The route that changes a payment destination's label, holder name, priority, daily cap
+and active state — every mutable field on the account players are told to pay into — carries **no**
+`@AdminAuth(...)` decorator at all. Every sibling route on the same controller is gated; this one
+was missed, silently, and nothing in the test suite would have caught it because no test exercises
+role enforcement on this controller.
+
+This was found while scoping CC-020 (a hand-declared balance), which was about to add its fields to
+this same write surface. Writing a new field onto an unguarded route would have inherited the bug
+silently, which is why this is split out rather than folded into CC-020 — the same reasoning that
+kept CC-019 separate from the auto-credit work that found it.
+
+**Evidence.** Verified in `Telegram-mini-app`, not inferred:
+
+- `src/modules/payment-method/controllers/admin-payment-method.controller.ts:114-122` —
+  `createDestination` (`POST`) carries `@AdminAuth(...PAYMENT_METHOD_MANAGER_ROLES)`.
+- Same file, `:143-150` — `updateDestination` (`PATCH`) carries **only** `@Patch('payment-destinations/:id')`.
+  No `@AdminAuth` anywhere above it.
+- `:152-159` — `deactivateDestination` (`DELETE`) carries `@AdminAuth(...PAYMENT_METHOD_MANAGER_ROLES)`.
+  So the create and deactivate neighbours of this exact route are both gated; only the one in between
+  is not.
+- `src/core/auth/guards/auth.guard.ts:11-12` — the guard's own header comment: _"A route with NO auth
+  decorator at all is still authenticated — any valid principal passes. That is the fail-closed
+  default; `@PlayerAuth()`/`@AdminAuth()` narrow it."_ Confirmed in code: `enforceRequirement()`
+  (`:112-133`) returns `true` whenever `requirement === undefined`.
+- `src/core/auth/guards/roles.guard.ts:42-43` — same shape: `if (requirement === undefined ||
+  requirement.kind !== 'ADMIN') return true;`. With no `@AdminAuth` on the handler, this guard never
+  even reaches the role check.
+- Net effect: **any authenticated admin, of any role — `SUPPORT`, `VIEWER`, whichever roles exist —
+  can call this route and change a destination's label, holder name, priority, daily cap and active
+  state**, none of which `PAYMENT_METHOD_READER_ROLES` is supposed to be able to touch
+  (`payment-method.constants.ts:52-69`, the boundary argued there is about who may redirect players'
+  money, and this route is exactly that action).
+- A second, milder defect in the same file: `:124,136-137` — `destinationBalance` carries **two**
+  `@AdminAuth(...)` calls, `PAYMENT_METHOD_MANAGER_ROLES` above the `@Get` decorator and
+  `PAYMENT_METHOD_READER_ROLES` below it. Both call `SetMetadata` on the same key
+  (`src/common/decorators/auth.decorator.ts:34-35`), and TypeScript's `__decorate` applies decorators
+  bottom-to-top, so the topmost one — `PAYMENT_METHOD_MANAGER_ROLES` — wins and silently overwrites
+  the reader grant. The handler's own doc comment (`:125-135`) says "Read-gated, because a balance is
+  a fact about the operator, not an action against it" — untrue today: `REVIEWER`/`SUPPORT` get a 403
+  reading a wallet balance they are supposed to be allowed to see. Overly strict rather than a hole,
+  so lower urgency than the missing guard above, but the same root cause (a stray decorator on a
+  shared controller) and cheap to fix in the same pass.
+- No test anywhere in the repo asserts role enforcement for this controller:
+  `grep -rn "payment-destinations\|createDestination\|updateDestination\|deactivateDestination"
+  --include=*.spec.ts` finds no controller spec, and `grep -rn "INSUFFICIENT_ROLE" --include=*.spec.ts
+  src/modules` finds nothing under `payment-method` at all. `payment-destination.service.spec.ts` only
+  covers the address-network rule (`assertAddressBelongsToNetwork`); the controller has no spec file.
+
+**In scope.**
+
+- Add `@AdminAuth(...PAYMENT_METHOD_MANAGER_ROLES)` to `updateDestination`, matching its `create` and
+  `deactivate` neighbours.
+- Fix the doubled decorator on `destinationBalance`: keep exactly one `@AdminAuth`, with
+  `PAYMENT_METHOD_READER_ROLES` (the comment's stated intent, and the least-privilege reading — a
+  balance read is not the write CC-019/CC-020 evidence is about).
+- Add `admin-payment-method.controller.spec.ts` (or extend an e2e/integration harness if that is this
+  module's convention) asserting every route's role requirement, so this class of bug — a decorator
+  silently missing or silently overwritten — fails a test instead of shipping.
+
+**Out of scope.**
+
+- Any change to which roles are IN `PAYMENT_METHOD_MANAGER_ROLES` / `PAYMENT_METHOD_READER_ROLES` —
+  this is about the gate being present and correct, not about redrawing the boundary.
+- CC-020's new declared-balance route is not this route and is written from scratch with its own
+  guard — it does not inherit this bug, but its author should read this ticket before copying any
+  decorator pattern from this file.
+
+**Acceptance criteria.**
+
+1. `PATCH /v1/admin/payment-destinations/:id` refuses a caller whose role is not in
+   `PAYMENT_METHOD_MANAGER_ROLES` with `INSUFFICIENT_ROLE`, and nothing is written.
+2. `GET /v1/admin/payment-destinations/:id/balance` accepts every role in
+   `PAYMENT_METHOD_READER_ROLES` (in particular `REVIEWER` and `SUPPORT`) and refuses everyone else.
+3. `createDestination` and `deactivateDestination` are unchanged and still pass their existing
+   behaviour.
+4. A test walks every handler on `AdminPaymentMethodController` and asserts it carries exactly one
+   `AUTH_REQUIREMENT_KEY` metadata value — this is the mechanism that stops a second stray decorator
+   silently overwriting a first one from recurring on this controller.
+
+**Test cases.**
+
+| Id      | Level   | Given / When / Then                                                                                          |
+| ------- | ------- | ----------------------------------------------------------------------------------------------------------- |
+| TC-21.1 | backend | Given a `SUPPORT` token · When `PATCH /payment-destinations/:id` is called with `{ isActive: false }` · Then `403 INSUFFICIENT_ROLE` and the row is unchanged. |
+| TC-21.2 | backend | Given a `SUPER_ADMIN` token · When the same call is made · Then it succeeds, as today.                        |
+| TC-21.3 | backend | Given a `REVIEWER` token · When `GET /payment-destinations/:id/balance` is called · Then it succeeds (currently 403 — this is the regression this ticket fixes). |
+| TC-21.4 | backend | Given a `VIEWER`-equivalent role with neither reader nor manager membership · When either route is called · Then both refuse. |
+| TC-21.5 | unit    | Reflect every handler on `AdminPaymentMethodController` · Then each carries exactly one `AUTH_REQUIREMENT_KEY` value, and it is the one the route's own name implies (list vs. get vs. write). |
+
+**Files likely touched.**
+`src/modules/payment-method/controllers/admin-payment-method.controller.ts`,
+`src/modules/payment-method/controllers/admin-payment-method.controller.spec.ts` (new).
+
+---
+
 ## 4. Feature tickets
 
 These three come from the product owner, not from analysis. Each was checked against the **backend**
@@ -1662,6 +1769,311 @@ _Console:_ `src/features/payment-methods/destination-form-dialog.tsx`,
 `src/features/payment-methods/messages.ts`, `src/features/tenants/tenant-detail-panel.tsx`,
 `src/lib/auth/permissions.ts`, `src/types/payment-method.ts`, `src/mocks/fixtures.ts`,
 `src/mocks/handlers.ts`, `docs/API-CONTRACT.md`.
+
+---
+
+### CC-020 — Let an operator hand-declare a balance for every non-chain payment account
+
+|                                     |                                                                        |
+| ----------------------------------- | ------------------------------------------------------------------------ |
+| **Type**                            | Feature                                                                |
+| **Priority**                        | P1                                                                     |
+| **Size**                            | L                                                                      |
+| **Repo**                            | backend (`Telegram-mini-app`) **and** console                          |
+| **Blocked by**                      | —                                                                      |
+| **Needs a decision from the owner** | **Yes** — three decisions, none of them blocking the backend/console plumbing |
+
+**What is already true.**
+Live balances are solved for the one rail that can answer for itself: a `CRYPTO` destination reads
+its balance off the chain (`WalletBalance`, `GET /v1/admin/payment-destinations/:id/balance`,
+`destination-balance.service.ts`). Every other rail — Sham Cash, Syriatel Cash, a bank account — has
+no API to ask, and today says so in words: `financial.balance.untracked`, "No balance is tracked for
+this account yet." The console's own code already names what belongs here and defers it on purpose:
+
+> `method-account-card.tsx:381-388` — _"The operator has since asked for a DECLARED balance per
+> account per platform ('300 usd in usdt trc20, 200 usd sham cash') — a figure a human types for the
+> rails no chain can answer for. When that exists it belongs in this component and nowhere else... No
+> endpoint is assumed for it here."_
+
+and the messages file, next to the untracked copy: `messages.ts:282-283` — _"Declared balances are
+what will fill this line — see `AccountBalance`."_ This ticket is that line.
+
+**Problem.**
+An operator is presently tracking these figures somewhere off-platform — a notebook, a phone note —
+because the console has nowhere to put a number nobody can verify by API. The number is real to the
+operator (it decides whether they trust a rail enough to keep sending players to it) and it is
+explicitly **not** ledger money: it must never be credited, debited, or read by any deposit,
+reconciliation or ledger code path. It is bookkeeping, displayed back to the person who typed it, with
+a timestamp so they know how old it is.
+
+**Evidence.**
+
+_Backend — the pattern to mirror, verified:_
+
+- `prisma/schema.prisma:495-526`, `model PaymentDestination` — `dailyCapMinor BigInt? @map("daily_cap_minor")` (`:511`) is the existing precedent for a nullable minor-unit money column on this exact
+  model: optional, operator-set, never defaulted.
+- `prisma/schema.prisma:715-748`, `model ExchangeRate` — `setByAdminId String? @map("set_by_admin_id") @db.Uuid` (`:734-735`) **with a real FK relation** —
+  `setBy AdminUser? @relation("ExchangeRateSetBy", fields: [setByAdminId], references: [id], onDelete: Restrict)` (`:742`). This is the closer precedent for "who set this hand-typed figure" than a
+  bare, relationless column: it is in the same module family (payment/money configuration, not a
+  polymorphic actor like `AuditLog.actorId`), and `ReconciliationBreak.resolvedByAdminId`
+  (`:1347-1349,1363`) is FK'd the same way. Give `declaredBalanceSetByAdminId` a real relation to
+  `AdminUser`, named distinctly (e.g. `"PaymentDestinationDeclaredBalanceSetBy"`), rather than a bare
+  column — nothing in this module needs the relationless style `AuditLog.actorId` uses for a genuinely
+  polymorphic actor.
+- **Re-verified 2026-08-27, exhaustively, because a later brief for this same ticket asserted the
+  opposite.** Grepped every `*AdminId … @db.Uuid` column in `prisma/schema.prisma`: `setByAdminId`
+  (`ExchangeRate`, `:735`→`:742`), `decidedByAdminId` (`DepositRequest`, `:794`→`:836`; `PlayerDebit`,
+  `:988`→`:1001`), `secondApproverAdminId` (`DepositRequest`, `:796`→`:837`), `revokedByAdminId`
+  (`SelfExclusion`, `:1433`→`:1439`), `assignedToAdminId`/`resolvedByAdminId` (`ReconciliationBreak`,
+  `:1347-1349`→`:1362-1363`) — **all six** carry `@relation(fields: [xAdminId], references: [id],
+  onDelete: Restrict)`. Zero counterexamples exist for a single-purpose `*AdminId` column. The only
+  relationless actor columns in the whole schema are the genuinely polymorphic ones that pair an id
+  with an `ActorType`/`*Type` enum because the actor is not always an admin — `AuditLog.actorId`,
+  `LedgerTransaction.actorId`, `DepositTransition.actorId`, `PlayerLimit.setById`,
+  `SelfExclusion.requestedById`. `declaredBalanceSetByAdminId` has no such polymorphism (the audit row
+  already records the generic actor; this column exists only to say *which admin*), so it takes the
+  six-for-six FK pattern, not the polymorphic one. **A brief instructing "plain uuid column, no FK
+  relation, matching how other setBy uuid columns are done" is factually wrong about this codebase —
+  there is no such precedent to match — and must not be followed.**
+- `src/modules/payment-method/dtos/payment-destination.dto.ts:55-60,92-96` — `dailyCap` DTO field:
+  `@IsOptional() @IsString() @Transform(trim) @Matches(MONEY_STRING_REGEX, {...})`. Mirror this for
+  the balance field on the new dedicated DTO.
+- `src/modules/payment-method/dtos/payment-destination.dto.ts:116-123` — `AdminPaymentDestinationView`
+  is exactly the interface `toAdminDestinationView` (below) fills in; the four new fields join it the
+  same way `dailyCap: string | null` already does.
+- `src/modules/payment-method/services/payment-destination.service.ts:55-68` — `toAdminDestinationView`:
+  `dailyCap: destination.dailyCapMinor === null ? null : formatMinorToDecimal(destination.dailyCapMinor)`.
+  The same ternary, against `declaredBalanceMinor`, is the whole job of exposing the formatted string.
+- `src/modules/payment-method/services/payment-destination.service.ts:88-134` (`create`),
+  `:136-178` (`update`) — both wrap the write and the `this.audit.write(tx, {...})` call in the same
+  transaction, and both build a `before`/`after` snapshot (`:237-247`, `snapshot()`) that already
+  stringifies `dailyCapMinor` with `?.toString() ?? null` for the JSON column. The declared-balance
+  write needs the identical shape: one transaction, one audit row, a snapshot that includes the four
+  new fields.
+- `src/modules/payment-method/utils/money-input.util.ts:25-32` (`toMinorOrNull`) and `:10-23`
+  (`toMinorOrThrow`, throwing `ValidationError` with `CommonErrorCodes.INVALID_AMOUNT` on a malformed
+  decimal) — the exact function `dailyCap` already runs through. Use it unchanged; do not write a
+  second parser.
+- `src/common/helpers/money.util.ts:15` — `DEFAULT_MONEY_SCALE = 2`. `dailyCap` already ignores the
+  method's own currency scale and always formats at 2dp; the declared balance should do the same for
+  consistency, since (per the next bullet) its currency is not even the ledger's.
+- `src/modules/payment-method/controllers/admin-payment-method.controller.ts:114-122` (`createDestination`) and `:152-159` (`deactivateDestination`) — the guard pattern to copy:
+  `@AdminAuth(...PAYMENT_METHOD_MANAGER_ROLES)` directly above the route decorator. **Do not** copy
+  `updateDestination` (`:143-150`) — see CC-021, filed alongside this ticket: that route currently
+  carries no `@AdminAuth` at all. This is exactly why a dedicated route is the safer choice here, not
+  merely the "clearer and auditable" one — folding this onto the general update endpoint would inherit
+  a live, unguarded write path.
+- `src/modules/payment-method/payment-method.constants.ts:52-56` — `PAYMENT_METHOD_MANAGER_ROLES =
+  ['SUPER_ADMIN', 'FINANCE_ADMIN']`. The same boundary argued at `:63-69` for why `PLATFORM_ADMIN`
+  reads and does not write applies here without adjustment: a declared balance is part of a
+  destination's configuration, not a new kind of thing.
+- `prisma/migrations/20260826140000_chain_settlements/migration.sql` — the SQL comment style to
+  follow (WHY-first, `══` banners for load-bearing sections) and the latest applied-or-written
+  migration; a new migration's timestamp must sort after `20260826140000`. Directory listing
+  confirms no migration exists after it as of this writing.
+
+_Console — the pattern to mirror, verified:_
+
+- `src/features/payment-methods/method-account-card.tsx:394-417` (`AccountBalance`) — the ONE place a
+  balance is allowed to appear on this card, by the component's own header comment. Today it branches
+  only on `network === null` (chain vs. not). It needs a second, independent branch: the declared
+  balance, shown for **every** destination — chain and non-chain alike, per the operator's own
+  examples ("300 usd in usdt trc20" is a declared figure on a crypto rail sitting beside the live
+  chain read). Labelled so the two are never confused — "our records" beside "on-chain now", never
+  merged into one figure.
+- `src/features/payment-methods/wallet-balance.tsx` — the sibling component to model the new UI on:
+  its own query, its own four states, `TimeAgo` (`src/components/common/time.tsx:10-30`) for the
+  "checked …" line (`:100-104`), and the hard rule stated in its header — an unknown figure must never
+  render as a zero. The declared balance's version of that rule is softer: **zero IS a valid declared
+  answer** (an operator can truthfully type "0" for an empty till), so the empty state here is "no
+  figure has been typed", not "the figure could not be read" — a different sentence from
+  `financial.balance.untracked`'s current wording, which needs to change to something like "add
+  balance" rather than implying nothing can ever be known.
+- `src/features/payment-methods/destination-form-dialog.tsx:60-71` — `capField`, the exact
+  Zod validation shape to mirror for the new amount field: `MONEY_STRING_REGEX` format check, no
+  leading `-`, and `isRoundTrippableAmount` (`rail-money.ts:28-34`) so a figure the console cannot
+  round-trip through minor units is refused before it is sent.
+- `src/features/payment-methods/destination-form-dialog.tsx:208-211` — the comment recording that
+  `dailyCap`, once set, **cannot currently be cleared** through the console UI because "the update
+  body has no way to say 'none'" (an empty string is omitted from the request rather than sent).
+  `UpdatePaymentDestinationBody` (`src/types/payment-method.ts:88-91`) types every field as
+  optional-when-absent, with no explicit-null case. The declared balance does not get to inherit that
+  gap — "clearing both fields clears the balance" is a stated requirement — so its body type must
+  admit an explicit `null`, not just "field omitted", and the dedicated endpoint's DTO must accept
+  `null` as "clear this", distinctly from "omitted" (which cannot occur, because every call to this
+  endpoint replaces the whole declared-balance state — see the decision on partial updates, below).
+- `src/types/payment-method.ts:35-48` — `paymentDestinationSchema` is `z.looseObject`, so the four new
+  wire fields need to be added as typed, nullable members (`declaredBalance: z.string().nullable()`,
+  etc.) rather than left to pass through untyped.
+- `src/lib/api/endpoints.ts:262-274` — `paymentMethodsApi.updateDestination` already uses
+  `api.patch`; the new call is `api.patch(paymentDestinationSchema,
+  '/v1/admin/payment-destinations/${id}/declared-balance', { body })` — same client, same envelope,
+  no new machinery.
+- `src/lib/api/queries.ts:433-443` (`usePaymentMutation`) — every destination mutation invalidates
+  `paymentMethodKeys.all` on success; the new hook uses the same helper, so the card refetches for
+  free.
+- `src/lib/auth/permissions.ts:22-23,156-157` — `paymentMethods.write` is the capability already
+  gating every other destination-write control on this card; the new "Add/edit balance" control uses
+  the same `<Can capability="paymentMethods.write">` (`src/components/common/can.tsx:13-24`), no new
+  capability needed.
+- `src/mocks/fixtures.ts:534-615` — the six destination fixtures need the four new fields (mixed:
+  some set, some `null`, so the empty state and the populated state both have fixture coverage).
+- `src/mocks/handlers.ts:773-780` (list), `:820-842` (create/update/delete) — a new
+  `http.patch('/v1/admin/payment-destinations/:id/declared-balance', ...)` handler joins these,
+  writing the four fields onto the matched row in `db.destinations` the same way the existing PATCH
+  handler does.
+- `src/features/payment-methods/financial-page.test.tsx:140-153,183-190` — two EXISTING tests assert
+  the literal copy `'No balance is tracked for this account yet.'` for a cash method and a bank-coded
+  destination. Both will need rewriting once that copy is replaced by the empty "add balance" state —
+  they are not incidental collateral, they are pinning the exact behaviour this ticket changes.
+
+**The decisions (ask the owner first — none of them block starting the plumbing above).**
+
+1. **Currency-label shape.** `PaymentMethod.currencyCode` on the console form is validated
+   `^[A-Z]{3}$` (`method-form-dialog.tsx:82-85`) because every seeded currency code happens to be
+   three letters. The backend column for this new field is `VARCHAR(8)` and the two examples given —
+   `USD`, `NSP` — both happen to fit three letters too, but nothing requires that: an operator typing
+   `USDT` for a crypto rail's own declared figure is four. Decide the validation regex once
+   (recommend `^[A-Z]{2,8}$`, letters only, bounded by the column width) rather than each side
+   guessing differently.
+2. **Staleness.** Flagged explicitly in `docs/USDT-RAILS-STATE.md:183-185`: _"Cash rails have no chain
+   to ask, so those would be hand-declared and would go stale silently — needs a decision before
+   building."_ `ExchangeRate` has a real staleness model (`isStale`, `maxAgeHours`,
+   `exchange-rate.dto.ts`) because a stale rate silently mis-prices every deposit behind it — real,
+   automatic consequences. A stale declared balance has none: nothing reads it but a human looking at
+   the card. Recommend **no** staleness model for v1 — a plain "updated 6 days ago" via `TimeAgo` and
+   trust the operator to judge it, matching how `dailyCap` and every other hand-set figure on this
+   card works today. If the owner wants a warning past some age (mirroring the exchange-rate pattern),
+   that is a larger, separate decision — say so explicitly rather than half-building it.
+3. **Whole-state replacement vs. partial update.** The endpoint sets `declaredBalanceMinor`,
+   `declaredBalanceCurrency`, `declaredBalanceUpdatedAt` and `declaredBalanceSetByAdminId` together, as
+   one fact ("this account currently declares to hold X"). Confirm the body is `{ balance: string |
+   null, currency: string | null }` where the two must agree — both present (a new declaration) or
+   both `null` (clear) — never one without the other, and add a CHECK constraint enforcing that
+   pairing at the database level too (`(declared_balance_minor IS NULL) = (declared_balance_currency
+   IS NULL)`), the same belt-and-braces the `chain_settlements` migration argues for its own CHECKs.
+
+**In scope.**
+
+_Backend:_
+
+- Prisma migration adding `declaredBalanceMinor BigInt?`, `declaredBalanceCurrency String?
+  @db.VarChar(8)`, `declaredBalanceUpdatedAt DateTime?`, `declaredBalanceSetByAdminId String?
+  @db.Uuid` (with an FK relation to `AdminUser`, per the evidence above) to `PaymentDestination`.
+  Timestamped after `20260826140000_chain_settlements`. CHECK constraints: `declared_balance_minor >=
+  0` (zero is a valid answer, unlike a chain balance — do not copy `chain_settlement_amount_positive`'s
+  strict `> 0`), and the null-pairing CHECK from decision 3. Run `npx prisma format` and `npx prisma
+  generate`. **Do not run `prisma migrate deploy`** — the operator applies it.
+- `PATCH /v1/admin/payment-destinations/:id/declared-balance`, its own DTO, gated
+  `@AdminAuth(...PAYMENT_METHOD_MANAGER_ROLES)` (copy the pattern from `createDestination`, not from
+  `updateDestination` — see CC-021). Writes all four columns in one transaction with one
+  `payment_destination.declared_balance_set` (or `_cleared`) audit row, before/after snapshotted like
+  every other destination mutation.
+- `declaredBalance` (formatted string), `declaredBalanceMinor` (string), `declaredBalanceCurrency`,
+  `declaredBalanceUpdatedAt` (ISO) added to `AdminPaymentDestinationView` and `toAdminDestinationView`,
+  null when unset — the same shape `dailyCap` already has.
+- Tests mirroring `payment-destination.service.spec.ts`'s style: set-and-echo, clear-nulls-all-four,
+  a non-manager role refused, a malformed decimal refused, round-trip through the admin view. Add
+  `admin-payment-method.controller.spec.ts` coverage for the new route while CC-021 is adding that
+  file anyway (coordinate, do not duplicate).
+
+_Console:_
+
+- `AccountBalance` (`method-account-card.tsx`) grows a declared-balance section, shown for every
+  destination regardless of rail, clearly labelled apart from `WalletBalance`'s live chain figure.
+  Empty state (`declaredBalance === null`): replaces `financial.balance.untracked`'s current wording
+  with an "add balance" affordance gated by `<Can capability="paymentMethods.write">`. Set state:
+  amount + currency + `TimeAgo` "updated …" stamp.
+- A small edit dialog (new file, e.g. `declared-balance-dialog.tsx`) reusing `Dialog`/`Field` from
+  `form-field.tsx` and the existing `capField`-style validation — do not build a new form primitive.
+  Amount field: decimal string, non-negative, round-trippable (mirror `capField`). Currency field:
+  short text, validated per decision 1. Clearing both fields and saving sends the explicit-null clear.
+- `declaredBalance`, `declaredBalanceMinor`, `declaredBalanceCurrency`, `declaredBalanceUpdatedAt`
+  (all nullable) added to `paymentDestinationSchema`/`PaymentDestination` in
+  `src/types/payment-method.ts`, plus a `SetDeclaredBalanceBody` type admitting the explicit-null
+  clear shape.
+- `paymentMethodsApi.setDeclaredBalance` in `endpoints.ts`; `useSetDeclaredBalance` in `queries.ts`
+  using the existing `usePaymentMutation` invalidation helper.
+- MSW handler in `handlers.ts`; the four fields added to every destination fixture in `fixtures.ts`
+  (mixed set/unset, so both card states have fixture coverage without inventing new IDs).
+- `en` + `ar` keys in the payment-methods `messages.ts` for: the "our records" label, the empty state
+  and its call to action, the dialog's title/fields/hints, and the currency-format validation message.
+  Real Arabic, not transliteration — `رصيد` (balance), `حُدّث` (updated), matching the register already
+  used across this file's existing `financial.*` keys.
+- Rewrite `financial-page.test.tsx:140-153,183-190` for the new empty-state copy, and extend it (or a
+  new `method-account-card.test.tsx`) with the populated-state assertions below.
+
+**Out of scope.**
+
+- Any deposit, credit, ledger or reconciliation code path reading `declaredBalance*`. It is
+  display-only; a test in this ticket (see acceptance criteria) proves nothing reads it outside the
+  admin view and the card.
+- Sham Cash session cookies/tokens — untouched, out of scope, live secrets.
+- `PUT`, anywhere. The new route is `PATCH`.
+- Any change to `WalletBalance` or the live chain-read path — the two figures sit side by side and
+  neither is derived from the other.
+- CC-021's fix to `updateDestination`/`destinationBalance` — filed separately; this ticket's new route
+  is written correctly from the start and does not depend on that ticket landing first, but its
+  author should read CC-021 before touching this controller.
+- A staleness/expiry model, unless decision 2 above says otherwise.
+
+**Acceptance criteria.**
+
+1. Setting a balance on a destination stores and echoes back `declaredBalance`, `declaredBalanceMinor`,
+   `declaredBalanceCurrency`, `declaredBalanceUpdatedAt`, and `declaredBalanceSetByAdminId` resolves to
+   the calling admin (verified server-side, not client-supplied).
+2. Sending the explicit clear (`balance: null, currency: null`) nulls all four displayed fields.
+3. A role outside `PAYMENT_METHOD_MANAGER_ROLES` is refused with `INSUFFICIENT_ROLE`; nothing is
+   written.
+4. A malformed decimal (`"12.3.4"`, a leading `-` where refused, more than 2 fractional digits if that
+   remains the scale) is refused with `INVALID_AMOUNT` naming the field; nothing is written.
+5. The value round-trips through `toAdminDestinationView` byte-for-byte (decimal in, same decimal
+   string out, not renormalised to a different number of trailing zeros than `formatMinorToDecimal`
+   already produces for every other money field).
+6. The account card shows the declared balance, its currency, and a relative "updated" stamp for
+   every rail — including a crypto rail that also shows a live `WalletBalance` — with the two
+   unmistakably labelled apart.
+7. When unset, the card shows an "add balance" affordance instead of the old "untracked" sentence,
+   visible only to `paymentMethods.write` holders; a reader-only role sees no affordance and no stale
+   claim that nothing can ever be known.
+8. The edit dialog validates the amount the same way `capField` does and refuses to submit a
+   non-decimal amount client-side, before any request is sent.
+9. Clearing both fields in the dialog and saving clears the balance on the card.
+10. `declaredBalanceMinor`/`declaredBalanceCurrency` are not read by any deposit, credit, ledger or
+    reconciliation service — a test walks those modules (or greps them) and finds no reference.
+11. Every new user-facing string exists in `en` and `ar`.
+
+**Test cases.**
+
+| Id       | Level     | Given / When / Then                                                                                                  |
+| -------- | --------- | ------------------------------------------------------------------------------------------------------------------------- |
+| TC-20.1  | backend   | Set `{ balance: '200.00', currency: 'USD' }` on a destination · Then the admin view echoes all four fields, and `declaredBalanceSetByAdminId` is the caller's id, not anything sent in the body. |
+| TC-20.2  | backend   | Given a balance already set · When `{ balance: null, currency: null }` is sent · Then all four fields are `null` on the next read. |
+| TC-20.3  | backend   | Given `{ balance: '100', currency: null }` (mismatched pair) · Then refused — the pairing CHECK/DTO rule, not a partial write. |
+| TC-20.4  | backend   | Given a `SUPPORT`-equivalent (reader-only) token · When the route is called · Then `403 INSUFFICIENT_ROLE` and the row is unchanged. |
+| TC-20.5  | backend   | Given `{ balance: '12.3.4', currency: 'USD' }` · Then `INVALID_AMOUNT` naming `balance`; nothing written. |
+| TC-20.6  | backend   | Set `'0'` · Then it round-trips as `'0.00'`, not treated as absent — zero is a valid declared answer. |
+| TC-20.7  | backend   | Set a balance, then deactivate the destination · Then the balance survives deactivation unchanged (declaring a figure and retiring an account are independent acts). |
+| TC-20.8  | backend   | A grep/module test confirms no file under `deposit`, `ledger`, `reconciliation` imports or reads `declaredBalanceMinor`/`declaredBalanceCurrency`. |
+| TC-20.9  | component | A destination with a declared balance renders the amount, its currency and an "updated …" relative stamp, labelled apart from the live chain figure on a crypto rail. |
+| TC-20.10 | component | A destination with no declared balance renders the "add balance" affordance for a `paymentMethods.write` role and nothing (no stale "untracked" claim, no affordance) for a read-only role. |
+| TC-20.11 | component | The edit dialog rejects `'12.3.4'` client-side; no request is sent. |
+| TC-20.12 | component | Clearing both fields in the dialog and saving results in the card showing the empty state again. |
+| TC-20.13 | component | A role without `paymentMethods.write` sees the declared figure (or its empty state) but no edit control anywhere on the card. |
+| TC-20.14 | build     | Every new key exists in `en` and `ar`.                                                                                     |
+
+**Files likely touched.**
+_Backend:_ `prisma/schema.prisma`, `prisma/migrations/<new>/migration.sql`,
+`src/modules/payment-method/dtos/payment-destination.dto.ts`,
+`src/modules/payment-method/services/payment-destination.service.ts`,
+`src/modules/payment-method/services/payment-destination.service.spec.ts`,
+`src/modules/payment-method/controllers/admin-payment-method.controller.ts` (and its new spec, shared
+with CC-021).
+_Console:_ `src/features/payment-methods/method-account-card.tsx`,
+`src/features/payment-methods/declared-balance-dialog.tsx` (new),
+`src/features/payment-methods/financial-page.test.tsx`, `src/features/payment-methods/messages.ts`,
+`src/types/payment-method.ts`, `src/lib/api/endpoints.ts`, `src/lib/api/queries.ts`,
+`src/mocks/handlers.ts`, `src/mocks/fixtures.ts`, `docs/API-CONTRACT.md`.
 
 ---
 

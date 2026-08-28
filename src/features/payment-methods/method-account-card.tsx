@@ -31,6 +31,9 @@ import {
 import { useEnumLabel, useT } from '@/lib/i18n/use-translation';
 import type { PaymentDestination, PaymentMethod } from '@/types';
 
+import { useFormatters } from '@/lib/i18n/use-format';
+
+import { DeclaredBalanceDialog } from './declared-balance-dialog';
 import { DestinationFormDialog } from './destination-form-dialog';
 import { railMessages } from './messages';
 import { isSeedPlaceholder } from './seed-placeholder';
@@ -381,15 +384,16 @@ function AccountRow({
 /**
  * What this account holds — the one place on the card a balance is allowed to appear.
  *
- * Today only a chain address has a balance this console can read, and it reads it from the chain.
- * The operator has since asked for a DECLARED balance per account per platform ("300 usd in usdt
- * trc20, 200 usd sham cash") — a figure a human types for the rails no chain can answer for. When
- * that exists it belongs in this component and nowhere else, so the card never grows a second idea
- * of where a balance lives. No endpoint is assumed for it here.
+ * TWO KINDS OF BALANCE, AND THEY ARE NOT THE SAME CLAIM:
  *
- * Until then a cash or bank account says it has no tracked balance, in words. It must NOT show a
- * zero: zero is a real answer with real consequences, and "we do not know" rendered as `0.00` is
- * the most alarming false statement this screen could make to somebody whose money is in there.
+ *   - The ON-CHAIN balance, read live from the chain, for a crypto address. It is a fact this
+ *     console can verify, and it must NEVER show a zero it did not read — see WalletBalance.
+ *   - The RECORDED balance, a figure a human typed, for the rails no chain or API can answer for
+ *     (a cash office, a bank). It is only ever as true as the last time somebody updated it, which
+ *     is why it always carries WHEN — a recorded balance with no date is a number of unknown age.
+ *
+ * They are labelled apart on purpose. Collapsing them would let a stale hand-typed figure be read
+ * as a verified one, or the reverse, on the screen where an operator decides whether to move money.
  */
 function AccountBalance({
   destination,
@@ -399,19 +403,76 @@ function AccountBalance({
   isChainRail: boolean;
 }) {
   const t = useT(railMessages);
+  const formatters = useFormatters();
   const network = chainOf(isChainRail, destination);
+  const [editing, setEditing] = useState(false);
+
+  const recorded =
+    destination.declaredBalance !== null && destination.declaredBalanceCurrency !== null;
 
   return (
-    <div className="mt-3 border-t border-[var(--border)] pt-3">
-      {network === null ? (
-        <p className="text-xs text-[var(--muted-foreground)]">{t('financial.balance.untracked')}</p>
-      ) : (
-        /* Beside the address rather than anywhere else on the card, because the two are one
-           question: this is where players pay, and this is what arrived. The component carries its
-           own read gate, query and failure state — see its header for why a balance that did not
-           read must never show as 0. */
+    <div className="mt-3 space-y-3 border-t border-[var(--border)] pt-3">
+      {network === null ? null : (
+        /* Beside the address, because the two are one question: this is where players pay, and this
+           is what arrived. The component carries its own read gate, query and failure state. */
         <WalletBalance destinationId={destination.id} />
       )}
+
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-xs font-medium text-[var(--muted-foreground)]">
+            {t('financial.declared.recordedLabel')}
+          </p>
+          {recorded ? (
+            <>
+              <p className="text-sm font-medium tabular">
+                {destination.declaredBalance}{' '}
+                <span className="text-[var(--muted-foreground)]">
+                  {destination.declaredBalanceCurrency}
+                </span>
+              </p>
+              {/* Always the WHEN: a recorded balance is only as good as its age, and hiding that
+                  turns "200 USD, six months ago" into "200 USD". */}
+              <p className="text-xs text-[var(--muted-foreground)]">
+                {t('financial.declared.updatedAt', {
+                  when: formatters.relative(destination.declaredBalanceUpdatedAt),
+                })}
+              </p>
+            </>
+          ) : (
+            // Not a zero, in words: "we have not recorded one" is a different thing from "empty",
+            // and only the operator can turn the first into the second.
+            <p className="text-sm text-[var(--muted-foreground)]">
+              {t('financial.balance.untracked')}
+            </p>
+          )}
+        </div>
+
+        <Can capability="paymentMethods.write">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="shrink-0"
+            onClick={() => {
+              setEditing(true);
+            }}
+          >
+            {recorded ? (
+              <>
+                <Pencil className="size-4" />
+                {t('common.edit')}
+              </>
+            ) : (
+              <>
+                <Plus className="size-4" />
+                {t('financial.declared.add')}
+              </>
+            )}
+          </Button>
+        </Can>
+      </div>
+
+      <DeclaredBalanceDialog open={editing} onOpenChange={setEditing} destination={destination} />
     </div>
   );
 }

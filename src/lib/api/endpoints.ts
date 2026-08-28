@@ -8,6 +8,7 @@ import type {
   BreakListQuery,
   CreateAdminBody,
   CreatePaymentDestinationBody,
+  SetDeclaredBalanceBody,
   CreatePaymentMethodBody,
   CreateTenantBody,
   DebitPlayerBody,
@@ -21,6 +22,7 @@ import type {
   UpdatePaymentDestinationBody,
   UpdatePaymentMethodBody,
   SetExchangeRateBody,
+  SetShamCashSessionBody,
   UpdateTenantBody,
   UpdateTenantBotBody,
   UpdateTenantIchancyBody,
@@ -50,6 +52,8 @@ import {
   reconciliationBreakSchema,
   retryCreditResultSchema,
   reviewOutcomeSchema,
+  shamCashReadResultSchema,
+  shamCashStatusSchema,
   sweepReportSchema,
   tenantBotSetupSchema,
   tenantHealthSchema,
@@ -271,6 +275,17 @@ export const paymentMethodsApi = {
 
   deactivateDestination: (destinationId: string) =>
     api.delete(paymentDestinationSchema, `/v1/admin/payment-destinations/${destinationId}`),
+
+  /**
+   * Set or clear the operator's hand-typed balance for one account. PATCH, not PUT — the CORS
+   * allowlist has no PUT, and the backend guards this one route with the manager roles.
+   */
+  setDeclaredBalance: (destinationId: string, body: SetDeclaredBalanceBody) =>
+    api.patch(
+      paymentDestinationSchema,
+      `/v1/admin/payment-destinations/${destinationId}/declared-balance`,
+      { body },
+    ),
 };
 
 // ── What the chain says a payout wallet holds ──────────────────────────────────────────────────
@@ -297,6 +312,25 @@ export const walletBalancesApi = {
  * One rate per asset per operator. `get` answers `null` when nobody has set one — a normal state a
  * screen renders as an empty form, not a missing resource.
  */
+/**
+ * The operator's Sham Cash browser session. `getStatus` only ever answers "linked, and when" — the
+ * cookies are sealed on the backend and no endpoint returns them. Setting takes the cookies; there
+ * is no read-back by design.
+ */
+export const shamCashApi = {
+  getStatus: (signal?: AbortSignal) =>
+    api.get(shamCashStatusSchema, '/v1/admin/shamcash/session', {
+      ...(signal === undefined ? {} : { signal }),
+    }),
+
+  setSession: (body: SetShamCashSessionBody) =>
+    api.post(shamCashStatusSchema, '/v1/admin/shamcash/session', { body }),
+
+  clearSession: () => api.delete(shamCashStatusSchema, '/v1/admin/shamcash/session'),
+
+  checkBalance: () => api.post(shamCashReadResultSchema, '/v1/admin/shamcash/balance'),
+};
+
 export const exchangeRatesApi = {
   getUsdt: (signal?: AbortSignal) =>
     api.get(exchangeRateSchema.nullable(), '/v1/admin/exchange-rates/usdt', {

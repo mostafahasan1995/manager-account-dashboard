@@ -7,6 +7,7 @@ import { useT } from '@/lib/i18n/use-translation';
 
 import { railMessages } from './messages';
 import { MethodAccountCard } from './method-account-card';
+import { ShamCashCard } from './shamcash-card';
 import { UsdtRatePanel } from './usdt-rate-panel';
 
 /**
@@ -54,6 +55,11 @@ export function FinancialPage() {
       {/* The heading is the nav label, in either language: an operator who clicked "Financial
           settings" has to land somewhere that calls itself that. */}
       <PageHeader title={t('nav.financial')} description={t('financial.page.description')} />
+
+      {/* First, not last: an operator looking for "the Sham Cash account" must not have to scroll
+          past every payment rail and the rate panel to find it. It is its own thing — the external
+          cashier account they watch, not a rail players pay through — so it leads the page. */}
+      <ShamCashCard />
 
       {methods.isPending ? (
         <Card>
