@@ -231,17 +231,14 @@ describe('who may change it', () => {
     expect(await screen.findByRole('button', { name: /save rate/i })).toBeInTheDocument();
   });
 
-  it('shows a platform admin the number and no way to change it', async () => {
-    /*
-     * The same boundary a payout account already follows, and for the same reason: this decides how
-     * much of the OPERATOR's money a deposit is worth. The platform operator is not who should be
-     * setting that, however senior the role sounds.
-     */
+  it('lets a platform admin change the rate — it configures the operator rails', async () => {
+    // The rate is payment config, which a platform admin sets on the operator it is viewing — its own
+    // home tenant, or another selected in the switcher. The switcher decides WHICH operator's rate is
+    // touched, not whether the control is offered at all.
     render({ role: 'PLATFORM_ADMIN' });
 
-    expect(await field()).toBeDisabled();
-    expect(screen.queryByRole('button', { name: /save rate/i })).not.toBeInTheDocument();
-    expect(screen.getByText(/can see this rate but not change it/i)).toBeInTheDocument();
+    expect(await field()).toBeEnabled();
+    expect(screen.getByRole('button', { name: /save rate/i })).toBeInTheDocument();
   });
 
   it('shows a support user nothing at all', () => {

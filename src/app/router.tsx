@@ -15,6 +15,7 @@ import { NotFoundPage } from '@/features/misc/not-found-page';
 import { RouteErrorPage } from '@/features/misc/route-error-page';
 import { OverviewPage } from '@/features/overview/overview-page';
 import { FinancialPage } from '@/features/payment-methods/financial-page';
+import { PlatformFinancePage } from '@/features/platform-finance/platform-finance-page';
 import { PaymentMethodsPage } from '@/features/payment-methods/payment-methods-page';
 import { PlayerDetailPage } from '@/features/players/player-detail-page';
 import { PlayersPage } from '@/features/players/players-page';
@@ -195,6 +196,14 @@ const tenantsRoute = createRoute({
   component: TenantsPage,
 });
 
+/** Every operator's finance balances, on one platform screen. PLATFORM_ADMIN only. */
+const platformFinanceRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/platform-finance',
+  beforeLoad: guard('platformFinance.read'),
+  component: PlatformFinancePage,
+});
+
 /** Every role can open its own settings, so this one needs a session and nothing more. */
 const settingsRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -215,6 +224,7 @@ export const routeTree = rootRoute.addChildren([
   staffRoute,
   staffDetailRoute,
   tenantsRoute,
+  platformFinanceRoute,
   settingsRoute,
 ]);
 

@@ -26,6 +26,7 @@ export const CAPABILITIES = [
   'reconciliation.read',
   'reconciliation.act',
   'tenants.manage',
+  'platformFinance.read',
 ] as const;
 
 export type Capability = (typeof CAPABILITIES)[number];
@@ -43,25 +44,22 @@ const withCapabilities = (...granted: Capability[]): CapabilityMap => {
 
 export const ROLE_CAPABILITIES: Record<AdminRole, CapabilityMap> = {
   /*
-   * Runs the PLATFORM: creates and configures operators, and manages the staff inside any of them
-   * by naming one with `X-Tenant-Id`. It reads everything else so the operator's state can be seen,
-   * and CHANGES almost nothing.
+   * THE OWNER SUPERSET. By the operator's explicit decision, PLATFORM_ADMIN can do EVERYTHING every
+   * other role can — decide deposits, correct floats, resolve breaks, credit and debit players,
+   * configure rails — PLUS the platform-level actions (create and configure operators, manage staff
+   * across them, see every operator's finance balances). So it holds every capability.
    *
-   * The line it does not cross is deciding money — approving a deposit, retrying a credit, posting
-   * a float correction, resolving a break. Those are bounded by an `admin_approval_limits` row,
-   * which is a per-operator grant a platform admin has none of; the backend's limit evaluator would
-   * refuse it anyway, and a role that can approve without a limit is exactly the hole those limits
-   * exist to close. Mirrors the backend's own role lists.
+   * WHICH tenant an action touches is decided by the tenant it is operating IN: its own home
+   * (tenant zero) when nothing is selected, or another operator once picked in the switcher (the
+   * `X-Tenant-Id` override). The override is how it REACHES another tenant, never a gate on the action.
+   *
+   * This deliberately crosses the "platform admin never decides money" line the earlier design drew:
+   * the operator wanted their owner account to be a strict superset of a tenant SUPER_ADMIN, and this
+   * is that. Its money decisions are unbounded by an approval limit (the RolesGuard and the
+   * approval-limit evaluator on the backend exempt it) but still land in the ledger and the audit
+   * trail like anyone else's. Mirrors the backend, where PLATFORM_ADMIN now satisfies every role list.
    */
-  PLATFORM_ADMIN: withCapabilities(
-    'tenants.manage',
-    'admins.read',
-    'admins.write',
-    'deposits.read',
-    'players.read',
-    'paymentMethods.read',
-    'reconciliation.read',
-  ),
+  PLATFORM_ADMIN: withCapabilities(...CAPABILITIES),
 
   SUPER_ADMIN: withCapabilities(
     'deposits.read',
@@ -160,4 +158,5 @@ export const CAPABILITY_LABELS: Record<Capability, string> = {
   'reconciliation.read': 'See reconciliation breaks and rail ageing',
   'reconciliation.act': 'Resolve breaks, sync the float, run invariants',
   'tenants.manage': 'Create, configure and suspend tenants',
+  'platformFinance.read': "See every operator's finance balances",
 };

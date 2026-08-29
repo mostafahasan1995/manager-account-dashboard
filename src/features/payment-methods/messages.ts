@@ -339,7 +339,7 @@ export const railMessages = defineMessages({
     'financial.shamcash.recent': 'Recent transfers',
     'financial.shamcash.expiredTitle': 'Session expired',
     'financial.shamcash.expiredBody':
-      'Your Sham Cash session has lapsed. Paste a fresh set of cookies above to re-link it.',
+      'Your Sham Cash session has lapsed. Choose "Update session" and paste a fresh set of cookies.',
     'financial.shamcash.unavailableTitle': 'Could not read the balance',
     'financial.notReady.title': 'This rail is not ready to take money',
     'financial.notReady.body':
@@ -638,8 +638,7 @@ export const railMessages = defineMessages({
     'financial.declared.cleared': 'أُزيل الرصيد المُسجَّل',
     'financial.declared.saveFailed': 'لم يُحفظ الرصيد',
     'financial.shamcash.title': 'حساب شام كاش',
-    'financial.shamcash.description':
-      'اربط حساب شام كاش عبر جلسة المتصفح، ليُقرأ الرصيد هنا.',
+    'financial.shamcash.description': 'اربط حساب شام كاش عبر جلسة المتصفح، ليُقرأ الرصيد هنا.',
     'financial.shamcash.linkedBadge': 'مربوط',
     'financial.shamcash.notLinkedBadge': 'غير مربوط',
     'financial.shamcash.linkedSince': 'رُبط {when}.',
@@ -675,7 +674,7 @@ export const railMessages = defineMessages({
     'financial.shamcash.recent': 'آخر التحويلات',
     'financial.shamcash.expiredTitle': 'انتهت الجلسة',
     'financial.shamcash.expiredBody':
-      'انتهت صلاحية جلسة شام كاش. الصق مجموعة كوكيز جديدة أعلاه لإعادة الربط.',
+      'انتهت صلاحية جلسة شام كاش. اختر «حدّث الجلسة» والصق مجموعة كوكيز جديدة.',
     'financial.shamcash.unavailableTitle': 'تعذّرت قراءة الرصيد',
     'financial.notReady.title': 'هذه القناة غير جاهزة لاستقبال الأموال',
     'financial.notReady.body':

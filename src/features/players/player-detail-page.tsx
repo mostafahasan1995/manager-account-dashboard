@@ -1,5 +1,5 @@
 import { Link, useParams } from '@tanstack/react-router';
-import { ArrowLeft, Banknote, UserPlus } from 'lucide-react';
+import { ArrowLeft, Banknote, PlusCircle, UserPlus } from 'lucide-react';
 import { useState } from 'react';
 
 import {
@@ -14,9 +14,16 @@ import { Alert, Button } from '@/components/ui';
 import { errorMessage, isApiError } from '@/lib/api/errors';
 import { usePlayer } from '@/lib/api/queries';
 import { useAuth } from '@/lib/auth/use-auth';
+import { formatMoney } from '@/lib/money';
 import { useT } from '@/lib/i18n/use-translation';
-import { playerDisplayName, type IchancyAccount, type PlayerDebit } from '@/types/player';
+import {
+  playerDisplayName,
+  type IchancyAccount,
+  type ManualCredit,
+  type PlayerDebit,
+} from '@/types/player';
 
+import { CreditPlayerDialog } from './credit-player-dialog';
 import { DebitOutcomeAlert } from './debit-outcome-alert';
 import { DebitPlayerDialog } from './debit-player-dialog';
 import { LinkIchancyDialog } from './link-ichancy-dialog';
@@ -42,6 +49,8 @@ export function PlayerDetailPage() {
   const [debitResult, setDebitResult] = useState<PlayerDebit | null>(null);
   /** A debit that failed in a way nobody can prove either way. It outlives the dialog. */
   const [debitUnproven, setDebitUnproven] = useState<unknown>(null);
+  const [creditOpen, setCreditOpen] = useState(false);
+  const [creditResult, setCreditResult] = useState<ManualCredit | null>(null);
 
   const backLink = (
     <Button variant="ghost" size="sm" asChild>
@@ -103,11 +112,23 @@ export function PlayerDetailPage() {
         actions={
           <>
             {backLink}
-            {/* A debit is offered whatever the player's state — including a player with no Ichancy
-                account, whose dialog says so rather than leaving the operator wondering where the
-                action went. What DOES hide it is the role: the capability is the deposit-decide
-                one, because taking money out is a money decision and the same people are trusted
-                with it. */}
+            {/* Credit and debit are the same money decision in opposite directions, so they share the
+                deposit-decide capability. Credit is offered whatever the player's state: it records a
+                manual deposit, and the deposit spine links a new Ichancy account on the way to
+                crediting it, exactly as a real deposit for a first-time player does. */}
+            <Can capability="deposits.decide">
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setCreditOpen(true);
+                }}
+              >
+                <PlusCircle aria-hidden="true" />
+                {t('players.credit.action')}
+              </Button>
+            </Can>
+            {/* A debit, on the other hand, needs a live account to take from; its dialog says so when
+                there is none rather than leaving the operator wondering where the action went. */}
             <Can capability="deposits.decide">
               <Button
                 variant="secondary"
@@ -149,6 +170,24 @@ export function PlayerDetailPage() {
         </Alert>
       )}
 
+      {creditResult === null ? null : (
+        <Alert
+          tone="success"
+          title={
+            creditResult.status === 'PENDING_SECOND_APPROVAL'
+              ? t('players.credit.secondApprovalTitle')
+              : t('players.credit.queuedTitle', { amount: formatMoney(creditResult.amount) })
+          }
+        >
+          {creditResult.status === 'PENDING_SECOND_APPROVAL'
+            ? t('players.credit.secondApprovalBody', {
+                name,
+                amount: formatMoney(creditResult.amount),
+              })
+            : t('players.credit.queuedBody', { name, amount: formatMoney(creditResult.amount) })}
+        </Alert>
+      )}
+
       {debitResult === null ? null : <DebitOutcomeAlert debit={debitResult} player={player} />}
 
       {debitUnproven == null ? null : (
@@ -175,6 +214,16 @@ export function PlayerDetailPage() {
         open={linkOpen}
         onOpenChange={setLinkOpen}
         onLinked={setLinkResult}
+      />
+
+      <CreditPlayerDialog
+        player={player}
+        open={creditOpen}
+        onOpenChange={setCreditOpen}
+        onCredited={(credit) => {
+          setCreditResult(credit);
+          setCreditOpen(false);
+        }}
       />
 
       <DebitPlayerDialog

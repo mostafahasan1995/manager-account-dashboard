@@ -9,3 +9,4 @@ export * from './tenant';
 export * from './health';
 export * from './agent-float';
 export * from './shamcash';
+export * from './platform-finance';

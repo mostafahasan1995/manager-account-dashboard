@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { isoDateTime } from './api';
+import { isoDateTime, moneyViewSchema } from './api';
 import {
   creditVerifiedBySchema,
   playerDebitStatusSchema,
@@ -99,6 +99,38 @@ export type PlayerDebit = z.infer<typeof playerDebitSchema>;
 
 /** The request body. `amountMinor` is minor units as a decimal string — never a JS number. */
 export interface DebitPlayerBody {
+  amountMinor: string;
+  reason: string;
+}
+
+// ── Manual credit (a hand-recorded deposit) ──────────────────────────────────────────────────────
+
+/** Shared with the debit direction: one number so a 500 on one side cannot pass a form the other refuses. */
+export const CREDIT_REASON_MAX_LENGTH = MANUAL_ADJUSTMENT_REASON_MAX_LENGTH;
+
+/**
+ * `POST /v1/admin/deposits/manual` — crediting a player by recording a MANUAL DEPOSIT.
+ *
+ * Unlike a debit, this is ASYNC and reuses the whole deposit spine: the admin's action creates an
+ * already-approved deposit, and the player is credited SECONDS later by the same credit worker that
+ * finishes a real deposit (with its Ichancy verify-by-delta and float guard). So the result says
+ * "queued" / "awaiting a second approval", not "done" — `status` and `outcome` are unions with
+ * `string` for the same reason the deposit schemas are: a value the backend adds tomorrow renders as
+ * itself rather than blanking the panel.
+ */
+export const manualCreditSchema = z.looseObject({
+  /** The Crockford short id of the deposit the credit was recorded as — the operator's handle on it. */
+  shortId: z.string(),
+  /** APPROVED (credit queued) or PENDING_SECOND_APPROVAL (a large credit needs another admin). */
+  status: z.string(),
+  amount: moneyViewSchema,
+  /** The review outcome discriminant, e.g. 'approved' / 'awaiting_second_approval'. */
+  outcome: z.string(),
+});
+export type ManualCredit = z.infer<typeof manualCreditSchema>;
+
+/** The request body. `amountMinor` is minor units as a decimal string — never a JS number. */
+export interface CreditPlayerBody {
   amountMinor: string;
   reason: string;
 }

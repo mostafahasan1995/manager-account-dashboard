@@ -9,6 +9,7 @@ import type {
   PaymentMethod,
   ReconciliationBreak,
   Tenant,
+  TenantFinanceRow,
 } from '@/types';
 
 /**
@@ -1397,6 +1398,137 @@ export const mockTenants: Tenant[] = [
     createdAt: minutesAgo(60 * 24 * 2),
     updatedAt: minutesAgo(60 * 24 * 2),
     counts: { players: 0, deposits: 0 },
+  },
+];
+
+// ── Platform finance overview ──────────────────────────────────────────────────────────────────
+
+/**
+ * The seed behind `GET /v1/admin/finance/balances`, and the whole reason each cell carries a status.
+ *
+ * It is DELIBERATELY a book with holes in it, because the one rule this screen exists for — a failed
+ * read must never render as `0` — can only be proved by data that fails. Between the three operators
+ * every non-ok state is on screen the moment the page opens: an agent float that is UNAVAILABLE (a
+ * suspended operator whose Ichancy agent does not answer), a USDT wallet that is UNAVAILABLE (its
+ * chain node down), a Sham Cash session that is EXPIRED and one that is NOT_LINKED, and one operator
+ * whose expensive columns are ENTIRELY NOT_LOADED — the un-fetched state a Refresh fills in.
+ *
+ * Northern branch's float is genuinely low (below its watermark) rather than unreadable: `isLow`
+ * with a real figure is a different claim from `unavailable`, and both have to be visible.
+ */
+
+/** USDT carries six decimals on both chains — the scale the wallet figures are rendered at. */
+const USDT_MINOR_SCALE = 6;
+
+const usdtWalletOk = (label: string, network: string, minor: string, checkedAt: string) => ({
+  status: 'ok' as const,
+  label,
+  network,
+  balanceMinor: minor,
+  balance: formatMinorToDecimal(BigInt(minor), USDT_MINOR_SCALE),
+  checkedAt,
+});
+
+/** A well-formed wallet whose chain node did not answer: unknown, never zero. */
+const usdtWalletUnavailable = (label: string, network: string, checkedAt: string) => ({
+  status: 'unavailable' as const,
+  label,
+  network,
+  problem: 'CHAIN_NODE_UNAVAILABLE',
+  detail: `The ${network} node did not answer in time, so what this wallet holds is unknown — not zero.`,
+  checkedAt,
+});
+
+/** The USDT column an operator's rails read once loaded, with one healthy wallet. */
+export const mockLoadedUsdt = (checkedAt: string) => ({
+  status: 'loaded' as const,
+  checkedAt,
+  wallets: [usdtWalletOk('USDT TRC20', 'TRC20', '12500000000', checkedAt)],
+});
+
+/** A plausible Sham Cash read: SYP holds funds, and the last two transfers are the +/-10 test moves. */
+export const mockShamCashOk = (checkedAt: string) => ({
+  status: 'ok' as const,
+  balances: [
+    { currency: 'SYP' as const, available: '250,000', locked: '10,000' },
+    { currency: 'USD' as const, available: '0', locked: '0' },
+    { currency: 'EUR' as const, available: '0', locked: '0' },
+  ],
+  transactions: [
+    {
+      transactionId: '100000001',
+      date: '2026-08-26 - 16:10:31',
+      amount: '10',
+      currency: 'SYP',
+      direction: 'out' as const,
+      username: 'Counterparty One',
+      maskedCard: '**** **** **** 0000',
+    },
+    {
+      transactionId: '100000002',
+      date: '2026-08-26 - 16:08:45',
+      amount: '10',
+      currency: 'SYP',
+      direction: 'in' as const,
+      username: 'Counterparty Two',
+      maskedCard: '**** **** **** 1111',
+    },
+  ],
+  checkedAt,
+});
+
+/** Fresh finance rows for the three mock operators. A function, so each seed gets its own objects. */
+export const mockTenantFinance = (): TenantFinanceRow[] => [
+  {
+    tenantId: TENANT_IDS.zero,
+    slug: 'tenant-zero',
+    agentFloat: {
+      status: 'ok',
+      currencyCode: MOCK_CURRENCY,
+      balanceMinor: '443750000',
+      balance: '4437500.00',
+      lowWatermarkMinor: '100000000',
+      isLow: false,
+      checkedAt: minutesAgo(2),
+    },
+    usdt: {
+      status: 'loaded',
+      checkedAt: minutesAgo(3),
+      wallets: [
+        usdtWalletOk('USDT TRC20', 'TRC20', '12500000000', minutesAgo(3)),
+        usdtWalletUnavailable('USDT BEP20', 'BEP20', minutesAgo(3)),
+      ],
+    },
+    // Linked externally elsewhere, but no Sham Cash session on this operator.
+    shamCash: { status: 'not_linked' },
+  },
+  {
+    tenantId: TENANT_IDS.second,
+    slug: 'northern-branch',
+    agentFloat: {
+      status: 'ok',
+      currencyCode: MOCK_CURRENCY,
+      // Below its own 500,000.00 watermark: a real, low figure — not an outage.
+      balanceMinor: '38000000',
+      balance: '380000.00',
+      lowWatermarkMinor: '50000000',
+      isLow: true,
+      checkedAt: minutesAgo(4),
+    },
+    usdt: mockLoadedUsdt(minutesAgo(4)),
+    shamCash: { status: 'expired' },
+  },
+  {
+    tenantId: TENANT_IDS.suspended,
+    slug: 'pilot-operator',
+    // The agent does not answer — the same reason this operator sits SUSPENDED. Never a zero float.
+    agentFloat: {
+      status: 'unavailable',
+      detail: 'Ichancy sign-in failed for agent_pilot: the agent did not answer (504 after 15s).',
+    },
+    // Never fetched: the expensive columns start here and a Refresh fills them in.
+    usdt: { status: 'not_loaded' },
+    shamCash: { status: 'not_loaded' },
   },
 ];
 

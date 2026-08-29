@@ -120,6 +120,17 @@ export const platformDefaultsKeys = {
   all: ['platform-defaults'] as const,
 };
 
+/**
+ * The platform finance overview. Its own root: the cheap overview and the per-operator refresh both
+ * live under it, and a refresh invalidates `overview()` so the freshened figure lands on the table.
+ * `tenant(id)` is here for a future per-operator drill-in; the table refreshes through the overview.
+ */
+export const platformFinanceKeys = {
+  all: ['platform-finance'] as const,
+  overview: () => [...platformFinanceKeys.all, 'overview'] as const,
+  tenant: (id: string) => [...platformFinanceKeys.all, 'tenant', id] as const,
+};
+
 export const tenantKeys = {
   all: ['tenants'] as const,
   list: () => [...tenantKeys.all, 'list'] as const,

@@ -61,6 +61,7 @@ export const settingsMessages = defineMessages({
     'settings.capability.reconciliation.read': 'See reconciliation breaks and rail ageing',
     'settings.capability.reconciliation.act': 'Resolve breaks, sync the float, run invariants',
     'settings.capability.tenants.manage': 'Create, configure and suspend tenants',
+    'settings.capability.platformFinance.read': "See every operator's finance balances",
 
     // ── Appearance ───────────────────────────────────────────────────────────────────────────
     'settings.appearance.title': 'Appearance',
@@ -180,6 +181,7 @@ export const settingsMessages = defineMessages({
     'settings.capability.reconciliation.read': 'الاطّلاع على فروقات التسوية وتقادم القنوات',
     'settings.capability.reconciliation.act': 'إغلاق الفروقات ومزامنة الرصيد وتشغيل الفحوصات',
     'settings.capability.tenants.manage': 'إنشاء المشغّلين وضبطهم وإيقافهم',
+    'settings.capability.platformFinance.read': 'الاطّلاع على أرصدة كل مشغّل المالية',
 
     'settings.appearance.title': 'المظهر',
     'settings.appearance.description':

@@ -151,6 +151,42 @@ export const playerMessages = defineMessages({
     'players.debit.status.DEBITED': 'Debited',
     'players.debit.status.REJECTED': 'Refused by Ichancy',
     'players.debit.status.NEEDS_RECONCILIATION': 'Needs reconciliation',
+
+    'players.credit.action': 'Credit player',
+    'players.credit.title': 'Credit {name}',
+    'players.credit.description':
+      'Give this player points, recorded as a manual deposit. They are credited by Ichancy shortly after — a large one goes to a second approver first.',
+    'players.credit.amountLabel': 'Amount to give ({currency})',
+    'players.credit.amountPlaceholder': '0.00',
+    'players.credit.amountRequired': 'Enter the amount to give.',
+    'players.credit.amountFormat': 'Digits and at most two decimals — 25000.00, not 25,000 or 2.5e4.',
+    'players.credit.amountTooSmall': 'The amount has to be more than zero.',
+    'players.credit.reasonLabel': 'Reason',
+    'players.credit.reasonPlaceholder': 'Why the player is being credited.',
+    'players.credit.reasonRequired':
+      'Give a reason. Whoever reconciles the office cash reads it against this credit later.',
+    'players.credit.reasonTooLong': 'Keep it to {max} characters; this is {length}.',
+    'players.credit.reasonCounter': '{length} of {max}',
+    'players.credit.review': 'Review this credit',
+    'players.credit.confirmTitle': 'Give this to {name}?',
+    'players.credit.confirmBody':
+      'Read it back before it is recorded. The player is credited by Ichancy a moment later.',
+    'players.credit.giving': 'Giving',
+    'players.credit.toPlayer': 'to {name}',
+    'players.credit.back': 'Back',
+    'players.credit.stop': 'Stop here',
+    'players.credit.confirmLabel': 'Credit {amount}',
+    'players.credit.sending': 'Recording the credit…',
+    'players.credit.queuedTitle': 'Queued {amount} for this player',
+    'players.credit.queuedBody': 'Ichancy credits {name} with {amount} in a moment.',
+    'players.credit.secondApprovalTitle': 'Sent for a second approval',
+    'players.credit.secondApprovalBody':
+      'Crediting {name} with {amount} is large enough to need another admin. It is waiting in the deposit queue.',
+    'players.credit.failedTitle': 'The credit did not go through',
+    'players.credit.failedHint': 'Nothing was recorded. Fix what the message says and try again.',
+    'players.credit.maybeQueuedTitle': 'This may already have been queued',
+    'players.credit.maybeQueuedBody':
+      'The server did not answer cleanly, so a credit may have been recorded. Check the deposit queue before recording it again.',
   },
 
   ar: {
@@ -293,6 +329,40 @@ export const playerMessages = defineMessages({
     'players.debit.status.DEBITED': 'تم السحب',
     'players.debit.status.REJECTED': 'رفضه Ichancy',
     'players.debit.status.NEEDS_RECONCILIATION': 'يحتاج تسوية',
+
+    'players.credit.action': 'إضافة رصيد للاعب',
+    'players.credit.title': 'إضافة رصيد إلى {name}',
+    'players.credit.description':
+      'امنح هذا اللاعب رصيداً، يُسجَّل كإيداع يدوي. يضيفه Ichancy بعد قليل — والمبلغ الكبير يمرّ على موافقة ثانية أولاً.',
+    'players.credit.amountLabel': 'المبلغ المطلوب منحه ({currency})',
+    'players.credit.amountPlaceholder': '0.00',
+    'players.credit.amountRequired': 'أدخل المبلغ المطلوب منحه.',
+    'players.credit.amountFormat': 'أرقام وخانتان عشريتان على الأكثر — 25000.00 وليس 25,000 أو 2.5e4.',
+    'players.credit.amountTooSmall': 'يجب أن يكون المبلغ أكبر من صفر.',
+    'players.credit.reasonLabel': 'السبب',
+    'players.credit.reasonPlaceholder': 'لماذا يُضاف الرصيد لهذا اللاعب.',
+    'players.credit.reasonRequired': 'اذكر السبب. من يسوّي نقد المكتب سيقرأه مقابل هذا الرصيد لاحقاً.',
+    'players.credit.reasonTooLong': 'اجعله ضمن {max} حرفاً؛ هذا {length}.',
+    'players.credit.reasonCounter': '{length} من {max}',
+    'players.credit.review': 'مراجعة إضافة الرصيد',
+    'players.credit.confirmTitle': 'منح هذا المبلغ إلى {name}؟',
+    'players.credit.confirmBody': 'راجعه قبل تسجيله. يُضاف الرصيد للاعب عبر Ichancy بعد لحظات.',
+    'players.credit.giving': 'المبلغ الممنوح',
+    'players.credit.toPlayer': 'إلى {name}',
+    'players.credit.back': 'رجوع',
+    'players.credit.stop': 'توقّف هنا',
+    'players.credit.confirmLabel': 'منح {amount}',
+    'players.credit.sending': 'جارٍ تسجيل الرصيد…',
+    'players.credit.queuedTitle': 'تمّت جدولة {amount} لهذا اللاعب',
+    'players.credit.queuedBody': 'يضيف Ichancy إلى {name} مبلغ {amount} بعد لحظات.',
+    'players.credit.secondApprovalTitle': 'أُرسل لموافقة ثانية',
+    'players.credit.secondApprovalBody':
+      'منح {name} مبلغ {amount} كبير بما يكفي ليحتاج موافقة مسؤول آخر. إنه بانتظارها في قائمة الإيداعات.',
+    'players.credit.failedTitle': 'لم تتم إضافة الرصيد',
+    'players.credit.failedHint': 'لم يُسجَّل شيء. صحّح ما تذكره الرسالة ثم أعد المحاولة.',
+    'players.credit.maybeQueuedTitle': 'قد تكون قد جُدولت فعلاً',
+    'players.credit.maybeQueuedBody':
+      'لم يردّ الخادم بوضوح، لذا قد يكون الرصيد قد سُجِّل. تحقّق من قائمة الإيداعات قبل تسجيله مجدداً.',
   },
 });
 

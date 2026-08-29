@@ -11,6 +11,7 @@ import type {
   SetDeclaredBalanceBody,
   CreatePaymentMethodBody,
   CreateTenantBody,
+  CreditPlayerBody,
   DebitPlayerBody,
   DepositQueueQuery,
   PaymentMethodListQuery,
@@ -44,6 +45,7 @@ import {
   paymentDestinationSchema,
   paymentMethodSchema,
   exchangeRateSchema,
+  manualCreditSchema,
   playerBalanceSchema,
   playerDebitSchema,
   proofUrlSchema,
@@ -52,6 +54,8 @@ import {
   reconciliationBreakSchema,
   retryCreditResultSchema,
   reviewOutcomeSchema,
+  financeBalancesSchema,
+  tenantFinanceRowSchema,
   shamCashReadResultSchema,
   shamCashStatusSchema,
   sweepReportSchema,
@@ -212,6 +216,17 @@ export const playersApi = {
    */
   debit: (id: string, body: DebitPlayerBody) =>
     api.post(playerDebitSchema, `/v1/admin/players/${id}/debit`, { body }),
+
+  /**
+   * Credits a player's points by recording a MANUAL DEPOSIT — the admin asserts the player paid
+   * through some channel, and it rides the existing deposit → approve → credit spine. Unlike the
+   * debit, this is a normal, safe-to-retry-once-4xx action: the money is not moved here but by the
+   * credit worker seconds later, and a large one lands in a second approver's queue. `playerId` goes
+   * in the BODY because the endpoint lives under /deposits (the module that owns the machinery), not
+   * under /players.
+   */
+  credit: (id: string, body: CreditPlayerBody) =>
+    api.post(manualCreditSchema, '/v1/admin/deposits/manual', { body: { playerId: id, ...body } }),
 
   /**
    * What Ichancy holds for one player.
@@ -387,8 +402,11 @@ export const adminsApi = {
  * bar is allowed to poll it at all — compare `tenantsApi.health`, which costs a real signin.
  */
 export const agentFloatApi = {
+  // The read lives under /reconciliation, beside its sync sibling — it is the ledger float, the same
+  // number the reviewer decides deposits against. (It is NOT at /v1/admin/agent-float; that path
+  // 404s, which is why the top-bar pill used to render nothing in a real deployment.)
   get: (signal?: AbortSignal) =>
-    api.get(agentFloatSchema, '/v1/admin/agent-float', {
+    api.get(agentFloatSchema, '/v1/admin/reconciliation/agent-float', {
       ...(signal === undefined ? {} : { signal }),
     }),
 };
@@ -443,6 +461,36 @@ export const platformDefaultsApi = {
   /** Answers the same view as `get`, so a screen never has to guess what it saved. */
   update: (body: UpdatePlatformDefaultsBody) =>
     api.patch(platformDefaultsSchema, '/v1/admin/platform-defaults', { body }),
+};
+
+// ── Platform finance overview (PLATFORM_ADMIN) ─────────────────────────────────────────────────
+
+/**
+ * Every operator's finance balances, in one place, for the platform.
+ *
+ * The split here is the same one `walletBalancesApi` and `agentFloatApi` are built around, applied a
+ * level up: a CHEAP overview and an EXPENSIVE refresh, kept in two calls so the console never pays
+ * for the expensive one by accident.
+ *
+ *   - `balances` is the cheap read. It reports each operator's agent float (a ledger figure) and,
+ *     for the USDT wallets and Sham Cash, only whether they have been loaded — those two arrive as
+ *     `not_loaded` rather than being fetched, because reading them costs a per-wallet chain call and
+ *     a headless-browser session replay. Answering `{ tenants: [...] }`; callers get the array.
+ *   - `refresh` is the expensive read for ONE operator: it loads that operator's USDT wallets and
+ *     Sham Cash and answers the freshened row. It is per operator on purpose — a "refresh all" is a
+ *     client fan-out through `createLimiter` (see `useRefreshAllTenantFinance`), never one call that
+ *     asks the server to go and read every chain and every session at once. 404 for an unknown id.
+ */
+export const platformFinanceApi = {
+  balances: async (signal?: AbortSignal) => {
+    const result = await api.get(financeBalancesSchema, '/v1/admin/finance/balances', {
+      ...(signal === undefined ? {} : { signal }),
+    });
+    return result.tenants;
+  },
+
+  refresh: (tenantId: string) =>
+    api.post(tenantFinanceRowSchema, `/v1/admin/finance/tenants/${tenantId}/refresh`),
 };
 
 // ── Tenants (PLATFORM_ADMIN) ───────────────────────────────────────────────────────────────────

@@ -3,6 +3,7 @@ import {
   Building2,
   HandCoins,
   LayoutDashboard,
+  Landmark,
   Scale,
   Settings,
   ShieldCheck,
@@ -60,6 +61,12 @@ export const NAV_ITEMS: readonly NavItem[] = [
   },
   { to: '/staff', labelKey: 'nav.staff', icon: ShieldCheck, capability: 'admins.read' },
   { to: '/tenants', labelKey: 'nav.tenants', icon: Building2, capability: 'tenants.manage' },
+  {
+    to: '/platform-finance',
+    labelKey: 'nav.platformFinance',
+    icon: Landmark,
+    capability: 'platformFinance.read',
+  },
 ] as const;
 
 export const SETTINGS_ITEM = {

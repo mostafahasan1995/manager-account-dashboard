@@ -2,9 +2,10 @@ import { HttpResponse, http, type HttpHandler } from 'msw';
 
 import { config } from '@/config';
 import { can } from '@/lib/auth/permissions';
-import { minorFromString, parseDecimalToMinor } from '@/lib/money';
+import { formatMinorToDecimal, minorFromString, parseDecimalToMinor } from '@/lib/money';
 import {
   ADMIN_ROLES,
+  CREDIT_REASON_MAX_LENGTH,
   DEBIT_REASON_MAX_LENGTH,
   type AdminDeposit,
   type AdminRole,
@@ -22,6 +23,9 @@ import {
   createTenant,
   db,
   debitPlayer,
+  manualCredit,
+  financeBalancesView,
+  refreshTenantFinance,
   findDeposit,
   nextId,
   nowIso,
@@ -194,6 +198,13 @@ const DECIDABLE = new Set(['SUBMITTED', 'UNDER_REVIEW', 'PENDING_SECOND_APPROVAL
  */
 const DEBIT_ROLES = new Set<AdminRole>(['SUPER_ADMIN', 'FINANCE_ADMIN', 'REVIEWER']);
 
+/**
+ * The casino minimum a manual credit must clear — 25,000.00 NSP in minor units. Ichancy refuses
+ * `depositToPlayer` below its own floor, so the backend refuses before recording the deposit; the
+ * mock mirrors it so the console is built against the same rule rather than told about it.
+ */
+const MANUAL_CREDIT_MIN_MINOR = 2_500_000n;
+
 function sortDeposits(rows: AdminDeposit[], sort: string | null): AdminDeposit[] {
   const byCreated = (a: AdminDeposit, b: AdminDeposit) =>
     Date.parse(b.createdAt) - Date.parse(a.createdAt);
@@ -347,9 +358,10 @@ export const handlers: HttpHandler[] = [
   // ── The rate that prices a crypto deposit ────────────────────────────────────────────────────
 
   /*
-   * Read by anyone who can read the rails; set only by the roles that own the operator money.
-   * The same boundary the backend argues for a payout account: PLATFORM_ADMIN reads and does not
-   * write, however senior it sounds.
+   * Read by anyone who can read the rails; set by the roles that own the operator money — SUPER_ADMIN,
+   * FINANCE_ADMIN, and PLATFORM_ADMIN, which configures a tenant's rails on its behalf (its own home
+   * tenant, or another once selected in the switcher). The `X-Tenant-Id` header decides WHICH tenant
+   * is touched, not whether the write is allowed.
    */
   // ── Sham Cash session (external cashier account, linked by pasting cookies) ────────────────────
   http.get(url('/v1/admin/shamcash/session'), ({ request }) => {
@@ -496,6 +508,39 @@ export const handlers: HttpHandler[] = [
     }
 
     return ok(platformDefaultsView());
+  }),
+
+  // ── Platform finance overview ──────────────────────────────────────────────────────────────────
+
+  /*
+   * Every operator's finance balances. PLATFORM_ADMIN only, like every route on the tenants surface
+   * — reading across operators is the platform's job and nobody else's. 403 for any other role,
+   * mirroring `/platform-defaults` above.
+   *
+   * The GET is the CHEAP overview: it answers whatever is loaded, which for a freshly-seeded
+   * operator is `not_loaded` USDT and Sham Cash. The POST is the EXPENSIVE per-operator refresh that
+   * flips those to loaded/ok — a client "refresh all" is many of these, dripped through a limiter,
+   * never one call here.
+   */
+  http.get(url('/v1/admin/finance/balances'), ({ request }) => {
+    // `role !== null`, as the exchange-rate and debit routes explain: a token with no role in it is
+    // a test client, not a signed-in operator, and the mock login never issues one. Refusing it
+    // would make every component test on this screen read a 403 it never asked for. A REAL
+    // non-platform role is still refused, which is the rule the backend actually enforces.
+    const role = callerRole(request);
+    if (role !== null && role !== 'PLATFORM_ADMIN') {
+      return fail(403, 'INSUFFICIENT_ROLE', 'This endpoint is for platform administrators.');
+    }
+    return ok(financeBalancesView());
+  }),
+
+  http.post(url('/v1/admin/finance/tenants/:tenantId/refresh'), ({ params, request }) => {
+    const role = callerRole(request);
+    if (role !== null && role !== 'PLATFORM_ADMIN') {
+      return fail(403, 'INSUFFICIENT_ROLE', 'This endpoint is for platform administrators.');
+    }
+    const row = refreshTenantFinance(String(params.tenantId));
+    return row === null ? fail(404, 'TENANT_NOT_FOUND', 'Tenant not found.') : ok(row);
   }),
 
   // ── Deposits ─────────────────────────────────────────────────────────────────────────────────
@@ -833,6 +878,58 @@ export const handlers: HttpHandler[] = [
     return ok(debitPlayer(player, BigInt(amountMinor), reason));
   }),
 
+  /**
+   * POST /v1/admin/deposits/manual — crediting a player by recording a manual deposit.
+   *
+   * Built against the same rules the backend enforces: 403 for a role that may not decide money, 400
+   * for a malformed amount or a missing reason, 422 for an amount below the casino minimum, 404 for an
+   * unknown player. Unlike a debit there is NO not-linked refusal — the deposit spine links a new
+   * Ichancy account on the way to crediting it. 202, because the credit is queued, not done.
+   */
+  http.post(url('/v1/admin/deposits/manual'), async ({ request }) => {
+    const role = callerRole(request);
+    if (role !== null && !DEBIT_ROLES.has(role)) {
+      return fail(403, 'FORBIDDEN', 'Your role cannot credit a player.');
+    }
+
+    const body = (await request.json().catch(() => ({}))) as {
+      playerId?: unknown;
+      amountMinor?: unknown;
+      reason?: unknown;
+    };
+
+    const playerId = typeof body.playerId === 'string' ? body.playerId : '';
+    const player = db.players.find((row) => row.id === playerId);
+    if (player === undefined) return fail(404, 'PLAYER_NOT_FOUND', 'Player not found.');
+
+    const fields: string[] = [];
+    const amountMinor = typeof body.amountMinor === 'string' ? body.amountMinor.trim() : '';
+    if (!/^\d{1,18}$/.test(amountMinor)) {
+      fields.push('amountMinor must be minor units as a digits-only string');
+    } else if (BigInt(amountMinor) <= 0n) {
+      fields.push('amountMinor must be greater than zero');
+    }
+
+    const reason = typeof body.reason === 'string' ? body.reason.trim() : '';
+    if (reason.length === 0 || reason.length > CREDIT_REASON_MAX_LENGTH) {
+      fields.push(`reason must be between 1 and ${CREDIT_REASON_MAX_LENGTH} characters`);
+    }
+
+    if (fields.length > 0) {
+      return fail(400, 'VALIDATION_FAILED', 'The request payload is invalid.', { fields });
+    }
+
+    if (BigInt(amountMinor) < MANUAL_CREDIT_MIN_MINOR) {
+      return fail(
+        422,
+        'AMOUNT_BELOW_MINIMUM',
+        `A credit must be at least ${formatMinorToDecimal(MANUAL_CREDIT_MIN_MINOR)} ${player.currencyCode} — Ichancy refuses less.`,
+      );
+    }
+
+    return ok(manualCredit(player, BigInt(amountMinor)), {}, 202);
+  }),
+
   // ── Payment methods ──────────────────────────────────────────────────────────────────────────
   http.get(url('/v1/admin/payment-methods'), ({ request }) => {
     const isActive = boolParam(request, 'isActive');
@@ -1085,7 +1182,7 @@ export const handlers: HttpHandler[] = [
    * The top bar asks for this on every screen, so it is deliberately the cheapest handler here:
    * one ledger figure and the operator's watermark, no Ichancy call and no pagination.
    */
-  http.get(url('/v1/admin/agent-float'), () => ok(agentFloatView())),
+  http.get(url('/v1/admin/reconciliation/agent-float'), () => ok(agentFloatView())),
 
   http.get(url('/v1/admin/reconciliation/rail-ageing'), () =>
     ok({ ...db.railAgeing, generatedAt: nowIso() }),

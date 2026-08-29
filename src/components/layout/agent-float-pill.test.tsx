@@ -24,7 +24,7 @@ import { AgentFloatPill } from './agent-float-pill';
  * screen, for everybody.
  */
 
-const url = `${config.apiBaseUrl}/v1/admin/agent-float`;
+const url = `${config.apiBaseUrl}/v1/admin/reconciliation/agent-float`;
 
 const envelope = (data: unknown) => ({
   success: true,

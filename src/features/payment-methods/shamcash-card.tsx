@@ -1,4 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod';
+import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 import { z } from 'zod';
@@ -149,6 +150,15 @@ export function ShamCashCard() {
   const setSession = useSetShamCashSession();
   const clearSession = useClearShamCashSession();
   const check = useCheckShamCashBalance();
+  /**
+   * Whether the paste-a-session form is open.
+   *
+   * A linked account does NOT show it. Five empty boxes under a working link read as "something is
+   * missing here", when nothing is — and the one thing a stray keystroke in them can achieve is
+   * replacing a session that was working. Re-linking is a deliberate act, so it takes a deliberate
+   * click. Nothing is linked yet? Then the form IS the screen, and it opens on its own.
+   */
+  const [editing, setEditing] = useState(false);
 
   const {
     register,
@@ -168,8 +178,13 @@ export function ShamCashCard() {
         // An empty forge is left out, not sent as "".
         ...(values.forge === '' ? {} : { forge: values.forge }),
       });
-      toast.success(t('financial.shamcash.linked'), { description: t('financial.shamcash.linkedBody') });
+      toast.success(t('financial.shamcash.linked'), {
+        description: t('financial.shamcash.linkedBody'),
+      });
       reset(EMPTY);
+      // Close behind them, and drop what was typed. The session is stored and can never be read
+      // back, so leaving the boxes on screen would only show a form that no longer means anything.
+      setEditing(false);
     } catch (caught) {
       setError('root', { message: errorMessage(caught) });
       toast.error(t('financial.shamcash.linkFailed'), { description: errorMessage(caught) });
@@ -185,7 +200,14 @@ export function ShamCashCard() {
     }
   };
 
+  const cancelEdit = () => {
+    reset(EMPTY);
+    setEditing(false);
+  };
+
   const linked = status.data?.linked === true;
+  /** Open when there is nothing linked (there is nothing else to do) or when asked for. */
+  const formOpen = !linked || editing;
 
   return (
     <Card>
@@ -233,120 +255,146 @@ export function ShamCashCard() {
         ) : null}
 
         <Can capability="paymentMethods.write">
+          {/* The resting state of a linked account: what you can DO, not what you must fill in. */}
+          {formOpen ? null : (
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => {
+                  setEditing(true);
+                }}
+              >
+                {t('financial.shamcash.relink')}
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                loading={clearSession.isPending}
+                onClick={() => void unlink()}
+              >
+                {t('financial.shamcash.unlink')}
+              </Button>
+            </div>
+          )}
+
           {/* Said plainly, because an operator has to know WHERE to get these — DevTools, not a
               password they know. */}
-          <Alert tone="info" title={t('financial.shamcash.howTitle')}>
-            {t('financial.shamcash.howBody')}
-          </Alert>
+          {formOpen ? (
+            <Alert tone="info" title={t('financial.shamcash.howTitle')}>
+              {t('financial.shamcash.howBody')}
+            </Alert>
+          ) : null}
 
-          <form onSubmit={(event) => void submit(event)} className="space-y-4" noValidate>
-            {errors.root === undefined ? null : (
-              <Alert tone="danger" title={t('rails.form.saveFailedTitle')}>
-                {errors.root.message}
-              </Alert>
-            )}
-
-            <Field
-              id="shamcash-access-token"
-              label={t('financial.shamcash.accessTokenLabel')}
-              error={errors.accessToken?.message}
-            >
-              {(a11y) => (
-                <Input
-                  {...a11y}
-                  {...register('accessToken')}
-                  autoComplete="off"
-                  spellCheck={false}
-                  className="font-mono break-all"
-                />
+          {formOpen ? (
+            <form onSubmit={(event) => void submit(event)} className="space-y-4" noValidate>
+              {errors.root === undefined ? null : (
+                <Alert tone="danger" title={t('rails.form.saveFailedTitle')}>
+                  {errors.root.message}
+                </Alert>
               )}
-            </Field>
 
-            <Field
-              id="shamcash-auth-token"
-              label={t('financial.shamcash.authTokenLabel')}
-              error={errors.authToken?.message}
-            >
-              {(a11y) => (
-                <Input
-                  {...a11y}
-                  {...register('authToken')}
-                  autoComplete="off"
-                  spellCheck={false}
-                  className="font-mono break-all"
-                />
-              )}
-            </Field>
+              <Field
+                id="shamcash-access-token"
+                label={t('financial.shamcash.accessTokenLabel')}
+                error={errors.accessToken?.message}
+              >
+                {(a11y) => (
+                  <Input
+                    {...a11y}
+                    {...register('accessToken')}
+                    autoComplete="off"
+                    spellCheck={false}
+                    className="font-mono break-all"
+                  />
+                )}
+              </Field>
 
-            <Field
-              id="shamcash-forge"
-              label={t('financial.shamcash.forgeLabel')}
-              hint={t('financial.shamcash.forgeHint')}
-              error={errors.forge?.message}
-            >
-              {(a11y) => (
-                <Input
-                  {...a11y}
-                  {...register('forge')}
-                  autoComplete="off"
-                  spellCheck={false}
-                  className="font-mono break-all"
-                />
-              )}
-            </Field>
+              <Field
+                id="shamcash-auth-token"
+                label={t('financial.shamcash.authTokenLabel')}
+                error={errors.authToken?.message}
+              >
+                {(a11y) => (
+                  <Input
+                    {...a11y}
+                    {...register('authToken')}
+                    autoComplete="off"
+                    spellCheck={false}
+                    className="font-mono break-all"
+                  />
+                )}
+              </Field>
 
-            <Field
-              id="shamcash-pin-hash"
-              label={t('financial.shamcash.pinCodeHashLabel')}
-              hint={t('financial.shamcash.pinCodeHashHint')}
-              error={errors.pinCodeHash?.message}
-            >
-              {(a11y) => (
-                <Input
-                  {...a11y}
-                  {...register('pinCodeHash')}
-                  autoComplete="off"
-                  spellCheck={false}
-                  className="font-mono break-all"
-                />
-              )}
-            </Field>
+              <Field
+                id="shamcash-forge"
+                label={t('financial.shamcash.forgeLabel')}
+                hint={t('financial.shamcash.forgeHint')}
+                error={errors.forge?.message}
+              >
+                {(a11y) => (
+                  <Input
+                    {...a11y}
+                    {...register('forge')}
+                    autoComplete="off"
+                    spellCheck={false}
+                    className="font-mono break-all"
+                  />
+                )}
+              </Field>
 
-            <Field
-              id="shamcash-pin"
-              label={t('financial.shamcash.pinLabel')}
-              hint={t('financial.shamcash.pinHint')}
-              error={errors.pin?.message}
-            >
-              {(a11y) => (
-                <Input
-                  {...a11y}
-                  {...register('pin')}
-                  inputMode="numeric"
-                  autoComplete="off"
-                  spellCheck={false}
-                  placeholder="••••"
-                  className="tabular"
-                />
-              )}
-            </Field>
+              <Field
+                id="shamcash-pin-hash"
+                label={t('financial.shamcash.pinCodeHashLabel')}
+                hint={t('financial.shamcash.pinCodeHashHint')}
+                error={errors.pinCodeHash?.message}
+              >
+                {(a11y) => (
+                  <Input
+                    {...a11y}
+                    {...register('pinCodeHash')}
+                    autoComplete="off"
+                    spellCheck={false}
+                    className="font-mono break-all"
+                  />
+                )}
+              </Field>
 
-            <div className="flex flex-wrap gap-2">
-              <Button type="submit" variant="primary" loading={isSubmitting}>
-                {linked ? t('financial.shamcash.relink') : t('financial.shamcash.link')}
-              </Button>
-              {linked ? (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  loading={clearSession.isPending}
-                  onClick={() => void unlink()}
-                >
-                  {t('financial.shamcash.unlink')}
+              <Field
+                id="shamcash-pin"
+                label={t('financial.shamcash.pinLabel')}
+                hint={t('financial.shamcash.pinHint')}
+                error={errors.pin?.message}
+              >
+                {(a11y) => (
+                  <Input
+                    {...a11y}
+                    {...register('pin')}
+                    inputMode="numeric"
+                    autoComplete="off"
+                    spellCheck={false}
+                    placeholder="••••"
+                    className="tabular"
+                  />
+                )}
+              </Field>
+
+              <div className="flex flex-wrap gap-2">
+                {/* "Save", not "Update session" again: that is the button they pressed to get here,
+                    and repeating it reads as though the first click did not take. */}
+                <Button type="submit" variant="primary" loading={isSubmitting}>
+                  {linked ? t('common.save') : t('financial.shamcash.link')}
                 </Button>
-              ) : null}
-            </div>
-          </form>
+                {/* Only when there is something to go back TO. With nothing linked, cancelling the
+                  form would leave a card that does nothing at all. */}
+                {linked ? (
+                  <Button type="button" variant="ghost" onClick={cancelEdit}>
+                    {t('common.cancel')}
+                  </Button>
+                ) : null}
+              </div>
+            </form>
+          ) : null}
         </Can>
       </CardContent>
     </Card>

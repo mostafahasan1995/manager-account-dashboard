@@ -144,6 +144,7 @@ the backend constants on 2026-08-25.
 | `reconciliation.read`         | SUPER_ADMIN, FINANCE_ADMIN, REVIEWER, VIEWER, PLATFORM_ADMIN          |
 | `reconciliation.act`          | SUPER_ADMIN, FINANCE_ADMIN                                            |
 | `tenants.manage`              | PLATFORM_ADMIN                                                        |
+| `platformFinance.read`        | PLATFORM_ADMIN                                                        |
 
 **`PLATFORM_ADMIN` reads across the platform and writes almost nothing**, and that shape is the
 point rather than an accident. It has to be able to answer "is this operator working?", which is
@@ -184,7 +185,15 @@ GET    /v1/admin/deposits/:id/chain-check       -> the on-chain verdict (see bel
 GET    /v1/admin/deposits/:id/proofs/:proofId/url      -> { url, streamPath, expiresInSeconds }
 GET    /v1/admin/deposits/:id/proofs/:proofId/content  -> the image bytes (needs the bearer token)
 POST   /v1/admin/deposits/maintenance/sweep    -> { expired, released, reaped }
+POST   /v1/admin/deposits/manual               { playerId, amountMinor, reason }
+                                               -> 202 { shortId, status, amount:{minor,amount,currency}, outcome }
 ```
+
+`POST /deposits/manual` records a hand-paid credit as a MANUAL DEPOSIT on the INTERNAL `MANUAL_CREDIT`
+rail and hands it to the same `approve()` → credit-worker spine a normal deposit uses — so the player
+is credited seconds later (async), a large one lands in `PENDING_SECOND_APPROVAL`, and the Ichancy
+minimum is refused up front (422 `AMOUNT_BELOW_MINIMUM`). `DECIDE_ROLES` (SUPER_ADMIN, FINANCE_ADMIN,
+REVIEWER) — the same money-decide set as debit. The console reaches it via `playersApi.credit(id, …)`.
 
 `ReviewOutcome` is a discriminated union — the console must render all six arms:
 
@@ -417,17 +426,15 @@ form with one editable row.
 `ApprovalLimitView`: `id, adminUserId, currencyCode, maxSingleApproval, maxDailyApproval,
 secondApprovalAbove, effectiveFrom, effectiveTo, createdAt`.
 
-### The agent float — `/v1/admin/agent-float` (NOT BUILT YET)
+### The agent float — `/v1/admin/reconciliation/agent-float`
 
-**This one endpoint does not exist on the backend.** Everything else in this document was read out
-of the controllers; this is a shape the console was written against ahead of the server, and it is
-recorded here because `endpoints.contract.test.ts` requires every path the client calls to be
-written down. The top-bar pill degrades to nothing until it ships, so the console is correct either
-way — see `src/components/layout/agent-float-pill.tsx`.
+The read lives beside its sync sibling, on `ReconciliationController`. The console pill was originally
+pointed at `/v1/admin/agent-float`, which 404s — so the top-bar pill rendered nothing in a real
+deployment — and now calls the real path. See `src/components/layout/agent-float-pill.tsx`.
 
 ```
-GET /v1/admin/agent-float  -> { currencyCode, balanceMinor, balance,
-                                lowWatermarkMinor, isLow, checkedAt }
+GET /v1/admin/reconciliation/agent-float  -> { currencyCode, balanceMinor, balance,
+                                               lowWatermarkMinor, isLow, checkedAt }
 ```
 
 Reads the tenant's `ICHANCY_AGENT_FLOAT` balance. Gated on `reconciliation.read`.
@@ -605,6 +612,16 @@ action.
   anti-forgery cookie. Nothing else is collected — the reader forces the locale itself.
 - A lapsed session reads as "expired, re-link", never as a zero balance. The reader (headless browser
   + `@core/shamcash` parser) is validated on first run in the deployment, against the live account.
+- **`expired` is decided by Sham Cash, not by us reading the page.** The reader records what the
+  site's own API answered while the page booted; a 401/403 on an `Account/…` call is a lapsed
+  session, stated by them. Rendered text is only the fallback, because the page can sit at the home
+  URL showing an Arabic "unauthorized" toast, or bounce to the marketing landing page, without ever
+  saying "sign in".
+- **A slow page is reported as slow, not as a changed site.** shamcash.sy has been measured taking
+  ~55s to render anything, so the read waits up to `SHAM_CASH_SETTLE_MS` (90s by default) and ends
+  as soon as the balance call answers. A page still blank at the end returns `unavailable` naming
+  the wait — never `expired`, which would send an operator to re-link a session that is fine.
+  Budget accordingly: this call can legitimately take a minute or more.
 
 ### Platform defaults — `/v1/admin/platform-defaults` (PLATFORM_ADMIN only)
 
@@ -636,6 +653,45 @@ appliesToNewOperatorsOnly }`. Minor units are strings; `ichancyAgentId` is the o
   would not fail here — it would fail later, on somebody else's tenant creation.
 - Seeded from this deployment's `.env` the first time anything reads it, so an existing deployment
   keeps exactly the values it already had without anybody running a script.
+
+### Operator finances — `/v1/admin/finance` (PLATFORM_ADMIN only)
+
+Every operator's finance balances, on one platform screen: its Ichancy agent float, its USDT payout
+wallets, and its external Sham Cash account. `platformFinance.read` — PLATFORM_ADMIN only, like every
+route on the tenants surface.
+
+```
+GET  /v1/admin/finance/balances                        -> { tenants: TenantFinanceRow[] }
+POST /v1/admin/finance/tenants/:tenantId/refresh       -> TenantFinanceRow   (404 for an unknown id)
+```
+
+```ts
+TenantFinanceRow = { tenantId, slug, agentFloat: AgentFloatCell, usdt: UsdtCell, shamCash: ShamCashCell }
+
+// discriminated on `status`
+AgentFloatCell  = { status: 'ok', currencyCode, balanceMinor, balance, lowWatermarkMinor, isLow, checkedAt }
+                | { status: 'unavailable', detail }
+UsdtCell        = { status: 'not_loaded' }
+                | { status: 'loaded', checkedAt, wallets: UsdtWalletCell[] }
+UsdtWalletCell  = { status: 'ok', label, network: string|null, balanceMinor, balance, checkedAt }
+                | { status: 'unavailable', label, network: string|null, problem: string|null, detail: string|null, checkedAt }
+ShamCashCell    = { status: 'not_loaded' } | ShamCashReadResult   // ok | not_linked | expired | unavailable
+```
+
+- **`GET /balances` is the CHEAP overview.** The agent float is a ledger read and is always present;
+  the USDT wallets and Sham Cash cost a chain call and a headless-browser session replay, so they are
+  NOT fetched up front — they arrive `not_loaded` and are filled in per operator by the refresh.
+- **`POST /tenants/:tenantId/refresh` is the EXPENSIVE read for ONE operator.** It loads that
+  operator's USDT wallets and Sham Cash and answers the freshened row. It is per operator on purpose:
+  a "refresh all" is a CLIENT fan-out through the console's limiter, never one call that asks the
+  server to read every chain and every session at once.
+- **Every cell carries a status because a failed read must never render as `0`.** The `ok`/`loaded`
+  arm carries a figure; every other arm — `unavailable`, `not_loaded`, and Sham Cash's `not_linked` /
+  `expired` — carries no figure at all. Zero is a real answer (an empty wallet); an outage shown as
+  zero says an operator's money is gone. The same rule the wallet-balance and Sham Cash reads follow.
+- `AgentFloatCell.ok` IS the `agent-float` shape with a `status` added, so its `isLow` is the server's
+  own verdict; USDT figures are USDT (six decimals), and Sham Cash's loaded arm is the existing
+  `ShamCashReadResult` union verbatim.
 
 ### What creation actually does — the `provisioning` block
 

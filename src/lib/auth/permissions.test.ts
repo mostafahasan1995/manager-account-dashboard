@@ -32,31 +32,22 @@ describe('the role table', () => {
   });
 });
 
-describe('PLATFORM_ADMIN runs the platform, and the staff inside any operator', () => {
-  it('manages operators', () => {
+describe('PLATFORM_ADMIN is the owner superset — it holds everything', () => {
+  it('manages the platform: operators, staff, and every operator\'s finance balances', () => {
     expect(can('PLATFORM_ADMIN', 'tenants.manage')).toBe(true);
-  });
-
-  it('manages staff and approval limits — which is what a system-wide login is for', () => {
     expect(can('PLATFORM_ADMIN', 'admins.read')).toBe(true);
     expect(can('PLATFORM_ADMIN', 'admins.write')).toBe(true);
+    expect(can('PLATFORM_ADMIN', 'platformFinance.read')).toBe(true);
   });
 
-  it("reads an operator's state without being able to reconfigure it", () => {
-    expect(can('PLATFORM_ADMIN', 'deposits.read')).toBe(true);
-    expect(can('PLATFORM_ADMIN', 'players.read')).toBe(true);
-    expect(can('PLATFORM_ADMIN', 'paymentMethods.read')).toBe(true);
-    expect(can('PLATFORM_ADMIN', 'reconciliation.read')).toBe(true);
-
-    expect(can('PLATFORM_ADMIN', 'paymentMethods.write')).toBe(false);
-    expect(can('PLATFORM_ADMIN', 'players.link')).toBe(false);
-  });
-
-  it('never decides money — it holds no approval limit to be bounded by', () => {
-    expect(can('PLATFORM_ADMIN', 'deposits.decide')).toBe(false);
-    expect(can('PLATFORM_ADMIN', 'deposits.retryCredit')).toBe(false);
-    expect(can('PLATFORM_ADMIN', 'deposits.sweep')).toBe(false);
-    expect(can('PLATFORM_ADMIN', 'reconciliation.act')).toBe(false);
+  it('also does everything a tenant SUPER_ADMIN can, including deciding money', () => {
+    // By the operator's decision the owner account is a strict superset: it configures rails AND
+    // decides money — approves deposits, retries credits, sweeps, links players, corrects floats and
+    // resolves breaks. Its money decisions are unbounded by an approval limit (the backend exempts
+    // it) but still land in the ledger and the audit trail.
+    for (const capability of CAPABILITIES) {
+      expect(can('PLATFORM_ADMIN', capability)).toBe(true);
+    }
   });
 });
 

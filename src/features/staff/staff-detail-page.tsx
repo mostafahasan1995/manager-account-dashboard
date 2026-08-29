@@ -89,7 +89,9 @@ export function StaffDetailPage() {
   const row = admin.data;
   const versions = limits.data ?? [];
   const openLimit = versions.find(isCurrentLimit);
-  const decidesDeposits = can(row.role, 'deposits.decide');
+  // PLATFORM_ADMIN decides deposits but is the owner superset, exempt from the approval limit — so it
+  // is never DENIED for want of one, and the "no limit in force" warning would be a false alarm.
+  const decidesDeposits = can(row.role, 'deposits.decide') && row.role !== 'PLATFORM_ADMIN';
 
   const confirmDeactivate = async () => {
     try {

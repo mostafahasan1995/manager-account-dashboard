@@ -69,6 +69,7 @@ export function createTestAuth(overrides: AuthOverrides = {}): AuthState {
   const role = overrides.role ?? 'SUPER_ADMIN';
   const isAuthenticated = overrides.isAuthenticated ?? true;
   const session = isAuthenticated ? createTestSession(role) : null;
+  const tenantId = overrides.tenantId ?? null;
 
   return {
     session,
@@ -83,7 +84,7 @@ export function createTestAuth(overrides: AuthOverrides = {}): AuthState {
     signInWithAgent: overrides.signInWithAgent ?? (() => Promise.resolve(createTestSession(role))),
     signOut: overrides.signOut ?? (() => undefined),
     can: (capability) => (isAuthenticated ? can(role, capability) : false),
-    tenantId: overrides.tenantId ?? null,
+    tenantId,
     setTenantId: () => undefined,
   };
 }

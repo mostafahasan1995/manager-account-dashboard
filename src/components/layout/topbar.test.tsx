@@ -76,7 +76,11 @@ describe('Topbar', () => {
   });
 
   it('survives a float read that fails, since this bar renders above every screen', async () => {
-    server.use(http.get(`${config.apiBaseUrl}/v1/admin/agent-float`, () => HttpResponse.error()));
+    server.use(
+      http.get(`${config.apiBaseUrl}/v1/admin/reconciliation/agent-float`, () =>
+        HttpResponse.error(),
+      ),
+    );
 
     renderWithProviders(<Topbar onOpenNav={vi.fn()} />, { auth: { role: 'FINANCE_ADMIN' } });
 

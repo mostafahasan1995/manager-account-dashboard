@@ -111,15 +111,14 @@ describe('setting the rate', () => {
     expect(isApiError(error) && error.status).toBe(400);
   });
 
-  it('refuses a role that cannot write the payment configuration', async () => {
-    // PLATFORM_ADMIN reads and does not write — the same boundary a payout account follows.
+  it('lets a platform admin set the rate — it configures the operator rails', async () => {
+    // The rate is payment config, which a platform admin sets on the operator it is viewing. The mock,
+    // like the backend, accepts it on the token's role alone.
     asRole('PLATFORM_ADMIN');
 
-    const error = await exchangeRatesApi
-      .setUsdt({ rate: '13200.00' })
-      .catch((caught: unknown) => caught);
+    const saved = await exchangeRatesApi.setUsdt({ rate: '13200.00' });
 
-    expect(isApiError(error) && error.status).toBe(403);
+    expect(saved.rate).toBe('13200.00');
   });
 });
 

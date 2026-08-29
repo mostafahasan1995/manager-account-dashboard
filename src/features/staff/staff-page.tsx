@@ -48,10 +48,13 @@ export function StaffPage() {
   const admins = useAdmins(query);
   const rows = admins.data?.data ?? [];
 
-  // Only the roles that actually decide deposits are checked for a limit: a limit on a support
-  // account would be a number nobody ever evaluates, and flagging its absence would be noise.
+  // Only the roles that actually decide deposits AND are bound by a limit are checked for one: a
+  // limit on a support account would be a number nobody ever evaluates, and flagging its absence
+  // would be noise. PLATFORM_ADMIN decides deposits but is the owner superset — exempt from the
+  // approval limit — so its approvals are never DENIED for want of one, and flagging it is the same
+  // noise.
   const deciderIds = rows
-    .filter((row) => row.isActive && can(row.role, 'deposits.decide'))
+    .filter((row) => row.isActive && can(row.role, 'deposits.decide') && row.role !== 'PLATFORM_ADMIN')
     .map((row) => row.id);
   const limits = useOpenApprovalLimits(deciderIds);
   const noOpenLimit = new Set(

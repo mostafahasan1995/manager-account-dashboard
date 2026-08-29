@@ -25,15 +25,16 @@ describe('SettingsAccess', () => {
     expect(screen.getAllByRole('listitem')).toHaveLength(capabilitiesOf('SUPER_ADMIN').length);
   });
 
-  it('shows the platform admin what it runs, and not what it may not decide', () => {
+  it('shows the platform admin the full set — it is the owner superset', () => {
     renderPlain(<SettingsAccess />, { auth: { role: 'PLATFORM_ADMIN' } });
 
     expect(screen.getByText(CAPABILITY_LABELS['tenants.manage'])).toBeInTheDocument();
     expect(screen.getByText(CAPABILITY_LABELS['admins.write'])).toBeInTheDocument();
     expect(screen.getByText(CAPABILITY_LABELS['deposits.read'])).toBeInTheDocument();
 
-    // It reads the queue; it never decides one. That boundary is the point of this panel.
-    expect(screen.queryByText(CAPABILITY_LABELS['deposits.decide'])).not.toBeInTheDocument();
+    // The owner account now decides money too — it holds every capability, so the panel lists it all.
+    expect(screen.getByText(CAPABILITY_LABELS['deposits.decide'])).toBeInTheDocument();
+    expect(screen.getByText(CAPABILITY_LABELS['reconciliation.act'])).toBeInTheDocument();
     expect(screen.getAllByRole('listitem')).toHaveLength(capabilitiesOf('PLATFORM_ADMIN').length);
   });
 

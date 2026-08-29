@@ -71,6 +71,57 @@ describe('when a session is already linked', () => {
     expect(screen.getByRole('button', { name: /unlink/i })).toBeInTheDocument();
   });
 
+  it('keeps the session form closed, so a working link shows no empty boxes', async () => {
+    // The fields are a login session, not settings. Presented under a healthy link they read as
+    // "something is missing", and the only thing typing in them can do is replace what works.
+    render();
+
+    expect(await screen.findByText('Linked')).toBeInTheDocument();
+    expect(screen.queryByLabelText('accessToken cookie')).toBeNull();
+    expect(screen.queryByLabelText('PIN code')).toBeNull();
+    expect(screen.getByRole('button', { name: /update session/i })).toBeInTheDocument();
+  });
+
+  it('opens the form on request, and closes it again on cancel', async () => {
+    const { user } = render();
+
+    await user.click(await screen.findByRole('button', { name: /update session/i }));
+    expect(screen.getByLabelText('accessToken cookie')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /cancel/i }));
+    expect(screen.queryByLabelText('accessToken cookie')).toBeNull();
+  });
+
+  it('forgets what was typed when the form is cancelled', async () => {
+    // Reopening must not present a half-typed session as though it were the linked one.
+    const { user } = render();
+
+    await user.click(await screen.findByRole('button', { name: /update session/i }));
+    await user.type(screen.getByLabelText('accessToken cookie'), 'ACCESS-typed-then-abandoned');
+    await user.click(screen.getByRole('button', { name: /cancel/i }));
+    await user.click(screen.getByRole('button', { name: /update session/i }));
+
+    expect(screen.getByLabelText('accessToken cookie')).toHaveValue('');
+  });
+
+  it('closes the form after a successful re-link', async () => {
+    const { user } = render();
+
+    await user.click(await screen.findByRole('button', { name: /update session/i }));
+    await user.type(screen.getByLabelText('accessToken cookie'), 'ACCESS-new');
+    await user.type(screen.getByLabelText('authToken cookie'), 'jwt.new.session');
+    await user.type(screen.getByLabelText('shamcash-pin-code-hash'), 'pin-hash-new');
+    await user.type(screen.getByLabelText('PIN code'), '4321');
+    await user.click(screen.getByRole('button', { name: /^save$/i }));
+
+    await waitFor(() => {
+      expect(vi.mocked(toast.success)).toHaveBeenCalled();
+    });
+    await waitFor(() => {
+      expect(screen.queryByLabelText('accessToken cookie')).toBeNull();
+    });
+  });
+
   it('reads the balance on demand and shows the wallets and transfers', async () => {
     const { user } = render();
 

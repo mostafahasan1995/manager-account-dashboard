@@ -19,6 +19,7 @@ import type {
   SetDeclaredBalanceBody,
   CreatePaymentMethodBody,
   CreateTenantBody,
+  CreditPlayerBody,
   DebitPlayerBody,
   DepositQueueQuery,
   PaymentMethodListQuery,
@@ -44,6 +45,7 @@ import {
   depositsApi,
   healthApi,
   paymentMethodsApi,
+  platformFinanceApi,
   playersApi,
   reconciliationApi,
   tenantsApi,
@@ -52,6 +54,7 @@ import {
   platformDefaultsApi,
   walletBalancesApi,
 } from './endpoints';
+import { createLimiter } from '@/lib/concurrency';
 import { isAbortError } from '@/lib/utils';
 
 import {
@@ -68,6 +71,7 @@ import {
   exchangeRateKeys,
   shamCashKeys,
   platformDefaultsKeys,
+  platformFinanceKeys,
   walletBalanceKeys,
 } from './query-keys';
 
@@ -358,6 +362,33 @@ export function useDebitPlayer() {
     retry: false,
     onSettled: async () => {
       await queryClient.invalidateQueries({ queryKey: playerKeys.all });
+    },
+  });
+}
+
+/**
+ * A manual credit: points given to a player, recorded as a manual deposit.
+ *
+ * Unlike the debit this is safe to retry after a 4xx (nothing moved) but not after a 5xx (a credit
+ * may have been queued), so it keeps `retry: false` and leaves the "maybe it landed" judgement to
+ * the dialog. On settle it invalidates the player namespace (the balance will change), the
+ * agent-float pill (the float drops when the credit worker posts T2), AND the deposit lists — a
+ * manual credit IS a deposit, so the queue and the player's deposits panel would otherwise show it
+ * only on their next poll (and a large one, routed to a second approver, is a queue item that needs
+ * to appear now).
+ */
+export function useCreditPlayer() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { playerId: string; body: CreditPlayerBody }) =>
+      playersApi.credit(input.playerId, input.body),
+    retry: false,
+    onSettled: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: playerKeys.all }),
+        queryClient.invalidateQueries({ queryKey: agentFloatKeys.all }),
+        queryClient.invalidateQueries({ queryKey: depositKeys.all }),
+      ]);
     },
   });
 }
@@ -879,6 +910,82 @@ export const useUpdateTenantBot = () =>
   useOperatorMutation((input: { id: string; body: UpdateTenantBotBody }) =>
     tenantsApi.updateBot(input.id, input.body),
   );
+
+// ── Platform finance overview (PLATFORM_ADMIN) ─────────────────────────────────────────────────
+
+/**
+ * Every operator's finance balances.
+ *
+ * `PLATFORM_ADMIN` only — the endpoint answers 403 to anybody else — so callers pass `enabled`,
+ * exactly as the operator list and the platform defaults do. Cheap by contract (a ledger float plus
+ * load-state flags), so it keeps the default focus-refetch and does NOT poll: the expensive USDT and
+ * Sham Cash reads are pulled in per operator by a refresh, never on a timer.
+ *
+ * `retry: false` because a failed overview is a table saying so with a retry button, not three
+ * silent attempts — the same reasoning `useWalletBalance` and the float pill give.
+ */
+export function usePlatformFinanceBalances(options: { enabled?: boolean } = {}) {
+  return useQuery({
+    queryKey: platformFinanceKeys.overview(),
+    queryFn: ({ signal }) => platformFinanceApi.balances(signal),
+    enabled: options.enabled ?? true,
+    retry: false,
+  });
+}
+
+/**
+ * Refreshing ONE operator's expensive columns.
+ *
+ * The POST loads that operator's USDT wallets and Sham Cash server-side and returns the freshened
+ * row; on settle we invalidate the overview so the cheap list re-reads the now-loaded figures. It
+ * invalidates on SETTLE, not just success — a refresh that failed still means the row on screen is
+ * older than the attempt, and the overview is the honest thing to re-read. `retry: false`: a
+ * refresh that failed is one row to press again, not three silent chain calls.
+ */
+export function useRefreshTenantFinance() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (tenantId: string) => platformFinanceApi.refresh(tenantId),
+    retry: false,
+    onSettled: async () => {
+      await queryClient.invalidateQueries({ queryKey: platformFinanceKeys.overview() });
+    },
+  });
+}
+
+/**
+ * How many operators' expensive refreshes may be in flight at once, for a "refresh all".
+ *
+ * Two. Each refresh is a per-wallet chain call and a headless-browser session replay behind it, and
+ * a platform with a dozen operators firing them all at once is a burst on the same rate-limited
+ * third parties `src/lib/concurrency.ts` exists to protect. A "refresh all" is therefore a CLIENT
+ * fan-out through this gate — not one server call that refreshes everything, which would move the
+ * same burst behind the backend where nothing here could pace it.
+ */
+export const FINANCE_REFRESH_CONCURRENCY = 2;
+
+const financeRefreshLimiter = createLimiter(FINANCE_REFRESH_CONCURRENCY);
+
+/**
+ * Refreshing EVERY operator, dripped two at a time through the shared limiter.
+ *
+ * `allSettled`, not `all`: one operator whose chain node is down must not throw away the dozen that
+ * refreshed cleanly. Either way it invalidates the overview once on settle, which re-reads the whole
+ * cheap list rather than trusting the individual rows this returned.
+ */
+export function useRefreshAllTenantFinance() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (tenantIds: readonly string[]) =>
+      Promise.allSettled(
+        tenantIds.map((id) => financeRefreshLimiter.run(() => platformFinanceApi.refresh(id))),
+      ),
+    retry: false,
+    onSettled: async () => {
+      await queryClient.invalidateQueries({ queryKey: platformFinanceKeys.overview() });
+    },
+  });
+}
 
 // ── Health ─────────────────────────────────────────────────────────────────────────────────────
 

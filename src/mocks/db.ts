@@ -7,12 +7,14 @@ import type {
   AdminUser,
   ApprovalLimit,
   DepositStatus,
+  ManualCredit,
   PaymentDestination,
   PaymentMethod,
   PlayerDebit,
   PlayerDebitStatus,
   ReconciliationBreak,
   Tenant,
+  TenantFinanceRow,
   TenantProvisioning,
   TenantHealth,
   TenantWebhook,
@@ -32,6 +34,9 @@ import {
   mockPlayerBalances,
   mockPlayers,
   mockRailAgeing,
+  mockTenantFinance,
+  mockLoadedUsdt,
+  mockShamCashOk,
   mockTenants,
   type PlatformDefaults,
 } from './fixtures';
@@ -118,6 +123,12 @@ export interface MockState {
   deposits: AdminDeposit[];
   breaks: ReconciliationBreak[];
   tenants: Tenant[];
+  /**
+   * The platform finance overview, one row per operator. Stateful on purpose: a refresh really
+   * flips a row's `not_loaded` USDT and Sham Cash to loaded/ok, so the next cheap overview read
+   * shows the freshened figures — the exact round trip the console's refresh controls drive.
+   */
+  finance: TenantFinanceRow[];
   /** Per-operator webhook and agent state: everything `GET /health` reports, keyed by tenant id. */
   operatorOps: Record<string, MockOperatorOps>;
   railAgeing: typeof mockRailAgeing;
@@ -210,6 +221,7 @@ function seed(): MockState {
     deposits: clone(mockDeposits),
     breaks: clone(mockBreaks),
     tenants: clone(mockTenants),
+    finance: mockTenantFinance(),
     operatorOps: seedOperatorOps(),
     railAgeing: clone(mockRailAgeing),
     // Seeded once, exactly as the backend seeds the settings row from env on first run.
@@ -381,6 +393,42 @@ export function debitPlayer(player: AdminPlayer, amountMinor: bigint, reason: st
   };
   db.playerDebits.push(debit);
   return debit;
+}
+
+/**
+ * A manual credit, recorded as a manual deposit. The real thing is ASYNC — the deposit is approved
+ * and the credit worker tops the player up seconds later — but this synchronous mock collapses that
+ * to one step so a dev sees the effect: the float pays (it drops) and the player's balance rises,
+ * exactly the opposite of `debitPlayer` and exactly what the ledger posting says. `status` is still
+ * 'APPROVED' ("queued"), honest about the real timing.
+ */
+/**
+ * Above this, a manual credit is routed to a second approver instead of crediting now — a demo stand-in
+ * for the tenant's real dualApprovalThreshold, so the console's PENDING_SECOND_APPROVAL branch is
+ * exercised rather than dead. 1,000,000.00 NSP.
+ */
+const MANUAL_CREDIT_SECOND_APPROVAL_MINOR = 100_000_000n;
+
+export function manualCredit(player: AdminPlayer, amountMinor: bigint): ManualCredit {
+  const amount = {
+    minor: amountMinor.toString(),
+    amount: formatMinorToDecimal(amountMinor),
+    currency: player.currencyCode,
+  };
+  const shortId = `MC${nextId('x').slice(-6)}`;
+
+  // A large credit waits for a second, different approver — the same four-eyes the real approve path
+  // applies. It is NOT credited yet, so nothing moves here.
+  if (amountMinor >= MANUAL_CREDIT_SECOND_APPROVAL_MINOR) {
+    return { shortId, status: 'PENDING_SECOND_APPROVAL', amount, outcome: 'awaiting_second_approval' };
+  }
+
+  const before = playerBalanceMinor(player.id) ?? 0n;
+  db.playerBalances[player.id] = (before + amountMinor).toString();
+  db.agentFloatLedgerMinor -= amountMinor;
+  db.agentFloatIchancyMinor -= amountMinor;
+
+  return { shortId, status: 'APPROVED', amount, outcome: 'approved' };
 }
 
 // ── Payment methods ────────────────────────────────────────────────────────────────────────────
@@ -996,6 +1044,32 @@ export function correctFloat(breakId: string, note: string) {
     ledgerTransactionId: found?.resolutionTxId ?? nextId('66666666'),
     deltaMinor: delta.toString(),
   };
+}
+
+// ── Platform finance overview ──────────────────────────────────────────────────────────────────
+
+/** The cheap overview, in the wrapper the API answers: `{ tenants: [...] }`. */
+export function financeBalancesView(): { tenants: TenantFinanceRow[] } {
+  return { tenants: db.finance };
+}
+
+/**
+ * The expensive per-operator refresh.
+ *
+ * Loads that operator's USDT wallets and Sham Cash — flipping whatever they were (typically
+ * `not_loaded`) to loaded/ok — and answers the freshened row. The agent float is the cheap ledger
+ * read the overview already carries, so it is left as it is: refreshing a suspended operator whose
+ * agent does not answer loads its wallets without inventing a float it cannot read. `null` when no
+ * such operator exists, which the handler turns into a 404.
+ */
+export function refreshTenantFinance(tenantId: string): TenantFinanceRow | null {
+  const row = db.finance.find((entry) => entry.tenantId === tenantId);
+  if (row === undefined) return null;
+
+  const checkedAt = nowIso();
+  row.usdt = mockLoadedUsdt(checkedAt);
+  row.shamCash = mockShamCashOk(checkedAt);
+  return row;
 }
 
 export { nextId };
