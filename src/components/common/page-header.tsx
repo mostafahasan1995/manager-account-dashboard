@@ -27,7 +27,11 @@ export function PageHeader({
         )}
       </div>
       {actions === undefined ? null : (
-        <div className="flex shrink-0 items-center gap-2">{actions}</div>
+        // `flex-wrap`, not `shrink-0`. The header wraps this block onto its own line, but the block
+        // itself was one unbreakable row — and the player screen puts three buttons in it (back,
+        // credit, debit), which at 390px is wider than the phone and pushed the page sideways.
+        // Buttons are `whitespace-nowrap` and will not squash, so wrapping is the only give here.
+        <div className="flex flex-wrap items-center gap-2">{actions}</div>
       )}
     </header>
   );

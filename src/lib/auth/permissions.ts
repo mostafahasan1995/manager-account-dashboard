@@ -7,9 +7,9 @@ import type { AdminRole } from '@/types/enums';
  * them in step is the point of the table below being one literal object rather than conditionals
  * scattered through the screens — when a backend constant changes, exactly one thing changes here.
  *
- * `PLATFORM_ADMIN` is intentionally almost entirely `false`: it runs the platform, not a tenant, and
- * it has no business reading a tenant's deposits. `SUPER_ADMIN` is the top of ONE tenant and equally
- * intentionally cannot touch tenants.
+ * `SUPER_ADMIN` is the top of ONE tenant and intentionally cannot touch tenants. `PLATFORM_ADMIN`
+ * is the OWNER SUPERSET and holds every capability — see the long note on its entry in the table
+ * below for why that reverses the platform/tenant split this file originally drew.
  */
 
 export const CAPABILITIES = [
@@ -27,6 +27,9 @@ export const CAPABILITIES = [
   'reconciliation.act',
   'tenants.manage',
   'platformFinance.read',
+  'telegramDestinations.read',
+  'telegramDestinations.write',
+  'reports.publish',
 ] as const;
 
 export type Capability = (typeof CAPABILITIES)[number];
@@ -74,6 +77,11 @@ export const ROLE_CAPABILITIES: Record<AdminRole, CapabilityMap> = {
     'admins.write',
     'reconciliation.read',
     'reconciliation.act',
+    // The operator owns the groups its own bot posts into — mirrors
+    // TELEGRAM_DESTINATION_MANAGER_ROLES on the backend.
+    'telegramDestinations.read',
+    'telegramDestinations.write',
+    'reports.publish',
   ),
 
   FINANCE_ADMIN: withCapabilities(
@@ -89,6 +97,9 @@ export const ROLE_CAPABILITIES: Record<AdminRole, CapabilityMap> = {
     'admins.read',
     'reconciliation.read',
     'reconciliation.act',
+    // Reads the destination list and may publish a report; only SUPER_ADMIN may rebind a chat.
+    'telegramDestinations.read',
+    'reports.publish',
   ),
 
   REVIEWER: withCapabilities(
@@ -97,6 +108,8 @@ export const ROLE_CAPABILITIES: Record<AdminRole, CapabilityMap> = {
     'players.read',
     'paymentMethods.read',
     'reconciliation.read',
+    // A reviewer sees a card in a group and needs to be able to ask which group that was.
+    'telegramDestinations.read',
   ),
 
   SUPPORT: withCapabilities('deposits.read', 'players.read', 'paymentMethods.read'),
@@ -159,4 +172,7 @@ export const CAPABILITY_LABELS: Record<Capability, string> = {
   'reconciliation.act': 'Resolve breaks, sync the float, run invariants',
   'tenants.manage': 'Create, configure and suspend tenants',
   'platformFinance.read': "See every operator's finance balances",
+  'telegramDestinations.read': 'See where the bot publishes',
+  'telegramDestinations.write': 'Add, change and test Telegram destinations',
+  'reports.publish': 'Publish a report to Telegram',
 };

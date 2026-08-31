@@ -199,7 +199,10 @@ export function DestinationList({ method }: { method: PaymentMethod | null }) {
                 <TableHead>{t('rails.field.dailyCap')}</TableHead>
                 <TableHead>{t('rails.field.notes')}</TableHead>
                 <TableHead>{t('rails.field.state')}</TableHead>
-                <TableHead className="text-end">
+                {/* `relative` for the reason spelled out on the method table's actions column: an
+                    unpositioned `sr-only` at the far end of a wide table escapes the scroller and
+                    sizes the whole page to reach it. */}
+                <TableHead className="relative text-end">
                   <span className="sr-only">{t('rails.field.actions')}</span>
                 </TableHead>
               </TableRow>

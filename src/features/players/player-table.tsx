@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link } from '@tanstack/react-router';
-import { UserPlus } from 'lucide-react';
+
+import { Banknote, PlusCircle, UserPlus } from 'lucide-react';
 
 import { Can, CopyableValue, PlayerStatusBadge, TimeAgo } from '@/components/common';
 import {
@@ -12,6 +13,7 @@ import {
   TableHead,
   TableHeader,
   TableRow,
+  Tooltip,
 } from '@/components/ui';
 import { useT } from '@/lib/i18n/use-translation';
 import { cn } from '@/lib/utils';
@@ -45,9 +47,15 @@ const BALANCE_AUTOLOAD_MAX_ROWS = 12;
 export function PlayerTable({
   players,
   onLink,
+  onDeposit,
+  onWithdraw,
 }: {
   players: readonly AdminPlayer[];
   onLink: (player: AdminPlayer) => void;
+  /** Opens the manual-credit form for this player. Same money decision as the detail page's. */
+  onDeposit: (player: AdminPlayer) => void;
+  /** Opens the debit form — what this product calls a withdrawal from a player's account. */
+  onWithdraw: (player: AdminPlayer) => void;
 }) {
   const t = useT(playerMessages);
   const [balancesRequested, setBalancesRequested] = useState(false);
@@ -159,21 +167,75 @@ export function PlayerTable({
               </TableCell>
 
               <TableCell className="text-end">
-                {player.ichancyLinked ? null : (
-                  <Can capability="players.link">
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => {
-                        onLink(player);
-                      }}
-                      aria-label={t('players.link.forPlayer', { name })}
-                    >
-                      <UserPlus aria-hidden="true" />
-                      {t('players.link.action')}
-                    </Button>
+                {/* THREE ACTIONS IN ONE CELL, as icons on the row rather than a kebab menu. A menu
+                    would hide the two money actions behind a click and a glyph nobody has learned
+                    yet; these are the actions an operator takes while a player is on the phone, and
+                    the whole point of putting them on the row is that they are already in front of
+                    them.
+
+                    Icon-only because this is the ninth column of nine: labelled buttons made the
+                    cell wider than the data it sits beside and pushed the table into horizontal
+                    scroll, which costs an operator more than a word does. The word survives in the
+                    tooltip; the player's NAME stays in the aria-label, because a column of
+                    identical glyphs is otherwise unusable by anyone reading it a row at a time. The
+                    labels themselves still render as text on the detail page, where one player is
+                    the whole screen and there is room for them.
+
+                    Deposit and Withdrawal are the same money decision in opposite directions, so
+                    they share `deposits.decide` — exactly as they do on the detail page. Deposit is
+                    offered whatever the player's state, because a manual credit rides the deposit
+                    spine, which links a missing Ichancy account on the way to crediting it. */}
+                <div className="flex justify-end gap-1">
+                  <Can capability="deposits.decide">
+                    <Tooltip content={t('players.credit.action')}>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-8"
+                        onClick={() => {
+                          onDeposit(player);
+                        }}
+                        aria-label={t('players.credit.forPlayer', { name })}
+                      >
+                        <PlusCircle className="size-3.5" aria-hidden="true" />
+                      </Button>
+                    </Tooltip>
                   </Can>
-                )}
+
+                  <Can capability="deposits.decide">
+                    <Tooltip content={t('players.debit.action')}>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-8"
+                        onClick={() => {
+                          onWithdraw(player);
+                        }}
+                        aria-label={t('players.debit.forPlayer', { name })}
+                      >
+                        <Banknote className="size-3.5" aria-hidden="true" />
+                      </Button>
+                    </Tooltip>
+                  </Can>
+
+                  {player.ichancyLinked ? null : (
+                    <Can capability="players.link">
+                      <Tooltip content={t('players.link.action')}>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-8"
+                          onClick={() => {
+                            onLink(player);
+                          }}
+                          aria-label={t('players.link.forPlayer', { name })}
+                        >
+                          <UserPlus className="size-3.5" aria-hidden="true" />
+                        </Button>
+                      </Tooltip>
+                    </Can>
+                  )}
+                </div>
               </TableCell>
             </TableRow>
           );

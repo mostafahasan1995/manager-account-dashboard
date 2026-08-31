@@ -40,35 +40,37 @@ import { isRoundTrippableAmount, normaliseAmount } from './rail-money';
  * frequently-edited field next to the one field on this screen that must never be casually touched.
  */
 function declaredBalanceSchema(t: RailTranslator) {
-  return z
-    .object({
-      amount: z
-        .string()
-        .trim()
-        .refine(
-          (value) => value === '' || MONEY_STRING_REGEX.test(value),
-          t('financial.declared.amountFormat'),
-        )
-        .refine((value) => !value.startsWith('-'), t('financial.declared.amountNegative'))
-        .refine(
-          (value) => value === '' || isRoundTrippableAmount(value),
-          t('rails.validation.amountScale'),
-        ),
-      // 2–8 letters, matching the backend. Case is folded to upper on submit, so an operator typing
-      // "usd" is not scolded for it.
-      currency: z
-        .string()
-        .trim()
-        .refine(
-          (value) => value === '' || /^[A-Za-z]{2,8}$/.test(value),
-          t('financial.declared.currencyFormat'),
-        ),
-    })
-    // Both or neither: the pairing the balance is meaningless without.
-    .refine((values) => (values.amount === '') === (values.currency === ''), {
-      message: t('financial.declared.pairRequired'),
-      path: ['amount'],
-    });
+  return (
+    z
+      .object({
+        amount: z
+          .string()
+          .trim()
+          .refine(
+            (value) => value === '' || MONEY_STRING_REGEX.test(value),
+            t('financial.declared.amountFormat'),
+          )
+          .refine((value) => !value.startsWith('-'), t('financial.declared.amountNegative'))
+          .refine(
+            (value) => value === '' || isRoundTrippableAmount(value),
+            t('rails.validation.amountScale'),
+          ),
+        // 2–8 letters, matching the backend. Case is folded to upper on submit, so an operator typing
+        // "usd" is not scolded for it.
+        currency: z
+          .string()
+          .trim()
+          .refine(
+            (value) => value === '' || /^[A-Za-z]{2,8}$/.test(value),
+            t('financial.declared.currencyFormat'),
+          ),
+      })
+      // Both or neither: the pairing the balance is meaningless without.
+      .refine((values) => (values.amount === '') === (values.currency === ''), {
+        message: t('financial.declared.pairRequired'),
+        path: ['amount'],
+      })
+  );
 }
 
 type DeclaredBalanceValues = z.infer<ReturnType<typeof declaredBalanceSchema>>;
@@ -118,10 +120,9 @@ export function DeclaredBalanceDialog({
           ? { balance: null, currency: null }
           : { balance: normaliseAmount(values.amount), currency: values.currency.toUpperCase() },
       });
-      toast.success(
-        clearing ? t('financial.declared.cleared') : t('financial.declared.saved'),
-        { description: destination.label },
-      );
+      toast.success(clearing ? t('financial.declared.cleared') : t('financial.declared.saved'), {
+        description: destination.label,
+      });
       onOpenChange(false);
     } catch (caught) {
       setError('root', { message: errorMessage(caught) });

@@ -10,6 +10,7 @@ import {
   type AdminDeposit,
   type AdminRole,
   type Tenant,
+  type TelegramDestination,
 } from '@/types';
 
 import {
@@ -226,6 +227,147 @@ function sortDeposits(rows: AdminDeposit[], sort: string | null): AdminDeposit[]
 /** What AGENT_OPERATOR_AMBIGUOUS and AGENT_OPERATOR_NOT_ACTIVE carry in `details`. No secrets. */
 const operatorChoices = (rows: readonly Tenant[]): { slug: string; displayName: string }[] =>
   rows.map((tenant) => ({ slug: tenant.slug, displayName: tenant.displayName }));
+
+/**
+ * The mock's stand-in for resolving a pasted link through the operator's bot.
+ *
+ * It refuses exactly what the server refuses, keyed off recognisable strings in the URL, so demo
+ * mode and the tests can reach every one of the failure sentences without a Telegram account:
+ *   …/notamember   -> BOT_NOT_MEMBER      …/notadmin  -> BOT_NOT_ADMIN
+ *   …/nopost       -> BOT_CANNOT_POST     …/missing   -> NOT_FOUND
+ *   a t.me/+ link  -> INVALID_URL         a positive id -> PRIVATE_CHAT
+ *
+ * A NEGATIVE id is the pick-list's own submission — the only handle a private group has — and is
+ * resolved against the recorded sightings rather than invented, so binding from the picker succeeds
+ * or fails for the same reasons it would on the server: unseen is NOT_FOUND, a chat the bot has
+ * left is BOT_NOT_MEMBER, and a chat where it is only a member is BOT_NOT_ADMIN.
+ *
+ * Anything else that parses resolves to a healthy supergroup.
+ */
+function resolveMockChat(raw: string):
+  | {
+      chatId: string;
+      chatType: TelegramDestination['chatType'];
+      title: string;
+      username: string | null;
+    }
+  | { reason: string; message: string } {
+  const input = raw.trim();
+
+  if (input.length === 0 || /t\.me\/(\+|joinchat\/)/i.test(input)) {
+    return {
+      reason: 'INVALID_URL',
+      message: 'A private invite link cannot be resolved by a bot.',
+    };
+  }
+  if (/^\d+$/.test(input)) {
+    return { reason: 'PRIVATE_CHAT', message: 'That is a private one-to-one chat.' };
+  }
+
+  // A NEGATIVE id is a group or channel, and it is what the pick-list submits — the only handle a
+  // private group has. Resolved against the sightings so the row that comes back carries the real
+  // title, exactly as the server's getChat would; an id for a chat the bot has never seen is a
+  // NOT_FOUND, which is also what the server answers.
+  if (/^-\d+$/.test(input)) {
+    const seen = db.discoveredChats.find((chat) => chat.chatId === input);
+    if (seen === undefined) {
+      return { reason: 'NOT_FOUND', message: 'Telegram does not know that chat.' };
+    }
+    if (!seen.isPresent) {
+      return { reason: 'BOT_NOT_MEMBER', message: 'The bot is not in that group.' };
+    }
+    if (!seen.isAdministrator) {
+      return {
+        reason: 'BOT_NOT_ADMIN',
+        message: 'The bot is not an administrator of that group.',
+      };
+    }
+    return {
+      chatId: seen.chatId,
+      chatType: seen.chatType,
+      title: seen.title ?? seen.chatId,
+      username: seen.username,
+    };
+  }
+  if (input.includes('notamember')) {
+    return { reason: 'BOT_NOT_MEMBER', message: 'The bot is not in that group.' };
+  }
+  if (input.includes('notadmin')) {
+    return { reason: 'BOT_NOT_ADMIN', message: 'The bot is not an administrator of that group.' };
+  }
+  if (input.includes('nopost')) {
+    return { reason: 'BOT_CANNOT_POST', message: 'Its "Post messages" permission is off.' };
+  }
+  if (input.includes('missing')) {
+    return { reason: 'NOT_FOUND', message: 'Telegram does not know that chat.' };
+  }
+
+  const handle = /([A-Za-z][A-Za-z0-9_]{3,31})\/?$/.exec(input)?.[1] ?? 'group';
+  return {
+    // Stable per handle, so adding the same group twice really does collide on the duplicate rule.
+    chatId: `-100${String(Math.abs(hashHandle(handle)))
+      .padStart(10, '0')
+      .slice(0, 10)}`,
+    chatType: 'SUPERGROUP',
+    title: handle.replace(/_/g, ' '),
+    username: handle,
+  };
+}
+
+/** A tiny stable hash, so one handle always resolves to one chat id within a session. */
+function hashHandle(handle: string): number {
+  let hash = 0;
+  for (const character of handle) hash = (hash * 31 + character.charCodeAt(0)) | 0;
+  return hash;
+}
+
+/**
+ * `check` and `test` share everything except whether a message is actually sent, so they share an
+ * implementation — and the difference is the one thing the view reports back (`messageSent`).
+ */
+function checkOrTest(id: string, send: boolean) {
+  const row = db.telegramDestinations.find((item) => item.id === id);
+  if (row === undefined) return fail(404, 'NOT_FOUND', 'Telegram destination not found');
+
+  const now = new Date().toISOString();
+
+  // The seeded kicked-from-group row keeps failing, so the screen has something to render failing.
+  if (row.lastError?.includes('kicked') === true) {
+    return ok({
+      ok: false,
+      isMember: false,
+      isAdministrator: false,
+      canPost: false,
+      reason: 'BOT_NOT_MEMBER',
+      detail: row.lastError,
+      title: row.title,
+      messageSent: false,
+    });
+  }
+
+  row.lastVerifiedAt = now;
+  row.lastError = null;
+  if (send) row.lastPublishedAt = now;
+  row.updatedAt = now;
+
+  return ok({
+    ok: true,
+    isMember: true,
+    isAdministrator: true,
+    canPost: true,
+    reason: null,
+    detail: null,
+    title: row.title,
+    messageSent: send,
+  });
+}
+
+/** What the server calls each reporting window, so the toast reads the same in both. */
+const REPORT_TITLES: Record<string, string> = {
+  day: 'Today',
+  week: 'This week',
+  month: 'This month',
+};
 
 export const handlers: HttpHandler[] = [
   // ── Health ───────────────────────────────────────────────────────────────────────────────────
@@ -1361,5 +1503,155 @@ export const handlers: HttpHandler[] = [
 
     replaceTenantBot(tenant, botToken);
     return ok(tenant);
+  }),
+  // ---- Telegram destinations -----------------------------------------------------------------
+  //
+  // The mock resolves a URL the way the server does — it refuses what the server refuses, and for
+  // the same reasons — because the point of these routes is the REFUSALS. A mock that accepted
+  // everything would let the console ship without ever rendering the four sentences that are the
+  // whole feature.
+
+  http.get(url('/v1/admin/telegram/destinations'), () => ok(db.telegramDestinations)),
+
+  /**
+   * The chats the bot has been added to.
+   *
+   * `alreadyBound` is RECOMPUTED here rather than served from the fixture, because it is the one
+   * field on this list that the console's own actions change: binding a group must stop offering
+   * it, and removing one must offer it again. A stored flag would go stale the moment a test added
+   * a destination, and the picker would then hand back a group the server answers DUPLICATE for.
+   */
+  http.get(url('/v1/admin/telegram/chats'), () => {
+    const bound = new Set(
+      db.telegramDestinations.filter((row) => row.isActive).map((row) => row.chatId),
+    );
+    return ok(
+      db.discoveredChats.map((chat) => ({ ...chat, alreadyBound: bound.has(chat.chatId) })),
+    );
+  }),
+
+  http.post(url('/v1/admin/telegram/destinations'), async ({ request }) => {
+    const body = (await request.json()) as {
+      url?: unknown;
+      displayName?: unknown;
+      categories?: unknown;
+      isActive?: unknown;
+    };
+
+    const raw = typeof body.url === 'string' ? body.url.trim() : '';
+    const categories = Array.isArray(body.categories) ? (body.categories as string[]) : [];
+
+    if (categories.length === 0) {
+      return fail(400, 'VALIDATION_FAILED', 'Choose at least one kind of notification.', {
+        fields: ['categories must not be empty'],
+      });
+    }
+
+    const resolved = resolveMockChat(raw);
+    if ('reason' in resolved) {
+      return fail(400, 'TELEGRAM_CHAT_REJECTED', resolved.message, { reason: resolved.reason });
+    }
+
+    const existing = db.telegramDestinations.find((row) => row.chatId === resolved.chatId);
+    if (existing?.isActive === true) {
+      return fail(400, 'TELEGRAM_CHAT_REJECTED', 'That chat is already a destination.', {
+        reason: 'DUPLICATE',
+      });
+    }
+
+    const now = new Date().toISOString();
+    const next: TelegramDestination = {
+      id:
+        existing?.id ??
+        `a1f0c2d3-0000-4000-8000-${String(db.telegramDestinations.length + 90).padStart(12, '0')}`,
+      chatId: resolved.chatId,
+      chatType: resolved.chatType,
+      telegramUrl: raw,
+      title: resolved.title,
+      username: resolved.username,
+      displayName: typeof body.displayName === 'string' ? body.displayName : null,
+      categories: categories as TelegramDestination['categories'],
+      isActive: body.isActive !== false,
+      lastVerifiedAt: now,
+      lastError: null,
+      lastPublishedAt: existing?.lastPublishedAt ?? null,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    };
+
+    // Re-adding a removed chat REVIVES its row rather than colliding — the same rule the server
+    // follows, and the reason the console never shows a bare unique-constraint error.
+    if (existing === undefined) db.telegramDestinations.push(next);
+    else db.telegramDestinations.splice(db.telegramDestinations.indexOf(existing), 1, next);
+
+    return ok(next, {}, 201);
+  }),
+
+  http.patch(url('/v1/admin/telegram/destinations/:id'), async ({ params, request }) => {
+    const row = db.telegramDestinations.find((item) => item.id === String(params.id));
+    if (row === undefined) return fail(404, 'NOT_FOUND', 'Telegram destination not found');
+
+    const body = (await request.json()) as {
+      displayName?: unknown;
+      categories?: unknown;
+      isActive?: unknown;
+    };
+
+    if (Array.isArray(body.categories)) {
+      if (body.categories.length === 0) {
+        return fail(400, 'VALIDATION_FAILED', 'A destination must receive something.', {
+          fields: ['categories must not be empty'],
+        });
+      }
+      row.categories = body.categories as TelegramDestination['categories'];
+    }
+    if (typeof body.displayName === 'string') {
+      row.displayName = body.displayName.length === 0 ? null : body.displayName;
+    }
+    if (typeof body.isActive === 'boolean') row.isActive = body.isActive;
+    row.updatedAt = new Date().toISOString();
+
+    return ok(row);
+  }),
+
+  http.delete(url('/v1/admin/telegram/destinations/:id'), ({ params }) => {
+    const row = db.telegramDestinations.find((item) => item.id === String(params.id));
+    if (row === undefined) return fail(404, 'NOT_FOUND', 'Telegram destination not found');
+
+    // Deactivates, never deletes — the house rule, and what makes the revive above reachable.
+    row.isActive = false;
+    row.updatedAt = new Date().toISOString();
+    return ok(row);
+  }),
+
+  http.post(url('/v1/admin/telegram/destinations/:id/check'), ({ params }) =>
+    checkOrTest(String(params.id), false),
+  ),
+
+  http.post(url('/v1/admin/telegram/destinations/:id/test'), ({ params }) =>
+    checkOrTest(String(params.id), true),
+  ),
+
+  http.post(url('/v1/admin/reports/activity/publish'), async ({ request }) => {
+    const body = (await request.json().catch(() => ({}))) as { period?: unknown };
+    const period = typeof body.period === 'string' ? body.period : 'month';
+
+    const subscribed = db.telegramDestinations.filter(
+      (row) => row.isActive && row.categories.includes('REPORT'),
+    );
+    const now = new Date().toISOString();
+    // A publish stamps freshness on every row it reached — which is how the table's "last
+    // published" column becomes an honest answer rather than decoration.
+    for (const row of subscribed) {
+      if (row.lastError === null) row.lastPublishedAt = now;
+    }
+
+    const failed = subscribed.filter((row) => row.lastError !== null).length;
+    return ok({
+      title: REPORT_TITLES[period] ?? period,
+      considered: subscribed.length,
+      delivered: subscribed.length - failed,
+      failed,
+    });
   }),
 ];

@@ -109,13 +109,19 @@ export function Topbar({ onOpenNav }: { onOpenNav: () => void }) {
      *
      * So the reveals are staged, and the order is a priority list, poorest width first: the float's
      * FIGURE and the health light are in from 320px; the theme toggle returns at `sm`; the two
-     * labels, the session countdown and the admin's name and role at `md`. The float's number never
-     * yields — it is why the bar was rebuilt — and neither does the language picker, which is the
-     * one control whose whole job is rescuing somebody who cannot read the language on screen.
+     * labels, the session countdown, the operator's name and the admin's name and role at `md`. The
+     * float's number never yields — it is why the bar was rebuilt — and neither does the language
+     * picker, which is the one control whose whole job is rescuing somebody who cannot read the
+     * language on screen.
      *
      * Verified end to end at 320/360/390/414/640/768 in both directions, in the ordinary and the
      * low state. Everything from 360 up fits with no horizontal scroll; 320 overflows the bar by
      * 16px, and the console already overflows there on its own (the deposit table needs 369px).
+     *
+     * That budget was measured WITHOUT the operator switcher, which only a platform admin ever
+     * sees — so the one role that could not read this bar on a phone was the role that administers
+     * every operator on it. Its name is now staged at `md` like everything else here; the reasoning
+     * and the numbers are on the trigger itself.
      */
     <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center gap-2 border-b border-[var(--border)] bg-[var(--surface)]/95 px-3 backdrop-blur sm:gap-3 sm:px-4">
       <Button

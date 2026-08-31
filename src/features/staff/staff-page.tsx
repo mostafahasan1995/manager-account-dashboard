@@ -54,7 +54,9 @@ export function StaffPage() {
   // approval limit — so its approvals are never DENIED for want of one, and flagging it is the same
   // noise.
   const deciderIds = rows
-    .filter((row) => row.isActive && can(row.role, 'deposits.decide') && row.role !== 'PLATFORM_ADMIN')
+    .filter(
+      (row) => row.isActive && can(row.role, 'deposits.decide') && row.role !== 'PLATFORM_ADMIN',
+    )
     .map((row) => row.id);
   const limits = useOpenApprovalLimits(deciderIds);
   const noOpenLimit = new Set(

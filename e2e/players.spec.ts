@@ -14,8 +14,12 @@ test('finds an account by name and keeps the search in the URL', async ({ signed
   await signedIn.getByLabel(/search players/i).fill('karim');
 
   await expect(signedIn).toHaveURL(/search=karim/);
-  await expect(signedIn.getByRole('cell', { name: /karim nasser/i })).toBeVisible();
-  await expect(signedIn.getByRole('cell', { name: /maya/i })).toBeHidden();
+  // The player LINK, not the cell: every row now carries Deposit and Withdrawal actions whose
+  // accessible names name the player (a table of identical "Deposit" buttons is unusable with a
+  // screen reader), so /karim nasser/i matches the name cell and the actions cell both. The link is
+  // the unambiguous thing, and it is what "the account is findable" actually means.
+  await expect(signedIn.getByRole('link', { name: /karim nasser/i })).toBeVisible();
+  await expect(signedIn.getByRole('link', { name: /maya/i })).toBeHidden();
 });
 
 test('a hand-typed "linked=no" shows everyone, and never the opposite of what it says', async ({
@@ -30,7 +34,7 @@ test('a hand-typed "linked=no" shows everyone, and never the opposite of what it
   await signedIn.goto('/players?linked=no');
 
   await expect(signedIn.getByRole('row', { name: /maya/i })).toContainText(/not linked/i);
-  await expect(signedIn.getByRole('cell', { name: /karim nasser/i })).toBeVisible();
+  await expect(signedIn.getByRole('link', { name: /karim nasser/i })).toBeVisible();
 });
 
 test('shows which players cannot be credited yet', async ({ signedIn }) => {

@@ -193,9 +193,7 @@ describe('FinancialPage', () => {
 
     const card = await cardFor('sham cash dollar');
 
-    expect(
-      await within(card).findByRole('button', { name: /add balance/i }),
-    ).toBeInTheDocument();
+    expect(await within(card).findByRole('button', { name: /add balance/i })).toBeInTheDocument();
   });
 
   /**

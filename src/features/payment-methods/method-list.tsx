@@ -251,7 +251,18 @@ export function MethodList({
                 <TableHead>{t('rails.field.reference')}</TableHead>
                 <TableHead>{t('rails.field.state')}</TableHead>
                 <TableHead className="text-end">{t('rails.field.order')}</TableHead>
-                <TableHead className="text-end">
+                {/*
+                  `relative`, and it is load-bearing. `sr-only` is `position: absolute` with no
+                  offsets, and there was no positioned ancestor here all the way up to the document
+                  — so this invisible word hung off the PAGE at the far edge of an eleven-column
+                  table, and the page grew to 741px on a phone to reach it, outside the scroller
+                  that exists to absorb exactly that width. A containing block puts it back inside.
+
+                  Not a reason to distrust `sr-only`: the table captions elsewhere are correct and
+                  must stay. A caption's static position is its table's top corner; only sr-only
+                  content parked out at the far end leaks.
+                */}
+                <TableHead className="relative text-end">
                   <span className="sr-only">{t('rails.field.actions')}</span>
                 </TableHead>
               </TableRow>

@@ -28,6 +28,15 @@ import { cn } from '@/lib/utils';
  * "No selection" is not a neutral state on this screen: it means the caller's own operator, and the
  * money on screen belongs to somebody. Naming it is the difference between reading a deposit queue
  * and reading the WRONG deposit queue.
+ *
+ * ── WHY THE TRIGGER IS AN ICON ON A PHONE ─────────────────────────────────────────────────────
+ * The name was the widest single item in the top bar: `max-w-56` is 224px of the ~366px a 390px
+ * screen has, and with it the bar overflowed by half again for the one role that sees this — the
+ * role that administers every operator in the list was the only role that could not read the bar on
+ * a phone. So the label joins the staged reveal the float and the health light already run there,
+ * `sr-only` below `md` and back at `md`. `sr-only`, not `hidden`: a bare building icon is a control
+ * whose entire subject — whose money is on screen — has gone missing, and that has to survive in
+ * the accessibility tree at every width even when the eye cannot have it.
  */
 export function TenantSwitcher() {
   const { can, tenantId, setTenantId, session } = useAuth();
@@ -48,11 +57,18 @@ export function TenantSwitcher() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="secondary" size="sm" className="max-w-56 gap-2">
+        <Button variant="secondary" size="sm" className="min-w-0 gap-2 md:max-w-56">
           <Building2 className="size-4 shrink-0" />
-          <span className="truncate">{label}</span>
+          {/* Truncation on the inner box: `not-sr-only` restores `overflow` and `white-space`,
+              which are two of the three declarations `truncate` is. And `block`, because `overflow`
+              does nothing to an inline box — the flat version worked only by being a flex child. */}
+          <span className="min-w-0 sr-only md:not-sr-only">
+            <span className="block truncate">{label}</span>
+          </span>
           {selected !== null && selected.status !== 'ACTIVE' ? (
-            <Badge tone="warning">
+            // `hidden`, unlike the label: `not-sr-only` zeroes padding, which is most of a badge.
+            // Nothing a phone cannot reach — the dropdown marks the same status on the row itself.
+            <Badge tone="warning" className="hidden md:inline-flex">
               {t(`enum.tenantStatus.${selected.status}` as 'common.all')}
             </Badge>
           ) : null}

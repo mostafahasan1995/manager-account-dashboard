@@ -67,6 +67,10 @@ export const playerMessages = defineMessages({
 
     'players.link.action': 'Create Ichancy account',
     'players.link.forPlayer': 'Create Ichancy account for {name}',
+    // Row actions name the player, because a table of identical buttons is unusable with a
+    // screen reader and ambiguous with a mouse.
+    'players.credit.forPlayer': 'Deposit to {name}',
+    'players.debit.forPlayer': 'Withdraw from {name}',
     'players.link.confirmTitle': 'Create an Ichancy account?',
     'players.link.confirmDescription':
       "{name} gets a betting account on the tenant's Ichancy agent, which is what lets their approved deposits be credited.",
@@ -159,7 +163,8 @@ export const playerMessages = defineMessages({
     'players.credit.amountLabel': 'Amount to give ({currency})',
     'players.credit.amountPlaceholder': '0.00',
     'players.credit.amountRequired': 'Enter the amount to give.',
-    'players.credit.amountFormat': 'Digits and at most two decimals — 25000.00, not 25,000 or 2.5e4.',
+    'players.credit.amountFormat':
+      'Digits and at most two decimals — 25000.00, not 25,000 or 2.5e4.',
     'players.credit.amountTooSmall': 'The amount has to be more than zero.',
     'players.credit.reasonLabel': 'Reason',
     'players.credit.reasonPlaceholder': 'Why the player is being credited.',
@@ -238,6 +243,8 @@ export const playerMessages = defineMessages({
 
     'players.link.action': 'إنشاء حساب Ichancy',
     'players.link.forPlayer': 'إنشاء حساب Ichancy لـ {name}',
+    'players.credit.forPlayer': 'إيداع إلى {name}',
+    'players.debit.forPlayer': 'سحب من {name}',
     'players.link.confirmTitle': 'إنشاء حساب Ichancy؟',
     'players.link.confirmDescription':
       'سيحصل {name} على حساب لعب على وكيل Ichancy الخاص بالمشغّل، وهو ما يسمح بإضافة رصيد إيداعاته الموافق عليها.',
@@ -337,11 +344,13 @@ export const playerMessages = defineMessages({
     'players.credit.amountLabel': 'المبلغ المطلوب منحه ({currency})',
     'players.credit.amountPlaceholder': '0.00',
     'players.credit.amountRequired': 'أدخل المبلغ المطلوب منحه.',
-    'players.credit.amountFormat': 'أرقام وخانتان عشريتان على الأكثر — 25000.00 وليس 25,000 أو 2.5e4.',
+    'players.credit.amountFormat':
+      'أرقام وخانتان عشريتان على الأكثر — 25000.00 وليس 25,000 أو 2.5e4.',
     'players.credit.amountTooSmall': 'يجب أن يكون المبلغ أكبر من صفر.',
     'players.credit.reasonLabel': 'السبب',
     'players.credit.reasonPlaceholder': 'لماذا يُضاف الرصيد لهذا اللاعب.',
-    'players.credit.reasonRequired': 'اذكر السبب. من يسوّي نقد المكتب سيقرأه مقابل هذا الرصيد لاحقاً.',
+    'players.credit.reasonRequired':
+      'اذكر السبب. من يسوّي نقد المكتب سيقرأه مقابل هذا الرصيد لاحقاً.',
     'players.credit.reasonTooLong': 'اجعله ضمن {max} حرفاً؛ هذا {length}.',
     'players.credit.reasonCounter': '{length} من {max}',
     'players.credit.review': 'مراجعة إضافة الرصيد',

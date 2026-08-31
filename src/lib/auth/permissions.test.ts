@@ -33,7 +33,7 @@ describe('the role table', () => {
 });
 
 describe('PLATFORM_ADMIN is the owner superset — it holds everything', () => {
-  it('manages the platform: operators, staff, and every operator\'s finance balances', () => {
+  it("manages the platform: operators, staff, and every operator's finance balances", () => {
     expect(can('PLATFORM_ADMIN', 'tenants.manage')).toBe(true);
     expect(can('PLATFORM_ADMIN', 'admins.read')).toBe(true);
     expect(can('PLATFORM_ADMIN', 'admins.write')).toBe(true);

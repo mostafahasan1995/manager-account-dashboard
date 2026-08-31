@@ -1,4 +1,5 @@
 import { screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { HttpResponse, delay, http } from 'msw';
 import { toast } from 'sonner';
 import { describe, expect, it, vi } from 'vitest';
@@ -191,5 +192,72 @@ describe('in Arabic', () => {
 
     expect(await screen.findByRole('heading', { name: 'Players' })).toBeInTheDocument();
     expect(document.documentElement.getAttribute('dir')).toBe('ltr');
+  });
+});
+
+describe('the deposit and withdrawal actions on a row', () => {
+  it('opens the deposit form for the player whose row was pressed', async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole('button', { name: 'Deposit to Karim Nasser' }));
+
+    // The dialog names the player, so an operator cannot credit the wrong one from a long list.
+    expect(await screen.findByRole('dialog')).toHaveTextContent(/Karim Nasser/);
+    expect(screen.getByLabelText(/Amount/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/reason/i)).toBeInTheDocument();
+  });
+
+  it('opens the withdrawal form for the player whose row was pressed', async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole('button', { name: 'Withdraw from Karim Nasser' }));
+
+    expect(await screen.findByRole('dialog')).toHaveTextContent(/Karim Nasser/);
+  });
+
+  it('asks for both required fields before it will go on', async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole('button', { name: 'Deposit to Karim Nasser' }));
+    // Straight to the confirm step with nothing typed: both fields must object.
+    await user.click(await screen.findByRole('button', { name: /review/i }));
+
+    const errors = await screen.findAllByRole('alert');
+    expect(errors.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('keeps the deposit receipt on the page after the dialog closes', async () => {
+    // A list screen has nowhere else to put it. Without this, the outcome of a money action fired
+    // from a row would vanish with the dialog that raised it.
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole('button', { name: 'Deposit to Karim Nasser' }));
+    // Above the 25,000.00 casino minimum the mock enforces, exactly as the backend does — a
+    // smaller figure is refused with a 422 and the dialog rightly stays open on the error.
+    await user.type(await screen.findByLabelText(/Amount/), '30000');
+    await user.type(screen.getByLabelText(/reason/i), 'cash in office');
+    await user.click(screen.getByRole('button', { name: /review/i }));
+    await user.click(await screen.findByRole('button', { name: /^Credit /i }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
+    // The receipt names the player — which the detail page never has to, because there the player
+    // is the whole screen. On a list, "which one was that?" is a real question.
+    expect(
+      await screen.findByText(/Ichancy credits Karim Nasser with .* in a moment/),
+    ).toBeInTheDocument();
+  });
+
+  it('does not offer either action to a role that may not decide money', async () => {
+    renderPage('/players', 'SUPPORT');
+
+    await screen.findByText('Karim Nasser');
+    expect(screen.queryByRole('button', { name: /^Deposit to/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Withdraw from/ })).not.toBeInTheDocument();
   });
 });

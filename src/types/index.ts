@@ -10,3 +10,4 @@ export * from './health';
 export * from './agent-float';
 export * from './shamcash';
 export * from './platform-finance';
+export * from './telegram-destination';

@@ -10,6 +10,8 @@ import type {
   ReconciliationBreak,
   Tenant,
   TenantFinanceRow,
+  DiscoveredChat,
+  TelegramDestination,
 } from '@/types';
 
 /**
@@ -1529,6 +1531,137 @@ export const mockTenantFinance = (): TenantFinanceRow[] => [
     // Never fetched: the expensive columns start here and a Refresh fills them in.
     usdt: { status: 'not_loaded' },
     shamCash: { status: 'not_loaded' },
+  },
+];
+
+/**
+ * Where the demo operator's bot publishes.
+ *
+ * THREE ROWS, ONE PER STATE THE SCREEN HAS TO RENDER DIFFERENTLY, because a fixture set where
+ * everything is healthy proves only that the happy path draws:
+ *   1. a working supergroup — verified recently, publishing;
+ *   2. a channel that has never been verified since it was bound (a state, not an error);
+ *   3. a group the bot has been removed from — `lastError` set, which is the row the whole screen
+ *      exists to make visible, and which looks identical to a healthy one in every other column.
+ */
+export const mockTelegramDestinations: TelegramDestination[] = [
+  {
+    id: 'a1f0c2d3-0000-4000-8000-000000000001',
+    chatId: '-1001234567890',
+    chatType: 'SUPERGROUP',
+    telegramUrl: 'https://t.me/cashier_ops',
+    title: 'Cashier ops',
+    username: 'cashier_ops',
+    displayName: null,
+    categories: ['DEPOSIT', 'WITHDRAWAL', 'NEW_PLAYER', 'SYSTEM_ALERT'],
+    isActive: true,
+    lastVerifiedAt: minutesAgo(20),
+    lastError: null,
+    lastPublishedAt: minutesAgo(6),
+    createdAt: '2026-08-01T09:00:00.000Z',
+    updatedAt: minutesAgo(6),
+  },
+  {
+    id: 'a1f0c2d3-0000-4000-8000-000000000002',
+    chatId: '-1009876543210',
+    chatType: 'CHANNEL',
+    telegramUrl: 'https://t.me/cashier_reports',
+    title: 'Cashier reports',
+    username: 'cashier_reports',
+    displayName: 'Daily reports',
+    categories: ['REPORT'],
+    isActive: true,
+    lastVerifiedAt: null,
+    lastError: null,
+    lastPublishedAt: null,
+    createdAt: '2026-08-20T11:30:00.000Z',
+    updatedAt: '2026-08-20T11:30:00.000Z',
+  },
+  {
+    id: 'a1f0c2d3-0000-4000-8000-000000000003',
+    chatId: '-1005555000111',
+    chatType: 'GROUP',
+    telegramUrl: null,
+    title: 'Old finance group',
+    username: null,
+    displayName: null,
+    categories: ['DEPOSIT'],
+    isActive: true,
+    lastVerifiedAt: '2026-08-10T08:00:00.000Z',
+    // Telegram's own words, verbatim — never our paraphrase.
+    lastError: 'Forbidden: bot was kicked from the group chat',
+    lastPublishedAt: '2026-08-10T08:00:00.000Z',
+    createdAt: '2026-07-15T07:00:00.000Z',
+    updatedAt: '2026-08-10T08:00:00.000Z',
+  },
+];
+
+/**
+ * The chats the demo operator's bot has been added to — the pick-list.
+ *
+ * FOUR ROWS, one per situation the picker renders differently, and the FIRST is the whole reason
+ * this feature exists:
+ *   1. a PRIVATE supergroup — no username at all, so there is no link an operator could paste and
+ *      no way to bind it except from this list;
+ *   2. a public group already bound as a destination, which must be marked rather than offered;
+ *   3. a group where the bot is only a member — bindable, and annotated with what to fix;
+ *   4. a channel the bot was removed from, kept rather than hidden because "the bot was kicked" is
+ *      the answer to the question the operator is about to ask.
+ */
+export const mockDiscoveredChats: DiscoveredChat[] = [
+  {
+    chatId: '-1002233445566',
+    chatType: 'SUPERGROUP',
+    title: 'Night shift (private)',
+    // The point of the fixture: nothing to paste, nothing to resolve, only this row.
+    username: null,
+    status: 'ADMINISTRATOR',
+    isAdministrator: true,
+    isPresent: true,
+    canPost: true,
+    alreadyBound: false,
+    firstSeenAt: '2026-08-28T12:00:00.000Z',
+    lastSeenAt: minutesAgo(12),
+  },
+  {
+    chatId: '-1001234567890',
+    chatType: 'SUPERGROUP',
+    title: 'Cashier ops',
+    username: 'cashier_ops',
+    status: 'ADMINISTRATOR',
+    isAdministrator: true,
+    isPresent: true,
+    canPost: true,
+    // Matches mockTelegramDestinations[0]; the handler recomputes this, the value is the default.
+    alreadyBound: true,
+    firstSeenAt: '2026-08-01T08:55:00.000Z',
+    lastSeenAt: minutesAgo(40),
+  },
+  {
+    chatId: '-1007788990011',
+    chatType: 'GROUP',
+    title: 'Support escalations',
+    username: null,
+    status: 'MEMBER',
+    isAdministrator: false,
+    isPresent: true,
+    canPost: true,
+    alreadyBound: false,
+    firstSeenAt: '2026-08-25T15:20:00.000Z',
+    lastSeenAt: '2026-08-25T15:20:00.000Z',
+  },
+  {
+    chatId: '-1005555000111',
+    chatType: 'CHANNEL',
+    title: 'Old finance group',
+    username: null,
+    status: 'KICKED',
+    isAdministrator: false,
+    isPresent: false,
+    canPost: false,
+    alreadyBound: false,
+    firstSeenAt: '2026-07-15T06:55:00.000Z',
+    lastSeenAt: '2026-08-10T08:00:00.000Z',
   },
 ];
 

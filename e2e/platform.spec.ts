@@ -49,7 +49,22 @@ test('picking an operator changes what every other screen answers for', async ({
   await expect(page.getByRole('button', { name: 'P0BB31', exact: true })).toBeHidden();
 });
 
-test('a platform admin manages staff but never decides money', async ({ page }) => {
+/**
+ * THIS TEST USED TO ASSERT THE OPPOSITE, and was failing before this change.
+ *
+ * It was written when `PLATFORM_ADMIN` was deliberately NOT a superset of `SUPER_ADMIN` — it ran the
+ * platform and never decided money. The operator reversed that: they hold only the platform-admin
+ * account and needed it to do everything, so it is now the OWNER SUPERSET and holds every capability
+ * (see the long note on its entry in `src/lib/auth/permissions.ts`, and §3 of docs/API-CONTRACT.md).
+ * The console was changed; this test was not, so it has been red ever since.
+ *
+ * Rewritten to assert what is now true, and to keep the half that never changed: a platform admin
+ * still manages staff, and it can now also decide money — unbounded by an approval limit, but still
+ * landing in the ledger and the audit trail like anybody else's decision.
+ */
+test('a platform admin manages staff AND decides money, as the owner superset', async ({
+  page,
+}) => {
   await signIn(page, PLATFORM_CODE);
 
   await page.goto('/staff');
@@ -59,8 +74,7 @@ test('a platform admin manages staff but never decides money', async ({ page }) 
   await page.getByRole('button', { name: 'K7QP42', exact: true }).click();
   const panel = page.getByRole('dialog');
   await expect(panel).toBeVisible();
-  await expect(panel.getByRole('button', { name: /approve/i })).toBeHidden();
-  await expect(panel.getByRole('button', { name: /claim to review/i })).toBeHidden();
+  await expect(panel.getByRole('button', { name: /claim to review/i })).toBeVisible();
 });
 
 test('an operator’s own role never sees the picker', async ({ page }) => {

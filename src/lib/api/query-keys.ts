@@ -161,8 +161,46 @@ export const healthKeys = {
  * reconciliation would make assigning a break — or any other prefix invalidation on that page —
  * refetch a piece of chrome for everybody. They are related in meaning and unrelated in cache
  * lifetime, the same argument `tenantHealthKeys` makes above.
+ *
+ * ── THE COST OF THAT, WHICH IS REAL ───────────────────────────────────────────────────────────
+ * Nothing else's prefix reaches this key, so every mutation that moves money has to name it. Four
+ * families do — manual credits and debits, the deposit actions that end in a credit, and the float
+ * correction — and each goes through `refreshAgentFloat` in queries.ts rather than invalidating
+ * here directly, because for most of them the ledger has not moved yet when the response lands. Add
+ * a fifth money mutation and it must do the same; a prefix will not do it for you.
  */
 export const agentFloatKeys = {
   all: ['agent-float'] as const,
   current: () => [...agentFloatKeys.all, 'current'] as const,
+};
+
+/**
+ * Where an operator's bot publishes.
+ *
+ * Its own root rather than a branch of `tenantKeys`: an operator manages these on their own screen,
+ * and a rename on the Tenants page has nothing to say about them. `check(id)` is deliberately NOT a
+ * query key — verifying a destination is an action that costs a Telegram round trip and writes to
+ * the row, so it is a mutation whose result the page holds, never a cached read that a re-render
+ * could re-fire.
+ */
+export const telegramDestinationKeys = {
+  all: ['telegram-destinations'] as const,
+  list: () => [...telegramDestinationKeys.all, 'list'] as const,
+  detail: (id: string) => [...telegramDestinationKeys.all, 'detail', id] as const,
+};
+
+/**
+ * The chats the bot has been added to — a SEPARATE key from the destinations above.
+ *
+ * They change for different reasons and mostly at different times: a destination changes when
+ * somebody on this screen edits one, while this list changes when somebody adds the bot to a group
+ * inside Telegram, which no console action causes. Sharing one key would refetch each list every
+ * time the other moved.
+ *
+ * The one place they DO touch is `alreadyBound`, which is computed from the active destinations, so
+ * binding and removing invalidate both. That is a deliberate two-line cost, not a missing merge.
+ */
+export const telegramChatKeys = {
+  all: ['telegram-chats'] as const,
+  list: () => [...telegramChatKeys.all, 'list'] as const,
 };

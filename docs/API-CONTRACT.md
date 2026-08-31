@@ -122,8 +122,13 @@ the operator picker, and re-submits with the chosen slug.
 
 `AdminRole`: `PLATFORM_ADMIN | SUPER_ADMIN | FINANCE_ADMIN | REVIEWER | SUPPORT | VIEWER`.
 
-`PLATFORM_ADMIN` runs the _platform_ (tenants). It is deliberately **not** a superset of
-`SUPER_ADMIN`, which runs _one tenant_. The console must not treat either as implying the other.
+`PLATFORM_ADMIN` runs the _platform_ (tenants) **and is the owner superset**: by the operator's
+explicit decision it holds every capability every other role holds, plus the platform-level ones.
+This reverses the original design, which deliberately kept it out of money decisions — see the long
+note on its entry in `permissions.ts`. Its money decisions are unbounded by an approval limit (the
+backend `RolesGuard` and the approval-limit evaluator both exempt it) and still land in the ledger
+and the audit trail like anybody else's. `SUPER_ADMIN` runs _one tenant_ and still cannot touch
+tenants.
 
 Every row names the `Capability` in `src/lib/auth/permissions.ts` that mirrors it, and
 `endpoints.contract.test.ts` fails if a capability exists there with no row here. Re-read against
@@ -145,13 +150,22 @@ the backend constants on 2026-08-25.
 | `reconciliation.act`          | SUPER_ADMIN, FINANCE_ADMIN                                            |
 | `tenants.manage`              | PLATFORM_ADMIN                                                        |
 | `platformFinance.read`        | PLATFORM_ADMIN                                                        |
+| `telegramDestinations.read`   | SUPER_ADMIN, FINANCE_ADMIN, REVIEWER, PLATFORM_ADMIN                  |
+| `telegramDestinations.write`  | SUPER_ADMIN, PLATFORM_ADMIN                                           |
+| `reports.publish`             | SUPER_ADMIN, FINANCE_ADMIN, PLATFORM_ADMIN                            |
 
-**`PLATFORM_ADMIN` reads across the platform and writes almost nothing**, and that shape is the
-point rather than an accident. It has to be able to answer "is this operator working?", which is
-reading; it must not decide money, because approving is bounded by an `admin_approval_limits` row
-that a platform admin has none of, and a role that could approve without a limit is the hole those
-limits exist to close. It is a reader on players, deposits, rails and reconciliation, and a writer
-only on tenants and on staff.
+**`PLATFORM_ADMIN` was once a reader that wrote almost nothing.** That is no longer true, and the
+reversal was deliberate: the operator holds only the platform-admin account and needed it to do
+everything. WHICH tenant an action touches is decided by the tenant it is operating in — its home
+(tenant zero) when nothing is selected, or another once picked in the switcher. The `X-Tenant-Id`
+override is how it REACHES another tenant, never a gate on whether the action is allowed.
+
+**`telegramDestinations.write` is the opposite boundary to payment destinations, on purpose.** The
+platform admin is kept out of an operator's payout accounts because a wrong payout address costs the
+operator money; a wrong Telegram chat leaks that same operator's deposit cards into the wrong group,
+and the operator is both the party harmed and the party who knows which group is right. So their own
+`SUPER_ADMIN` owns it. Same question asked twice — who is harmed by a wrong value — with different
+answers, rather than one blanket rule.
 
 `admins.write` carries one extra rule the table cannot express: `mayGrantRole` refuses to hand out
 `PLATFORM_ADMIN` unless the actor already holds it **and** is operating with no tenant override,
@@ -286,33 +300,34 @@ Roles, read out of `src/modules/player/player.constants.ts` on 2026-08-25 and ma
 | `POST /ichancy-account` | `PLAYER_ICHANCY_MANAGER_ROLES` | SUPER_ADMIN, FINANCE_ADMIN                                    |
 | `POST /debit`           | `PLAYER_DEBIT_DECIDE_ROLES`    | SUPER_ADMIN, FINANCE_ADMIN, REVIEWER                          |
 
-`PLATFORM_ADMIN` is a **reader here and nothing more**, and the backend argues why: the platform
-console has to be able to show a tenant's state to answer "is this operator working?", and reading
-is the whole of that. It is absent from the Ichancy-account list on purpose — that call writes to a
-third party under the tenant's own agent and cannot be undone from here.
+The table above is the backend's per-route constant, and `PLATFORM_ADMIN` appears in it only as a
+reader. That is the constant, not the effective answer: the backend `RolesGuard` short-circuits
+`PLATFORM_ADMIN` past every role list (see §3), so the owner account satisfies these routes too. The
+constants are left narrow deliberately — they still describe who a TENANT's roles are — and the
+superset is expressed in one place rather than smeared across every list.
 
 `GET /:id/balance` is ONE upstream Ichancy call, through Cloudflare, per player. There is no bulk
 form. The console gates these at four concurrently across the whole app (`src/lib/concurrency.ts`);
 a page of them fired at once earns challenges instead of numbers.
 
-> **There is no manual credit, on either side, and that is deliberate.**
+> **A manual credit EXISTS, and it is not under `/players`.** This block used to say there was no
+> manual credit at all; that was true when it was written and has not been since. Corrected here
+> because the two halves of this document disagreed, and the wrong half is the one somebody reads
+> before writing a screen.
 >
-> `POST /v1/admin/players/:id/credit` does not exist. Checked against the backend on 2026-08-25:
-> `player-admin.controller.ts` serves list, get, balance, ichancy-account and debit, and nothing
-> else. `IchancyPort.creditPlayer` exists but is reached only by the deposit crediting path
-> (`deposit-credit.service.ts`), never by an admin route.
+> `POST /v1/admin/players/:id/credit` still does not exist and never will. Crediting a player is
+> **`POST /v1/admin/deposits/manual`** (§ Deposits above): it records a MANUAL DEPOSIT on the
+> internal `MANUAL_CREDIT` rail and hands it to the existing deposit → approve → credit spine. So
+> there is no second money path — the same worker, the same Ichancy verify-by-delta, the same float
+> guard, and the same four-eyes rule as any other deposit.
 >
-> The console used to ship a client for it anyway — `playersApi.credit`, `useCreditPlayer`,
-> `playerCreditSchema`, `CreditPlayerBody` and a `PlayerCreditStatus` enum — complete, carefully
-> commented, called by nothing and mocked by nothing. It was removed on 2026-08-25 rather than
-> completed (CC-002). Money moves INTO a player's account by one route only: a deposit somebody
-> reviewed and approved.
+> That answers the question this block used to leave open. Crediting is the direction where a
+> mistake spends the operator's float rather than the player's, and it needed `admin_approval_limits`
+> to bound it — riding the deposit spine is what gives it that bound, rather than exempting it.
+> A large manual credit lands in a second approver's queue exactly like a large real deposit.
 >
-> Note which direction survived. `POST /:id/debit` takes money back OUT and is built; crediting is
-> the direction where a mistake spends the operator's float rather than the player's, and it is the
-> direction with no reviewer, no queue and no second approver in front of it. If it is ever built,
-> it needs an answer to whether `admin_approval_limits` bounds it — the deposit path is bounded, and
-> a manual credit that is not would be a way around that bound.
+> The console reaches it as `playersApi.credit(id, …)`, which puts `playerId` in the BODY because the
+> route lives under `/deposits` — the module that owns the machinery — not under `/players`.
 
 `AdminPlayerView`: `id, telegramUserId, telegramUsername, firstName, lastName, languageCode, status,
 currencyCode, ichancyLinked, createdAt, lastSeenAt, ichancyPlayerId, ichancyLogin,
@@ -719,6 +734,143 @@ Note what this makes stale elsewhere: `docs/TENANT-OPERATIONS.md` §5 and §7 st
 register-webhook, push-menus and activate as manual steps a human performs after creation. They are
 not, and rewriting those two sections is tracked as CC-017.
 
+### Telegram destinations — `/v1/admin/telegram/destinations`
+
+Where an operator's bot publishes. **No tenant is ever named** — not in a path, not in a body: the
+operator comes from the session (and, for a platform admin, the `X-Tenant-Id` override), and the
+Prisma tenant-scope extension turns another operator's id into a 404 rather than a leak.
+
+**No bot token, in either direction.** The operator's bot is already registered against their tenant
+(`tenants.bot_token_enc`); the server loads it. Nothing here accepts a token, so a caller cannot
+publish through somebody else's bot, and nothing here returns one.
+
+```
+GET    /v1/admin/telegram/destinations            -> TelegramDestinationView[]
+POST   /v1/admin/telegram/destinations            { url, displayName?, categories[], isActive? }
+PATCH  /v1/admin/telegram/destinations/:id        { displayName?, categories?, isActive? }
+DELETE /v1/admin/telegram/destinations/:id        -> deactivates; never deletes
+POST   /v1/admin/telegram/destinations/:id/check  -> TelegramDestinationCheckView (sends nothing)
+POST   /v1/admin/telegram/destinations/:id/test   -> TelegramDestinationCheckView (posts a message)
+```
+
+`TelegramDestinationView`: `id, chatId, chatType, telegramUrl, title, username, displayName,
+categories, isActive, lastVerifiedAt, lastError, lastPublishedAt, createdAt, updatedAt`.
+
+`chatId` is a **string**: a Telegram chat id is signed 64-bit and a channel id such as
+`-1001234567890` is past what a JS number holds exactly. Same rule as money, same reason.
+
+`chatType`: `GROUP | SUPERGROUP | CHANNEL`. There is no `PRIVATE` — a DM is not somewhere an
+operator publishes reports, and allowing one would let somebody redirect a deposit feed into their
+own inbox. The database refuses it too (no enum member, plus a `chat_id < 0` CHECK).
+
+`categories` is the `NotificationCategory` enum: `NEW_PLAYER, DEPOSIT, WITHDRAWAL, PROFIT,
+SHAM_CASH_DEPOSIT, SHAM_CASH_WITHDRAWAL, USDT_DEPOSIT, USDT_WITHDRAWAL, PLAYER_STATUS_CHANGE,
+REPORT, SYSTEM_ALERT`. It may never be empty — enforced in the DTO, in the service, and by a CHECK
+constraint, because a destination subscribed to nothing is a row that silently does nothing.
+
+> **Only five categories have a producer today**: `DEPOSIT`, `WITHDRAWAL`, `NEW_PLAYER`, `REPORT`
+> and `SYSTEM_ALERT`. `PROFIT` has no source of truth (nothing computes GGR or revenue),
+> `SHAM_CASH_*` has none (Sham Cash is a read-only balance scraper with no transaction feed),
+> `USDT_*` has none (the chain layer verifies one deposit at a time, it does not tail transfers),
+> and `PLAYER_STATUS_CHANGE` writes transitions but emits no event. Subscribing to one of these is
+> allowed and receives nothing — the console says so beside the checkbox rather than hiding it.
+
+**`POST` never saves a claim.** The server resolves the pasted `url` through the operator's own bot
+(`getChat`), then checks membership, administrator status and the post right (`getChatMember`) as
+three separate facts, and writes the row only if all three pass. A row existing therefore means the
+bot has proved it can post there. A refusal is a 400 whose `details.reason` is one of:
+
+| `reason`         | What it means, and who fixes it                                        |
+| ---------------- | ---------------------------------------------------------------------- |
+| `INVALID_URL`    | Not a Telegram group/channel reference. A `t.me/+…` invite link cannot be resolved by a bot at all — pick the group from `GET /v1/admin/telegram/chats` instead. |
+| `NOT_FOUND`      | Telegram does not know the chat, or the bot cannot see it              |
+| `PRIVATE_CHAT`   | It resolved, but it is a one-to-one chat                               |
+| `BOT_NOT_MEMBER` | Someone must add the bot to the group                                  |
+| `BOT_NOT_ADMIN`  | A group administrator must promote it                                  |
+| `BOT_CANNOT_POST`| Channel admin with "Post messages" off — turn the permission on        |
+| `DUPLICATE`      | That chat is already an active destination for this operator           |
+
+They are separate values because they fail separately and are fixed by different people. Collapsing
+them into one error is the failure this endpoint exists to remove.
+
+`PATCH` deliberately **cannot change the chat**. The row's meaning is "the bot proved it can post
+_here_", and repointing would either carry that proof to a chat it was never made about or re-verify
+silently behind an update. Remove and add instead — and because `DELETE` only deactivates, re-adding
+the same chat **revives the existing row** rather than colliding with the `(tenant_id, chat_id)`
+unique index.
+
+`TelegramDestinationCheckView`: `ok, isMember, isAdministrator, canPost, reason, detail, title,
+messageSent`. Three separate booleans, not one — see above. `detail` is Telegram's own words when it
+gave any, never a paraphrase. `check` writes freshness to the row and sends nothing; `test` posts a
+real message, which is the only thing that actually proves delivery (a permission can change between
+the two calls).
+
+### Chats the bot is in — `/v1/admin/telegram/chats`
+
+```
+GET /v1/admin/telegram/chats -> DiscoveredChatView[]
+```
+
+**Why this exists: without it a private group cannot be bound at all.** `POST
+/v1/admin/telegram/destinations` resolves what the operator sends through `getChat`, which needs an
+`@username` or a chat id. A public group has a username. A private group has neither — its only
+shareable handle is an invite link, and the Bot API has no method that resolves one (a bot can
+neither follow nor look up a `t.me/+…`). There is also no "list my chats" call. So the operator was
+in a loop with no exit: add the bot, paste the only link the group has, get `INVALID_URL`.
+
+Telegram does volunteer the chat id **once**, by pushing a `my_chat_member` update the moment the
+bot is added, promoted, demoted or removed. That update type was already subscribed
+(`TELEGRAM_ALLOWED_UPDATES`), already persisted and already deduped — and nothing consumed it, so
+the one obtainable copy of that fact was discarded. It is now recorded in `telegram_discovered_chats`
+and read back here.
+
+`DiscoveredChatView`: `chatId, chatType, title, username, status, isAdministrator, isPresent,
+canPost, alreadyBound, firstSeenAt, lastSeenAt`.
+
+`status` is the bot's own membership in Telegram's vocabulary: `CREATOR | ADMINISTRATOR | MEMBER |
+RESTRICTED | LEFT | KICKED`. Kept whole rather than collapsed into a boolean because each is fixed
+by a different action, and the console prints a different sentence for each.
+
+**A row here is an observation, never a permission.** Nothing is ever published to a chat because it
+appears in this list. Binding still goes through the resolver and still re-asks Telegram at that
+moment, so "a destination row means the bot PROVED it can post there" is unchanged. The `chatId`
+from a row here is simply a valid value for `POST /v1/admin/telegram/destinations`'s `url` field —
+which has always accepted a numeric chat id, and which verifies it like any other reference.
+
+`isAdministrator`, `isPresent` and `canPost` are a **snapshot** of the last sighting and may be
+stale; the console annotates rows with them and never disables a row because of them, since an
+operator who promoted the bot a minute ago would otherwise be locked out of a group that now works.
+`alreadyBound` is the exception: it is computed from the operator's own active destinations, so it
+is current, and the console marks those rows instead of offering them.
+
+Rows for chats the bot has **left or been removed from are kept and returned**, flagged by `status`
+and `isPresent`. "The bot was kicked from this group" is the answer to the question the operator is
+about to ask, and a row that quietly disappears says nothing.
+
+`GET` is readable by the same roles as the destination list (`SUPER_ADMIN`, `FINANCE_ADMIN`,
+`REVIEWER`, `PLATFORM_ADMIN`). There is no write route: rows are created by the worker while
+handling a Telegram update, never by a client.
+
+### Reports to Telegram — `/v1/admin/reports`
+
+```
+POST /v1/admin/reports/activity/publish   { period?: 'day' | 'week' | 'month' }  (default 'month')
+     -> { title, considered, delivered, failed }
+```
+
+Builds the activity report with the **existing** `ActivityReportService` — the same code the
+`/report` bot command and the scheduled cron use — and publishes it to every active destination
+subscribed to `REPORT`. Nothing is recomputed here; the body travels as the rendered Telegram HTML
+that service already produces.
+
+`considered: 0` is a legitimate answer, not a failure: no destination subscribes to `REPORT` yet.
+The console says exactly that rather than reporting a successful send of nothing.
+
+There is deliberately **no GET** for the report: it is rendered Telegram HTML on the server, so a GET
+would hand the console markup it cannot lay out. Splitting the service into data and rendering is
+the prerequisite for that, and it is not part of this change.
+
+### Health (public)
 ### Health (public)
 
 ```

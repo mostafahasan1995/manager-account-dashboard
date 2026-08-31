@@ -1,11 +1,12 @@
 import {
+  type QueryClient,
   useInfiniteQuery,
   useMutation,
   useQueries,
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 
 import { isCurrentLimit } from '@/types';
 import type {
@@ -36,6 +37,9 @@ import type {
   UpdatePlatformDefaultsBody,
   SetExchangeRateBody,
   SetShamCashSessionBody,
+  CreateTelegramDestinationBody,
+  UpdateTelegramDestinationBody,
+  PublishReportBody,
 } from '@/types';
 
 import {
@@ -53,6 +57,9 @@ import {
   shamCashApi,
   platformDefaultsApi,
   walletBalancesApi,
+  telegramChatsApi,
+  telegramDestinationsApi,
+  reportsApi,
 } from './endpoints';
 import { createLimiter } from '@/lib/concurrency';
 import { isAbortError } from '@/lib/utils';
@@ -73,6 +80,8 @@ import {
   platformDefaultsKeys,
   platformFinanceKeys,
   walletBalanceKeys,
+  telegramChatKeys,
+  telegramDestinationKeys,
 } from './query-keys';
 
 /**
@@ -129,6 +138,10 @@ export const HEALTH_POLL_MS = 120_000;
  * fast as the queue is that it never buys anything to be quicker — the float moves when a deposit
  * is credited, and by the time it is close enough to the watermark to matter, being two minutes
  * behind changes nothing an operator would do differently.
+ *
+ * This is the RESTING rate, and it stays that. The one moment two minutes IS too slow is the few
+ * seconds after somebody in this console moved money themselves, and that is a temporary burst on
+ * top of this number rather than a change to it — see the catch-up section below.
  */
 export const AGENT_FLOAT_POLL_MS = 120_000;
 
@@ -141,6 +154,123 @@ export const AGENT_FLOAT_POLL_MS = 120_000;
  * knock operators offline in the name of watching them. The screen refetches on demand.
  */
 export const TENANT_HEALTH_STALE_MS = 5 * 60_000;
+
+// ── The agent float's catch-up burst ───────────────────────────────────────────────────────────
+
+/**
+ * How fast the float is re-read while it is catching up, and for how long.
+ *
+ * Three seconds for thirty: at most ten extra reads of the cheapest handler in the API — one ledger
+ * figure and a watermark, no Ichancy call, no pagination — and only ever after an action a person
+ * deliberately took. Thirty seconds is sized for the slow half of what it is waiting on: the outbox
+ * relay ticks every second, and the Ichancy round trip behind T2 is the part that actually varies.
+ *
+ * The window is a CEILING, not an estimate of when the answer arrives. See `refreshAgentFloat` for
+ * why it has to be one.
+ */
+export const AGENT_FLOAT_CATCH_UP_POLL_MS = 3_000;
+export const AGENT_FLOAT_CATCH_UP_WINDOW_MS = 30_000;
+
+/**
+ * A window during which one query polls faster than it normally would.
+ *
+ * Its own object rather than state inside `useAgentFloat` because two unrelated halves of this file
+ * have to reach it: the mutations, which are spread across four sections and know that money moved,
+ * and the pill's query, which knows how often to ask. A `useState` in the hook could not be started
+ * from a mutation in another section, and a module-level `let` could not tell the hook to re-render
+ * when the window closed.
+ */
+export interface FloatCatchUp {
+  /** Open the window, or push back the deadline of one already open. */
+  start: () => void;
+  /** Close it now. It closes by itself; this is for teardown and for tests. */
+  stop: () => void;
+  /** The refetch interval to use at this instant — the burst rate while open, resting when not. */
+  intervalMs: () => number;
+  /** Notified when that number CHANGES, and not otherwise. Returns the unsubscribe. */
+  subscribe: (listener: () => void) => () => void;
+}
+
+export function createFloatCatchUp(config: {
+  restingMs: number;
+  burstMs: number;
+  windowMs: number;
+}): FloatCatchUp {
+  const listeners = new Set<() => void>();
+  let deadline: ReturnType<typeof setTimeout> | null = null;
+
+  const notify = (): void => {
+    for (const listener of listeners) listener();
+  };
+
+  /** Cancels the pending deadline, and says whether there was one — i.e. whether this changed. */
+  const cancel = (): boolean => {
+    if (deadline === null) return false;
+    clearTimeout(deadline);
+    deadline = null;
+    return true;
+  };
+
+  return {
+    start: () => {
+      const wasOpen = cancel();
+      deadline = setTimeout(() => {
+        deadline = null;
+        notify();
+      }, config.windowMs);
+      // A second money action while the window is open moves the deadline and nothing else. The
+      // interval is already the burst rate, and re-notifying would re-render every observer of the
+      // pill to hand it back a number it is already using.
+      if (!wasOpen) notify();
+    },
+    stop: () => {
+      if (cancel()) notify();
+    },
+    intervalMs: () => (deadline === null ? config.restingMs : config.burstMs),
+    subscribe: (listener) => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+  };
+}
+
+/** One window for the whole console, because there is one float pill in one top bar. */
+export const agentFloatCatchUp = createFloatCatchUp({
+  restingMs: AGENT_FLOAT_POLL_MS,
+  burstMs: AGENT_FLOAT_CATCH_UP_POLL_MS,
+  windowMs: AGENT_FLOAT_CATCH_UP_WINDOW_MS,
+});
+
+/**
+ * What every mutation that can move the float calls: re-read it, then keep re-reading it briefly.
+ *
+ * ── WHY INVALIDATING ON ITS OWN CANNOT WORK HERE ──────────────────────────────────────────────
+ * THE FLOAT HAS NOT MOVED YET WHEN THE RESPONSE ARRIVES. `POST /v1/admin/deposits/manual` answers
+ * 202 ACCEPTED, and approving posts only T1 — RAIL_CLEARING and PLAYER_LIABILITY, neither of which
+ * is the agent float. The float is moved by T2, which a BullMQ worker posts after the outbox
+ * relay's next tick and a real Ichancy round trip: seconds after this promise resolved. So an
+ * invalidation at settle refetches the OLD ledger figure, marks it fresh, and the pill sits on it
+ * until the 120s timer or a window focus — which is exactly the stale badge this code exists to
+ * fix, arrived at by doing the obviously correct thing.
+ *
+ * Polling is the only mechanism there is. Neither repo has a websocket or an SSE channel to wait
+ * on, and the 202 body carries the deposit's status, not a balance, so the post-credit figure is
+ * not obtainable except by asking again.
+ *
+ * ── WHY THE WINDOW IS BOUNDED BY THE CLOCK AND NOT BY THE VALUE ───────────────────────────────
+ * A credit above the four-eyes threshold answers PENDING_SECOND_APPROVAL and posts NOTHING. The
+ * float legitimately never moves, and a burst that stopped when it saw a change would poll for
+ * ever. So the window ends after `AGENT_FLOAT_CATCH_UP_WINDOW_MS` whatever happened, and the worst
+ * case is ten cheap reads that all agreed.
+ */
+function refreshAgentFloat(queryClient: QueryClient): Promise<void> {
+  // Before the invalidation, so the refetch it triggers is the burst's first read rather than a
+  // read at the resting rate that the burst then repeats.
+  agentFloatCatchUp.start();
+  return queryClient.invalidateQueries({ queryKey: agentFloatKeys.all });
+}
 
 // ── Deposits ───────────────────────────────────────────────────────────────────────────────────
 
@@ -168,39 +298,62 @@ export function useDeposit(id: string | undefined) {
   });
 }
 
-/** Invalidating the whole deposit namespace is intentional — see the module header. */
+/**
+ * Invalidating the whole deposit namespace is intentional — see the module header.
+ *
+ * `movesFloat` is required rather than defaulted, because the six actions below split three and
+ * three and the split is not obvious: approving, retrying a credit and sweeping all end in a
+ * player being credited, which is what debits the agent float; claiming, releasing and rejecting
+ * move a row through the queue and touch no money at all. Making every call site answer is the
+ * cheapest guard against the next money action being added here and quietly inheriting silence —
+ * which is the bug this parameter was introduced to fix, in three places at once.
+ */
 function useDepositMutation<TVariables, TData>(
   mutationFn: (variables: TVariables) => Promise<TData>,
+  { movesFloat }: { movesFloat: boolean },
 ) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn,
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: depositKeys.all });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: depositKeys.all }),
+        movesFloat ? refreshAgentFloat(queryClient) : Promise.resolve(),
+      ]);
     },
   });
 }
 
-export const useClaimDeposit = () => useDepositMutation((id: string) => depositsApi.claim(id));
+export const useClaimDeposit = () =>
+  useDepositMutation((id: string) => depositsApi.claim(id), { movesFloat: false });
 
-export const useReleaseDeposit = () => useDepositMutation((id: string) => depositsApi.release(id));
+export const useReleaseDeposit = () =>
+  useDepositMutation((id: string) => depositsApi.release(id), { movesFloat: false });
 
+/** Approval is what starts the credit, and the credit is what T2 debits the float for. */
 export const useApproveDeposit = () =>
-  useDepositMutation((input: { id: string; body?: ApproveDepositBody }) =>
-    depositsApi.approve(input.id, input.body ?? {}),
+  useDepositMutation(
+    (input: { id: string; body?: ApproveDepositBody }) =>
+      depositsApi.approve(input.id, input.body ?? {}),
+    { movesFloat: true },
   );
 
 export const useRejectDeposit = () =>
-  useDepositMutation((input: { id: string; body: RejectDepositBody }) =>
-    depositsApi.reject(input.id, input.body),
+  useDepositMutation(
+    (input: { id: string; body: RejectDepositBody }) => depositsApi.reject(input.id, input.body),
+    { movesFloat: false },
   );
 
+/** Re-queues a credit that failed. If this one lands, it lands out of the float. */
 export const useRetryCredit = () =>
-  useDepositMutation((input: { id: string; reason?: string }) =>
-    depositsApi.retryCredit(input.id, input.reason),
+  useDepositMutation(
+    (input: { id: string; reason?: string }) => depositsApi.retryCredit(input.id, input.reason),
+    { movesFloat: true },
   );
 
-export const useSweepDeposits = () => useDepositMutation(() => depositsApi.sweep());
+/** The maintenance sweep releases and reaps rows, and credits can come out the far side of it. */
+export const useSweepDeposits = () =>
+  useDepositMutation(() => depositsApi.sweep(), { movesFloat: true });
 
 /**
  * How long a chain verdict is worth showing before it is worth paying for again.
@@ -350,6 +503,11 @@ export function useCreateIchancyAccount() {
  * an unconfirmed debit both mean the console's picture of that account is now older than the
  * account is, and the screen that fired it re-reads the player rather than keeping what it had.
  *
+ * It refreshes the float for the same reason, and it is easy to read this the wrong way round: a
+ * debit takes points OUT of the player and hands them back to the agent, so the pill goes UP. The
+ * float is one side of every movement a credit is the other side of, and this hook used to be the
+ * one money mutation that never mentioned it.
+ *
  * There is no retry here and there must never be one. Mutations already default to `retry: false`
  * (see `createQueryClient`), and this is the endpoint that default exists for: Ichancy has no
  * idempotency key, so an automatic second attempt is a second debit of a real person's money.
@@ -361,7 +519,10 @@ export function useDebitPlayer() {
       playersApi.debit(input.playerId, input.body),
     retry: false,
     onSettled: async () => {
-      await queryClient.invalidateQueries({ queryKey: playerKeys.all });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: playerKeys.all }),
+        refreshAgentFloat(queryClient),
+      ]);
     },
   });
 }
@@ -376,6 +537,9 @@ export function useDebitPlayer() {
  * manual credit IS a deposit, so the queue and the player's deposits panel would otherwise show it
  * only on their next poll (and a large one, routed to a second approver, is a queue item that needs
  * to appear now).
+ *
+ * The float goes through `refreshAgentFloat` rather than a plain invalidation, and the parenthesis
+ * above is the reason: the drop happens when the worker posts T2, which is AFTER this settled.
  */
 export function useCreditPlayer() {
   const queryClient = useQueryClient();
@@ -386,7 +550,7 @@ export function useCreditPlayer() {
     onSettled: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: playerKeys.all }),
-        queryClient.invalidateQueries({ queryKey: agentFloatKeys.all }),
+        refreshAgentFloat(queryClient),
         queryClient.invalidateQueries({ queryKey: depositKeys.all }),
       ]);
     },
@@ -766,11 +930,40 @@ export const useResolveBreak = () =>
     reconciliationApi.resolveBreak(input.id, input.body),
   );
 
-export const useCorrectFloat = () =>
-  useReconciliationMutation((input: { breakId: string; note: string }) =>
-    reconciliationApi.correctFloat(input.breakId, input.note),
-  );
+/**
+ * Writing the ledger float back to what Ichancy says it is.
+ *
+ * The one action on this screen that leaves the shared hook, because it is the one that POSTS A
+ * LEDGER TRANSACTION. `reconciliationKeys.all` does not reach the pill — `agentFloatKeys` is
+ * deliberately outside that prefix, see query-keys.ts — and a correction is precisely a change to
+ * the number the pill shows, so it has to name that key itself.
+ *
+ * It goes through `refreshAgentFloat` like every other money mutation. The transaction here is
+ * written synchronously rather than by a worker, so the burst usually converges on its first read;
+ * paying for a shared, bounded mechanism is still cheaper than a second way of doing this.
+ */
+export function useCorrectFloat() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { breakId: string; note: string }) =>
+      reconciliationApi.correctFloat(input.breakId, input.note),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: reconciliationKeys.all }),
+        refreshAgentFloat(queryClient),
+      ]);
+    },
+  });
+}
 
+/**
+ * Detecting the drift, which is a different thing from correcting it.
+ *
+ * It compares the two figures and opens a break; it writes NO ledger entry. The float it reports is
+ * the float that was already there, so invalidating the pill would spend a read to be told the same
+ * number. Left out on purpose, not by omission — this is the one float action that correctly has
+ * nothing to say to `agentFloatKeys`.
+ */
 export const useSyncFloat = () => useReconciliationMutation(() => reconciliationApi.syncFloat());
 
 /** Read-only check: it writes nothing, so it invalidates nothing. */
@@ -1014,13 +1207,155 @@ export function useHealth() {
  * `retry: false` for the same reason health has it, and one more: the backend endpoint does not
  * exist yet. Until it ships this query answers 404 on every screen, and two retries plus a backoff
  * would turn one dead request into three, forever, in every open tab.
+ *
+ * The interval is READ FROM the catch-up window rather than fixed, which is what lets a mutation in
+ * a different section of this file speed this query up for a few seconds and then let it go. Two
+ * minutes is still where it lives; see `AGENT_FLOAT_POLL_MS` and `refreshAgentFloat`.
  */
 export function useAgentFloat() {
+  const refetchInterval = useSyncExternalStore(
+    agentFloatCatchUp.subscribe,
+    agentFloatCatchUp.intervalMs,
+  );
+
   return useQuery({
     queryKey: agentFloatKeys.current(),
     queryFn: ({ signal }) => agentFloatApi.get(signal),
-    refetchInterval: AGENT_FLOAT_POLL_MS,
+    refetchInterval,
     retry: false,
+  });
+}
+
+// -------------------------------------------------------------------------------------------------
+// Telegram destinations
+// -------------------------------------------------------------------------------------------------
+
+/**
+ * Where this operator's bot publishes.
+ *
+ * No polling. The list only changes when somebody on this screen changes it, and a Telegram binding
+ * is not a queue — a refetch on a timer would cost a request per open tab to learn nothing.
+ */
+export function useTelegramDestinations() {
+  return useQuery({
+    queryKey: telegramDestinationKeys.list(),
+    queryFn: ({ signal }) => telegramDestinationsApi.list(signal),
+  });
+}
+
+/**
+ * Bind a group or channel.
+ *
+ * `retry: false`, like every mutation here, and it matters more than usual: a create that timed out
+ * may still have resolved and written the row, and an automatic second attempt would come back with
+ * `DUPLICATE` — an error about the console's own retry, shown to an operator as though they had
+ * done something wrong.
+ */
+export function useCreateTelegramDestination() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: CreateTelegramDestinationBody) => telegramDestinationsApi.create(body),
+    retry: false,
+    onSettled: async () => {
+      await queryClient.invalidateQueries({ queryKey: telegramDestinationKeys.all });
+      // The pick-list carries `alreadyBound`, which this call just changed. Without this the group
+      // stays offered as though it were still free, and picking it again earns a DUPLICATE.
+      await queryClient.invalidateQueries({ queryKey: telegramChatKeys.all });
+    },
+  });
+}
+
+export function useUpdateTelegramDestination() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { id: string; body: UpdateTelegramDestinationBody }) =>
+      telegramDestinationsApi.update(input.id, input.body),
+    retry: false,
+    onSettled: async () => {
+      await queryClient.invalidateQueries({ queryKey: telegramDestinationKeys.all });
+    },
+  });
+}
+
+export function useRemoveTelegramDestination() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => telegramDestinationsApi.remove(id),
+    retry: false,
+    onSettled: async () => {
+      await queryClient.invalidateQueries({ queryKey: telegramDestinationKeys.all });
+      // Removing frees the chat, so the pick-list must offer it again. Same reason as create.
+      await queryClient.invalidateQueries({ queryKey: telegramChatKeys.all });
+    },
+  });
+}
+
+/**
+ * The groups and channels the bot has been added to.
+ *
+ * ── WHY THIS IS A QUERY THE ADD DIALOG DEPENDS ON ─────────────────────────────────────────────
+ * It is the only route by which a PRIVATE group can be bound. A private group has no @username to
+ * resolve and no invite link a bot can follow, so until this list existed there was no value an
+ * operator could put in the group field that the server was able to accept. Picking a row fills
+ * that field with the chat id Telegram itself gave us.
+ *
+ * ── WHY IT IS FETCHED ONLY WHILE THE DIALOG IS OPEN ───────────────────────────────────────────
+ * `enabled` is passed by the caller. The list is read by one dialog, changes only when somebody
+ * adds the bot to a group inside Telegram, and is worthless on the table behind it — fetching it on
+ * every page load would be a request per visit for a screen that mostly never opens the dialog.
+ */
+export function useDiscoveredTelegramChats(enabled = true) {
+  return useQuery({
+    queryKey: telegramChatKeys.list(),
+    queryFn: ({ signal }) => telegramChatsApi.list(signal),
+    enabled,
+  });
+}
+
+/**
+ * Post a real test message.
+ *
+ * Invalidates the list on settle because the server stamps `lastVerifiedAt`, `lastPublishedAt` and
+ * `lastError` on the row as a side effect — so the table's freshness column is only honest if it
+ * re-reads afterwards.
+ */
+export function useTestTelegramDestination() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => telegramDestinationsApi.test(id),
+    retry: false,
+    onSettled: async () => {
+      await queryClient.invalidateQueries({ queryKey: telegramDestinationKeys.all });
+    },
+  });
+}
+
+/** The silent re-check. Same invalidation, for the same reason: it writes freshness to the row. */
+export function useCheckTelegramDestination() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => telegramDestinationsApi.check(id),
+    retry: false,
+    onSettled: async () => {
+      await queryClient.invalidateQueries({ queryKey: telegramDestinationKeys.all });
+    },
+  });
+}
+
+/**
+ * Publish the activity report to the operator's REPORT destinations.
+ *
+ * Invalidates the destination list because a publish stamps `lastPublishedAt` on every row it
+ * reached — which is exactly how an operator sees that a destination has gone quiet.
+ */
+export function usePublishActivityReport() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: PublishReportBody) => reportsApi.publishActivity(body),
+    retry: false,
+    onSettled: async () => {
+      await queryClient.invalidateQueries({ queryKey: telegramDestinationKeys.all });
+    },
   });
 }
 

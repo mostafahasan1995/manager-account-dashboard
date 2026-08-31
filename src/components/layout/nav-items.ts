@@ -5,6 +5,7 @@ import {
   LayoutDashboard,
   Landmark,
   Scale,
+  Send,
   Settings,
   ShieldCheck,
   Users,
@@ -66,6 +67,12 @@ export const NAV_ITEMS: readonly NavItem[] = [
     labelKey: 'nav.platformFinance',
     icon: Landmark,
     capability: 'platformFinance.read',
+  },
+  {
+    to: '/telegram',
+    labelKey: 'nav.telegram',
+    icon: Send,
+    capability: 'telegramDestinations.read',
   },
 ] as const;
 

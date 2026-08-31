@@ -142,7 +142,11 @@ describe('CreditPlayerDialog', () => {
   });
 
   it('sends playerId and minor units as a string, never through a JavaScript number', async () => {
-    const sent = captureCredit(okResponse({ amount: { minor: '9007199254740993', amount: '90071992547409.93', currency: 'NSP' } }));
+    const sent = captureCredit(
+      okResponse({
+        amount: { minor: '9007199254740993', amount: '90071992547409.93', currency: 'NSP' },
+      }),
+    );
     const { user } = renderDialog();
 
     // Two minor units past Number.MAX_SAFE_INTEGER: a double cannot hold this figure exactly.
@@ -170,7 +174,9 @@ describe('CreditPlayerDialog', () => {
   });
 
   it('shows a large credit being routed to a second approver as its own message', async () => {
-    captureCredit(okResponse({ status: 'PENDING_SECOND_APPROVAL', outcome: 'awaiting_second_approval' }));
+    captureCredit(
+      okResponse({ status: 'PENDING_SECOND_APPROVAL', outcome: 'awaiting_second_approval' }),
+    );
     const { user, onCredited } = renderDialog();
 
     await fillIn(user, '25000.00', 'A big office payment');
@@ -184,7 +190,9 @@ describe('CreditPlayerDialog', () => {
   });
 
   it('surfaces the error and offers another go when the server refused before recording it', async () => {
-    captureCredit(failResponse(422, 'AMOUNT_BELOW_MINIMUM', 'A credit must be at least 25000.00 NSP.'));
+    captureCredit(
+      failResponse(422, 'AMOUNT_BELOW_MINIMUM', 'A credit must be at least 25000.00 NSP.'),
+    );
     const { user, onCredited } = renderDialog();
 
     await fillIn(user, '100.00', 'Too small');

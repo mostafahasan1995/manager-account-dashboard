@@ -18,6 +18,8 @@ import type {
   TenantProvisioning,
   TenantHealth,
   TenantWebhook,
+  DiscoveredChat,
+  TelegramDestination,
 } from '@/types';
 
 import {
@@ -38,6 +40,8 @@ import {
   mockLoadedUsdt,
   mockShamCashOk,
   mockTenants,
+  mockDiscoveredChats,
+  mockTelegramDestinations,
   type PlatformDefaults,
 } from './fixtures';
 
@@ -146,6 +150,18 @@ export interface MockState {
   shamCashSession: { linked: boolean; updatedAt: string | null };
   /** The admin the mock session belongs to. Switchable so tests can log in as any role. */
   currentAdmin: AdminIdentity;
+  /**
+   * Where the operator's bot publishes. Stateful, because the whole point of the screen is that a
+   * test message and a publish WRITE freshness back onto the row — a fixture that never changed
+   * would let the console claim a destination is healthy without anything having checked.
+   */
+  telegramDestinations: TelegramDestination[];
+  /**
+   * The chats the bot has been added to. Stateful for the same reason: binding one changes its
+   * `alreadyBound`, and a fixture frozen at load time would keep offering a group that is already
+   * configured.
+   */
+  discoveredChats: DiscoveredChat[];
   /** Ledger side of the agent float, so a float sync produces a believable delta. */
   agentFloatLedgerMinor: bigint;
   agentFloatIchancyMinor: bigint;
@@ -235,6 +251,8 @@ function seed(): MockState {
       role: superAdmin.role,
       displayName: superAdmin.displayName,
     },
+    telegramDestinations: clone(mockTelegramDestinations),
+    discoveredChats: clone(mockDiscoveredChats),
     agentFloatLedgerMinor: 450_000_000n,
     agentFloatIchancyMinor: 443_750_000n,
   };
@@ -420,7 +438,12 @@ export function manualCredit(player: AdminPlayer, amountMinor: bigint): ManualCr
   // A large credit waits for a second, different approver — the same four-eyes the real approve path
   // applies. It is NOT credited yet, so nothing moves here.
   if (amountMinor >= MANUAL_CREDIT_SECOND_APPROVAL_MINOR) {
-    return { shortId, status: 'PENDING_SECOND_APPROVAL', amount, outcome: 'awaiting_second_approval' };
+    return {
+      shortId,
+      status: 'PENDING_SECOND_APPROVAL',
+      amount,
+      outcome: 'awaiting_second_approval',
+    };
   }
 
   const before = playerBalanceMinor(player.id) ?? 0n;

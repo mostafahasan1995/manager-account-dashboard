@@ -16,6 +16,7 @@ import { RouteErrorPage } from '@/features/misc/route-error-page';
 import { OverviewPage } from '@/features/overview/overview-page';
 import { FinancialPage } from '@/features/payment-methods/financial-page';
 import { PlatformFinancePage } from '@/features/platform-finance/platform-finance-page';
+import { TelegramPage } from '@/features/telegram/telegram-page';
 import { PaymentMethodsPage } from '@/features/payment-methods/payment-methods-page';
 import { PlayerDetailPage } from '@/features/players/player-detail-page';
 import { PlayersPage } from '@/features/players/players-page';
@@ -204,6 +205,20 @@ const platformFinanceRoute = createRoute({
   component: PlatformFinancePage,
 });
 
+/**
+ * Where the operator's bot publishes.
+ *
+ * Guarded on READ, not write: support and finance need to be able to answer "which group did that
+ * card go to?" without being able to repoint anything. The write controls inside are gated one by
+ * one, the same arrangement the rails screen uses.
+ */
+const telegramRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/telegram',
+  beforeLoad: guard('telegramDestinations.read'),
+  component: TelegramPage,
+});
+
 /** Every role can open its own settings, so this one needs a session and nothing more. */
 const settingsRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -225,6 +240,7 @@ export const routeTree = rootRoute.addChildren([
   staffDetailRoute,
   tenantsRoute,
   platformFinanceRoute,
+  telegramRoute,
   settingsRoute,
 ]);
 

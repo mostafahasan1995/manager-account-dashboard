@@ -28,6 +28,9 @@ import type {
   UpdateTenantBotBody,
   UpdateTenantIchancyBody,
   UpdatePlatformDefaultsBody,
+  CreateTelegramDestinationBody,
+  UpdateTelegramDestinationBody,
+  PublishReportBody,
 } from '@/types';
 import {
   adminDepositSchema,
@@ -58,6 +61,10 @@ import {
   tenantFinanceRowSchema,
   shamCashReadResultSchema,
   shamCashStatusSchema,
+  discoveredChatSchema,
+  telegramDestinationSchema,
+  telegramDestinationCheckSchema,
+  publishReportResultSchema,
   sweepReportSchema,
   tenantBotSetupSchema,
   tenantHealthSchema,
@@ -555,4 +562,88 @@ export const tenantsApi = {
   /** Verified with `getMe`, and answers with the webhook cleared: the new bot needs registering. */
   updateBot: (id: string, body: UpdateTenantBotBody) =>
     api.patch(tenantSchema, `/v1/admin/tenants/${id}/bot`, { body }),
+};
+
+/**
+ * WHERE AN OPERATOR'S BOT PUBLISHES.
+ *
+ * ══ NO TENANT IS EVER NAMED, IN EITHER DIRECTION ══════════════════════════════════════════════
+ * Not in a path, not in a body. Which operator's destinations these touch is decided entirely by
+ * the session the client already holds (and, for a platform admin, the `X-Tenant-Id` override the
+ * client already sends). There is deliberately no `tenantId` parameter to pass, so no screen can
+ * address another operator's rows even by accident.
+ *
+ * ══ NO BOT TOKEN, EITHER ══════════════════════════════════════════════════════════════════════
+ * `create` sends whatever the operator chose — a t.me link, an @username, or the chat id of a group
+ * picked from `telegramChatsApi` — and never a token. Whichever it is, the server resolves it
+ * through the operator's own bot and stores what Telegram answered, so a destination that exists is
+ * one the bot has PROVEN it can post to rather than something somebody typed correctly.
+ */
+export const telegramDestinationsApi = {
+  list: (signal?: AbortSignal) =>
+    api.get(z.array(telegramDestinationSchema), '/v1/admin/telegram/destinations', {
+      ...(signal === undefined ? {} : { signal }),
+    }),
+
+  /**
+   * Binds a group or channel. Answers 400 with a machine-readable `reason` when the bot cannot
+   * post there — `BOT_NOT_MEMBER`, `BOT_NOT_ADMIN`, `BOT_CANNOT_POST`, `PRIVATE_CHAT`,
+   * `INVALID_URL`, `NOT_FOUND`, `DUPLICATE` — each of which the page turns into a sentence naming
+   * who fixes it.
+   */
+  create: (body: CreateTelegramDestinationBody) =>
+    api.post(telegramDestinationSchema, '/v1/admin/telegram/destinations', { body }),
+
+  update: (id: string, body: UpdateTelegramDestinationBody) =>
+    api.patch(telegramDestinationSchema, `/v1/admin/telegram/destinations/${id}`, { body }),
+
+  /** Deactivates rather than deleting; re-adding the same chat revives the row server-side. */
+  remove: (id: string) =>
+    api.delete(telegramDestinationSchema, `/v1/admin/telegram/destinations/${id}`),
+
+  /** Re-checks without posting. Cheap enough to run for a row on demand, silent in the group. */
+  check: (id: string) =>
+    api.post(telegramDestinationCheckSchema, `/v1/admin/telegram/destinations/${id}/check`),
+
+  /**
+   * Posts a real message. The only check that proves delivery — `check` can pass while a send
+   * still fails, because a permission can change between the two calls.
+   */
+  test: (id: string) =>
+    api.post(telegramDestinationCheckSchema, `/v1/admin/telegram/destinations/${id}/test`),
+};
+
+/**
+ * THE GROUPS AND CHANNELS THE BOT HAS BEEN ADDED TO.
+ *
+ * ══ WHY THIS ENDPOINT HAD TO EXIST ════════════════════════════════════════════════════════════
+ * Binding resolves a handle Telegram can look up. A public group has an @username. A PRIVATE group
+ * has none — its only shareable handle is an invite link, which no bot can follow or resolve — and
+ * there is no Bot API call that lists the chats a bot belongs to. So a private group could not be
+ * bound at all: paste the only link it has, and the server correctly refuses it, with nowhere else
+ * to go.
+ *
+ * Telegram does volunteer the chat id once, by pushing an update the moment the bot is added. The
+ * server keeps those sightings; this reads them back. The `chatId` from a row here is a valid value
+ * for `telegramDestinationsApi.create`, and it is still resolved and verified against Telegram
+ * before anything is written — this shortens the path to a number, not the proof.
+ *
+ * READ-ONLY, and deliberately so: nothing is ever published to a chat because it appears here.
+ */
+export const telegramChatsApi = {
+  list: (signal?: AbortSignal) =>
+    api.get(z.array(discoveredChatSchema), '/v1/admin/telegram/chats', {
+      ...(signal === undefined ? {} : { signal }),
+    }),
+};
+
+/**
+ * Publishing a report the operator is looking at into the groups they configured.
+ *
+ * There is deliberately no "fetch the report" call: the report is rendered Telegram HTML on the
+ * server, so a GET would hand the console markup it cannot lay out. Publishing needs no such split.
+ */
+export const reportsApi = {
+  publishActivity: (body: PublishReportBody = {}) =>
+    api.post(publishReportResultSchema, '/v1/admin/reports/activity/publish', { body }),
 };

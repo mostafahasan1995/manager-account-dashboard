@@ -47,9 +47,7 @@ const set: PaymentDestination = {
 };
 
 const render = (destination: PaymentDestination) =>
-  renderPlain(
-    <DeclaredBalanceDialog open onOpenChange={vi.fn()} destination={destination} />,
-  );
+  renderPlain(<DeclaredBalanceDialog open onOpenChange={vi.fn()} destination={destination} />);
 
 /** Captures the PATCH body so a test can assert what was actually sent, not merely that it saved. */
 function captureSave(): { body: () => unknown } {

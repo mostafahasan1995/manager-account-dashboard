@@ -56,6 +56,12 @@ export function Sidebar({
   const appName = useAppName();
   const items = NAV_ITEMS.filter((item) => can(item.capability));
 
+  // One element is both the static column above `lg` and the drawer below it, so `open` mounts
+  // nothing — it only moves a transform, leaving the drawer's state with no trace in the DOM. Named
+  // here (the `data-state` the tables and menus already use) it can be styled and asserted against,
+  // which is what proves the bar's button is wired to this drawer and not to some other state.
+  const state = open ? 'open' : 'closed';
+
   return (
     <>
       {open ? (
@@ -67,10 +73,13 @@ export function Sidebar({
       ) : null}
 
       <aside
+        data-state={state}
         className={cn(
           'fixed inset-y-0 start-0 z-40 flex w-60 shrink-0 flex-col border-e border-[var(--border)] bg-[var(--surface)] transition-transform lg:static lg:translate-x-0',
           // The drawer hides off whichever edge it lives on, which is not the same edge in Arabic.
-          open ? 'translate-x-0' : 'max-lg:ltr:-translate-x-full max-lg:rtl:translate-x-full',
+          state === 'open'
+            ? 'translate-x-0'
+            : 'max-lg:ltr:-translate-x-full max-lg:rtl:translate-x-full',
         )}
         aria-label={t('nav.main')}
       >
