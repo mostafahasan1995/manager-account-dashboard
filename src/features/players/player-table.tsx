@@ -16,7 +16,6 @@ import {
   Tooltip,
 } from '@/components/ui';
 import { useT } from '@/lib/i18n/use-translation';
-import { cn } from '@/lib/utils';
 import { playerDisplayName, type AdminPlayer } from '@/types/player';
 
 import { playerMessages } from './messages';
@@ -35,6 +34,51 @@ import { PlayerBalanceCell } from './player-balance-cell';
  * be reconsidered with it.
  */
 const BALANCE_AUTOLOAD_MAX_ROWS = 12;
+
+/**
+ * The classes that pin the actions column to the end edge of the horizontal scroller.
+ *
+ * Nine columns do not fit a laptop, so this table scrolls sideways — and the column an operator
+ * came here to press is the last of the nine, the first thing to leave the screen. It stays put
+ * while the rest of the row travels under it.
+ *
+ * `end-0` is inset-inline-end, so when the same table renders right-to-left in Arabic the column
+ * pins to the opposite edge on its own, with no second rule to be kept in step with this one.
+ *
+ * THE SEPARATOR IS A SHADOW, NOT A BORDER, and that is not a matter of taste. Tailwind's preflight
+ * sets `border-collapse: collapse` on every table, and under collapse the browser resolves the edge
+ * shared by two adjacent cells down to a single border and simply does not paint the loser — so a
+ * `border-s` here draws nothing at all, and the column pins with no edge, which is precisely what
+ * makes a pinned column read as broken. An inset shadow is painted by this cell alone and is never
+ * entered into that resolution. Do not rescue the border by moving the table to
+ * `border-collapse: separate` either: TableRow draws every row's rule with `border-b` on the <tr>,
+ * and a <tr> border does not paint under `separate` — that trades this one missing edge for a
+ * missing one on every row of every table in the app.
+ *
+ * The shadow is spelled twice because a box-shadow offset has no logical form to write it in. The
+ * `rtl:` variant keys off the document's own `dir`, which I18nProvider sets on <html>, so the pair
+ * flips with the page rather than with a prop somebody has to remember to pass down to here.
+ *
+ * `bg-inherit` is load-bearing twice. A pinned cell with no background of its own is a window onto
+ * the columns sliding beneath it; inheriting the row's also brings hover and selection along for
+ * free, instead of restating them here where they would drift out of agreement with the row they
+ * belong to. It only holds up because the rows set an OPAQUE background — see ROW_SURFACE.
+ *
+ * z-10 clears the sibling cells and nothing else. The sidebar, topbar, sheet drawer and dialogs all
+ * sit at z-20 and above, and a pinned table column must never paint over any of them.
+ */
+const PINNED_ACTIONS =
+  'sticky end-0 z-10 bg-inherit text-end shadow-[inset_1px_0_0_var(--border)] rtl:shadow-[inset_-1px_0_0_var(--border)]';
+
+/** The opaque background the pinned cells inherit. The same colour as the card underneath. */
+const ROW_SURFACE = 'bg-[var(--surface)]';
+
+/**
+ * The waiting tint, MIXED into that surface rather than laid over it at half opacity. On this card
+ * the two are the same colour — but only the mix is opaque, and a see-through pinned cell is one
+ * you can watch the table scroll through.
+ */
+const ROW_SURFACE_WAITING = 'bg-[color-mix(in_oklab,var(--warning-muted)_50%,var(--surface))]';
 
 /**
  * The player list itself.
@@ -65,7 +109,7 @@ export function PlayerTable({
     <Table>
       <TableCaption className="sr-only">{t('players.table.caption')}</TableCaption>
       <TableHeader>
-        <TableRow>
+        <TableRow className={ROW_SURFACE}>
           <TableHead>{t('field.player')}</TableHead>
           <TableHead>{t('field.telegramId')}</TableHead>
           <TableHead>{t('field.status')}</TableHead>
@@ -94,7 +138,7 @@ export function PlayerTable({
           <TableHead>{t('field.currency')}</TableHead>
           <TableHead>{t('field.created')}</TableHead>
           <TableHead>{t('players.field.lastSeen')}</TableHead>
-          <TableHead className="text-end">{t('players.table.action')}</TableHead>
+          <TableHead className={PINNED_ACTIONS}>{t('players.table.action')}</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -104,7 +148,7 @@ export function PlayerTable({
           const waiting = player.status === 'PENDING_ICHANCY';
 
           return (
-            <TableRow key={player.id} className={cn(waiting && 'bg-[var(--warning-muted)]/50')}>
+            <TableRow key={player.id} className={waiting ? ROW_SURFACE_WAITING : ROW_SURFACE}>
               <TableCell>
                 <Link
                   to="/players/$playerId"
@@ -166,7 +210,7 @@ export function PlayerTable({
                 <TimeAgo value={player.lastSeenAt} className="text-[var(--muted-foreground)]" />
               </TableCell>
 
-              <TableCell className="text-end">
+              <TableCell className={PINNED_ACTIONS}>
                 {/* THREE ACTIONS IN ONE CELL, as icons on the row rather than a kebab menu. A menu
                     would hide the two money actions behind a click and a glyph nobody has learned
                     yet; these are the actions an operator takes while a player is on the phone, and

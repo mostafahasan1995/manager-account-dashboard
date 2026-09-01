@@ -1,5 +1,6 @@
 import {
   Banknote,
+  Bot,
   Building2,
   HandCoins,
   LayoutDashboard,
@@ -73,6 +74,18 @@ export const NAV_ITEMS: readonly NavItem[] = [
     labelKey: 'nav.telegram',
     icon: Send,
     capability: 'telegramDestinations.read',
+  },
+  /*
+   * Beside the destinations screen, and gated one step higher than it. Both are the operator's own
+   * Telegram surface, but where a destination is something support and finance READ to answer
+   * "which group did that card go to?", this one is only worth opening by somebody who may change
+   * how the bot presents itself — which is the set `telegramDestinations.write` already names.
+   */
+  {
+    to: '/bot-config',
+    labelKey: 'nav.botConfig',
+    icon: Bot,
+    capability: 'telegramDestinations.write',
   },
 ] as const;
 

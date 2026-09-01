@@ -9,6 +9,7 @@ import {
 
 import { AppShell } from '@/components/layout/app-shell';
 import { homeRouteFor } from '@/components/layout/nav-items';
+import { BotConfigPage } from '@/features/bot-config/bot-config-page';
 import { LoginPage } from '@/features/auth/login-page';
 import { DepositsPage } from '@/features/deposits/deposits-page';
 import { NotFoundPage } from '@/features/misc/not-found-page';
@@ -219,6 +220,23 @@ const telegramRoute = createRoute({
   component: TelegramPage,
 });
 
+/**
+ * How the operator's own bot looks to a player.
+ *
+ * Guarded on WRITE, unlike the destinations screen next door, and the difference is the audience
+ * rather than the danger: this screen answers "what does my bot say", which is a question the
+ * person who owns the bot asks. It reuses `telegramDestinations.write` because that capability
+ * already means exactly that — SUPER_ADMIN and PLATFORM_ADMIN — and inventing a second one would be
+ * four coupled edits (the capability tuple, the per-role grants, the labels and their translations)
+ * to describe the same set of people.
+ */
+const botConfigRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/bot-config',
+  beforeLoad: guard('telegramDestinations.write'),
+  component: BotConfigPage,
+});
+
 /** Every role can open its own settings, so this one needs a session and nothing more. */
 const settingsRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -241,6 +259,7 @@ export const routeTree = rootRoute.addChildren([
   tenantsRoute,
   platformFinanceRoute,
   telegramRoute,
+  botConfigRoute,
   settingsRoute,
 ]);
 

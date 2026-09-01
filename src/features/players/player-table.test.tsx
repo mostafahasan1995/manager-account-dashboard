@@ -185,3 +185,82 @@ describe('the money actions on every row', () => {
     expect(screen.queryByRole('button', { name: /^Withdraw from/ })).not.toBeInTheDocument();
   });
 });
+/**
+ * The pinned actions column.
+ *
+ * Nine columns put this table into horizontal scroll on a laptop, and the column an operator came
+ * here to press is the last of them — unpinned, it is the first thing they lose. Nothing else in
+ * this file would notice it scrolling away again: every other assertion here finds its button by
+ * name, whether or not the button is anywhere on screen.
+ */
+describe('the pinned actions column', () => {
+  /** The header and the first row's cell — the two elements that carry the pinning. */
+  const pinnedElements = () => {
+    const header = screen.getByRole('columnheader', { name: 'Action' });
+    const cell = screen.getByRole('button', { name: 'Deposit to Karim Nasser' }).closest('td');
+    const found = [header, cell].filter((element): element is HTMLElement => element !== null);
+    expect(found).toHaveLength(2);
+    return found;
+  };
+
+  /**
+   * The inline offset, in px, of the inset shadow the pinned cell draws its own edge with — read
+   * back for one writing direction at a time, `''` for the document's and `'rtl:'` for the mirror.
+   *
+   * Reading the offset out rather than matching the whole class means the assertion is about which
+   * SIDE the edge lands on, which is the part that can silently be wrong.
+   */
+  const edgeOffset = (element: HTMLElement, variant: '' | 'rtl:'): number | null => {
+    const pattern = new RegExp(`^${variant}shadow-\\[inset_(-?\\d+)px_0_0_var\\(--border\\)\\]$`);
+    for (const name of [...element.classList]) {
+      const match = pattern.exec(name);
+      if (match !== null) return Number(match[1]);
+    }
+    return null;
+  };
+
+  it('pins the actions header and cell to the end edge, over an opaque row', async () => {
+    renderTable([linked, pending]);
+    await screen.findByRole('columnheader', { name: 'Action' });
+
+    for (const element of pinnedElements()) {
+      // `end-0` is inset-inline-end: in Arabic the whole table flips, and the column has to follow
+      // the other edge on its own. `bg-inherit` is what stops the scrolling columns showing through
+      // the pinned cell, and what carries the row's hover and selected states into it.
+      expect(element).toHaveClass('sticky', 'end-0', 'z-10', 'bg-inherit');
+    }
+
+    const cell = screen.getByRole('button', { name: 'Deposit to Karim Nasser' }).closest('td');
+    // Inheriting a background is only worth anything if the row has an opaque one. That is why the
+    // waiting tint is mixed into the surface rather than laid over it at half opacity.
+    expect(cell?.closest('tr')).toHaveClass('bg-[var(--surface)]');
+    expect(screen.getByText('Cannot be credited').closest('tr')).toHaveClass(
+      'bg-[color-mix(in_oklab,var(--warning-muted)_50%,var(--surface))]',
+    );
+  });
+
+  /**
+   * THE ASSERTION THIS BLOCK EXISTS FOR, and the one the column shipped without: it pinned
+   * correctly while drawing NO EDGE AT ALL. The edge was a `border-s`, and Tailwind's preflight
+   * collapses table borders — under collapse the browser resolves each shared edge to one border
+   * and drops the other, so the pinned cell's was never painted and the column read as broken.
+   *
+   * So this checks the edge is drawn by something a collapsed table cannot swallow — an inset
+   * shadow, which belongs to this cell alone — and that no border has crept back in to take its
+   * job. The suite runs with `css: false`, so there is no computed pixel here to measure; what it
+   * can still prove, and what matching a literal class string could not, is that the two offsets
+   * are MIRRORED. A shadow offset has no logical form, so an unmirrored pair puts the separator
+   * down the wrong side of the column in Arabic while looking perfectly correct in English.
+   */
+  it('draws its own edge with a mirrored inset shadow, never a border', async () => {
+    renderTable([linked]);
+    await screen.findByRole('columnheader', { name: 'Action' });
+
+    for (const element of pinnedElements()) {
+      const ltr = edgeOffset(element, '');
+      expect(ltr).toBe(1);
+      expect(edgeOffset(element, 'rtl:')).toBe(ltr === null ? null : -ltr);
+      expect([...element.classList].filter((name) => name.startsWith('border-'))).toEqual([]);
+    }
+  });
+});
