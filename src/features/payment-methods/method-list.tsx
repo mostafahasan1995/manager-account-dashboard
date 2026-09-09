@@ -1,5 +1,5 @@
 import { useNavigate, useSearch } from '@tanstack/react-router';
-import { Pencil, Plus, PowerOff } from 'lucide-react';
+import { Pencil, Plus, PowerOff, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -38,7 +38,7 @@ import {
   Tooltip,
 } from '@/components/ui';
 import { errorMessage } from '@/lib/api/errors';
-import { useDeactivatePaymentMethod } from '@/lib/api/queries';
+import { useDeactivatePaymentMethod, useDeletePaymentMethod } from '@/lib/api/queries';
 import { formatBps } from '@/lib/format';
 import { useEnumLabel, useT } from '@/lib/i18n/use-translation';
 import { isZeroDecimal } from '@/lib/money';
@@ -61,9 +61,10 @@ import { railMoney } from './rail-money';
 
 const ALL = 'all';
 
-function activeFilterOf(value: string): boolean | undefined {
-  if (value === 'active') return true;
-  if (value === 'inactive') return false;
+/** 'active' is the default and is written as absent, so a shared link stays as short as it can. */
+function stateFilterOf(value: string): PaymentMethodSearch['state'] {
+  if (value === 'inactive') return 'inactive';
+  if (value === 'all') return 'all';
   return undefined;
 }
 
@@ -89,13 +90,15 @@ export function MethodList({
     method: null,
   });
   const [pendingDeactivation, setPendingDeactivation] = useState<PaymentMethod | null>(null);
+  const [pendingDeletion, setPendingDeletion] = useState<PaymentMethod | null>(null);
   const deactivate = useDeactivatePaymentMethod();
+  const remove = useDeletePaymentMethod();
 
   const updateSearch = (patch: Partial<PaymentMethodSearch>) => {
     void navigate({ to: '/payment-methods', search: pruneSearch({ ...search, ...patch }) });
   };
 
-  const hasFilters = search.rail !== undefined || search.isActive !== undefined;
+  const hasFilters = search.rail !== undefined || search.state !== undefined;
   const rows = methods ?? [];
 
   const confirmDeactivation = async () => {
@@ -110,6 +113,25 @@ export function MethodList({
     } catch (caught) {
       // The dialog stays open: the operator asked for this and it did not happen.
       toast.error(t('rails.method.deactivateFailed', { name: displayName }), {
+        description: errorMessage(caught),
+      });
+    }
+  };
+
+  const confirmDeletion = async () => {
+    if (pendingDeletion === null) return;
+    const { id, displayName } = pendingDeletion;
+    try {
+      await remove.mutateAsync(id);
+      toast.success(t('rails.method.deleted', { name: displayName }));
+      // The selection is cleared BEFORE the dialog closes: the destination panel below is keyed on
+      // it, and leaving a deleted method selected would leave that panel querying accounts for a
+      // rail that no longer exists.
+      if (search.selected === id) updateSearch({ selected: undefined });
+      setPendingDeletion(null);
+    } catch (caught) {
+      // Stays open. The refusal message is the point — it says whether to retire it instead.
+      toast.error(t('rails.method.deleteFailed', { name: displayName }), {
         description: errorMessage(caught),
       });
     }
@@ -151,9 +173,9 @@ export function MethodList({
           <div className="space-y-1.5">
             <Label htmlFor="method-active-filter">{t('rails.field.state')}</Label>
             <Select
-              value={search.isActive === undefined ? ALL : search.isActive ? 'active' : 'inactive'}
+              value={search.state ?? 'active'}
               onValueChange={(value) => {
-                updateSearch({ isActive: activeFilterOf(value), selected: undefined });
+                updateSearch({ state: stateFilterOf(value), selected: undefined });
               }}
             >
               <SelectTrigger
@@ -164,9 +186,12 @@ export function MethodList({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL}>{t('rails.filter.anyState')}</SelectItem>
+                {/* Default, and what a fresh page load shows without the operator asking for
+                    anything — a retired rail is not offered on the menu it once controlled, so it
+                    should not be first thing on the screen that controls it either. */}
                 <SelectItem value="active">{t('rails.filter.activeOnly')}</SelectItem>
                 <SelectItem value="inactive">{t('rails.filter.inactiveOnly')}</SelectItem>
+                <SelectItem value="all">{t('rails.filter.anyState')}</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -176,7 +201,7 @@ export function MethodList({
               variant="ghost"
               size="sm"
               onClick={() => {
-                updateSearch({ rail: undefined, isActive: undefined, selected: undefined });
+                updateSearch({ rail: undefined, state: undefined, selected: undefined });
               }}
             >
               {t('common.clearFilters')}
@@ -215,7 +240,7 @@ export function MethodList({
                   variant="secondary"
                   size="sm"
                   onClick={() => {
-                    updateSearch({ rail: undefined, isActive: undefined, selected: undefined });
+                    updateSearch({ rail: undefined, state: undefined, selected: undefined });
                   }}
                 >
                   {t('rails.method.showAll')}
@@ -375,6 +400,58 @@ export function MethodList({
                               </Button>
                             </Tooltip>
                           ) : null}
+                          {method.deletable ? (
+                            <Tooltip content={t('rails.method.deleteTooltip')}>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="size-8 text-[var(--danger)]"
+                                aria-label={t('rails.method.deleteAria', {
+                                  name: method.displayName,
+                                })}
+                                onClick={() => {
+                                  setPendingDeletion(method);
+                                }}
+                              >
+                                <Trash2 className="size-3.5" />
+                              </Button>
+                            </Tooltip>
+                          ) : (
+                            /*
+                             * SHOWN, DISABLED, AND EXPLAINED — not hidden.
+                             *
+                             * A missing button reads as a console that forgot the feature, and
+                             * sends an operator hunting for it. A greyed-out one with a reason
+                             * answers the actual question: this rail took real money (or the credit
+                             * path needs it), so it can be retired but never removed.
+                             *
+                             * A disabled <button> fires no pointer events, so Radix would never
+                             * open a tooltip anchored on it — and here the tooltip IS the content.
+                             * The span is the trigger instead, and the button waives pointer events
+                             * so a hover lands on the span behind it.
+                             */
+                            <Tooltip
+                              content={
+                                method.deleteBlockedBy === 'built-in'
+                                  ? t('rails.method.deleteBlockedBuiltIn')
+                                  : t('rails.method.deleteBlockedHistory')
+                              }
+                            >
+                              <span className="inline-flex">
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="pointer-events-none size-8"
+                                  disabled
+                                  aria-label={t('rails.method.deleteAria', {
+                                    name: method.displayName,
+                                  })}
+                                >
+                                  <Trash2 className="size-3.5" />
+                                </Button>
+                              </span>
+                            </Tooltip>
+                          )}
                         </div>
                       </Can>
                     </TableCell>
@@ -410,6 +487,26 @@ export function MethodList({
         destructive
         loading={deactivate.isPending}
         onConfirm={confirmDeactivation}
+      />
+
+      {/*
+        A second dialog rather than a shared one with a mode flag. The two acts are not variations
+        of each other: one is reversible with a click and the other is not, and the wording that
+        makes that difference land has to be different wording.
+      */}
+      <ConfirmDialog
+        open={pendingDeletion !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingDeletion(null);
+        }}
+        title={t('rails.method.deleteConfirmTitle', {
+          name: pendingDeletion?.displayName ?? t('rails.method.thisMethod'),
+        })}
+        description={t('rails.method.deleteConfirmBody')}
+        confirmLabel={t('rails.method.deleteConfirmLabel')}
+        destructive
+        loading={remove.isPending}
+        onConfirm={confirmDeletion}
       />
     </Card>
   );

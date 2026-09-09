@@ -1,9 +1,11 @@
-import { screen } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
+import type { Locale } from '@/lib/i18n/locales';
 import { PLAYER_IDS, mockPlayers } from '@/mocks/fixtures';
 import { renderWithProviders } from '@/test/utils';
+import type { AdminRole } from '@/types/enums';
 import type { AdminPlayer } from '@/types/player';
 
 import { PlayerTable } from './player-table';
@@ -18,19 +20,35 @@ const linked = fixture(PLAYER_IDS.linkedActive);
 const pending = fixture(PLAYER_IDS.pendingLink);
 const closed = fixture(PLAYER_IDS.closed);
 
-const renderTable = (players: AdminPlayer[], role: 'SUPER_ADMIN' | 'SUPPORT' = 'SUPER_ADMIN') => {
+const renderTable = (
+  players: AdminPlayer[],
+  role: AdminRole = 'SUPER_ADMIN',
+  locale: Locale = 'en',
+) => {
   const onLink = vi.fn();
   const onDeposit = vi.fn();
   const onWithdraw = vi.fn();
+  const onBlock = vi.fn();
+  const onUnblock = vi.fn();
+  const onAttachTelegram = vi.fn();
   const rendered = renderWithProviders(
-    <PlayerTable players={players} onLink={onLink} onDeposit={onDeposit} onWithdraw={onWithdraw} />,
+    <PlayerTable
+      players={players}
+      onLink={onLink}
+      onDeposit={onDeposit}
+      onWithdraw={onWithdraw}
+      onBlock={onBlock}
+      onUnblock={onUnblock}
+      onAttachTelegram={onAttachTelegram}
+    />,
     {
       route: '/players',
       routePath: '/players',
       auth: { role },
+      locale,
     },
   );
-  return { ...rendered, onLink, onDeposit, onWithdraw };
+  return { ...rendered, onLink, onDeposit, onWithdraw, onBlock, onUnblock, onAttachTelegram };
 };
 
 describe('PlayerTable', () => {
@@ -262,5 +280,83 @@ describe('the pinned actions column', () => {
       expect(edgeOffset(element, 'rtl:')).toBe(ltr === null ? null : -ltr);
       expect([...element.classList].filter((name) => name.startsWith('border-'))).toEqual([]);
     }
+  });
+});
+
+/**
+ * The operator's own lock, and the rows that have no Telegram account.
+ *
+ * A BLOCKED row is tinted the way a waiting row is — mixed into the opaque surface, for the same
+ * pinned-column reason — but the tint is never the only signal: the badge says "Blocked" in words.
+ * A row with no Telegram id shows a dash and no copy button, because copying "—" is a bug waiting
+ * to be pasted into a chat.
+ */
+describe('blocked rows and rows without Telegram', () => {
+  const blocked = fixture(PLAYER_IDS.blocked);
+  const imported = fixture(PLAYER_IDS.imported);
+
+  it('tints a blocked row with the danger surface and says so in words', async () => {
+    renderTable([linked, blocked]);
+
+    const row = (await screen.findByRole('link', { name: 'Bassel Khoury' })).closest('tr');
+    expect(row).toHaveClass('bg-[color-mix(in_oklab,var(--danger-muted)_50%,var(--surface))]');
+    expect(within(row as HTMLElement).getByText('Blocked')).toBeInTheDocument();
+    // The ordinary row keeps the plain surface.
+    expect(screen.getByRole('link', { name: 'Karim Nasser' }).closest('tr')).toHaveClass(
+      'bg-[var(--surface)]',
+    );
+  });
+
+  it('renders a missing Telegram id as a dash with no copy button', async () => {
+    renderTable([imported]);
+
+    const row = (await screen.findByRole('link', { name: 'samer1987' })).closest('tr');
+    expect(within(row as HTMLElement).getByLabelText('No Telegram account')).toHaveTextContent('—');
+    expect(
+      within(row as HTMLElement).queryByRole('button', { name: 'Copy' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('offers Attach Telegram only for a row with no id, and hands the row back', async () => {
+    const { onAttachTelegram, user } = renderTable([linked, imported]);
+
+    const buttons = await screen.findAllByRole('button', { name: /^Attach Telegram to/ });
+    expect(buttons).toHaveLength(1);
+    await user.click(screen.getByRole('button', { name: 'Attach Telegram to samer1987' }));
+
+    expect(onAttachTelegram).toHaveBeenCalledWith(imported);
+  });
+
+  it('offers Block for an ordinary row, Unblock for a blocked one, and neither for a closed one', async () => {
+    const { onBlock, onUnblock, user } = renderTable([linked, blocked, closed]);
+
+    await user.click(await screen.findByRole('button', { name: 'Block Karim Nasser' }));
+    expect(onBlock).toHaveBeenCalledWith(linked);
+
+    await user.click(screen.getByRole('button', { name: 'Unblock Bassel Khoury' }));
+    expect(onUnblock).toHaveBeenCalledWith(blocked);
+
+    expect(screen.queryByRole('button', { name: 'Block Bassel Khoury' })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: /^(Block|Unblock) Old Account$/ }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('hides block, unblock and attach from a role that cannot hold them', async () => {
+    renderTable([linked, blocked, imported], 'SUPPORT');
+
+    await screen.findByRole('link', { name: 'Bassel Khoury' });
+    expect(screen.queryByRole('button', { name: /^Block / })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Unblock / })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Attach Telegram/ })).not.toBeInTheDocument();
+  });
+
+  it('names the actions in Arabic', async () => {
+    renderTable([linked, blocked, imported], 'SUPER_ADMIN', 'ar');
+
+    expect(await screen.findByRole('button', { name: 'حظر Karim Nasser' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'رفع الحظر عن Bassel Khoury' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'ربط تلغرام بـ samer1987' })).toBeInTheDocument();
+    expect(screen.getByText('محظور')).toBeInTheDocument();
   });
 });

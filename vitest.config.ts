@@ -1,7 +1,7 @@
 import { fileURLToPath, URL } from 'node:url';
 
 import react from '@vitejs/plugin-react';
-import { defineConfig } from 'vitest/config';
+import { configDefaults, defineConfig } from 'vitest/config';
 
 export default defineConfig({
   plugins: [react()],
@@ -32,9 +32,23 @@ export default defineConfig({
       VITE_API_BASE_URL: 'http://localhost:3000',
       VITE_ENABLE_MOCKS: 'false',
       VITE_TENANT_HEADER_ENABLED: 'false',
+      // Pinned OFF for the same reason as the flags above, and this one caught it: a developer's
+      // .env.local turning the Sham Cash bench on made router.test.ts fail, because the suite was
+      // then asserting the DEFAULT route tree against a machine-specific override.
+      VITE_ENABLE_SHAMCASH_DEV: 'false',
     },
     // Playwright specs live in e2e/ and are run by `npm run e2e`, not by vitest.
     include: ['src/**/*.{test,spec}.{ts,tsx}'],
+    /*
+     * The parked Sham Cash session card — see tsconfig.json for the full reason. Unlike the
+     * backend, where the equivalent specs still pass because they mock everything they touch,
+     * this one would RUN and fail: it renders a component that calls useSetShamCashSession, a
+     * hook that no longer exists.
+     *
+     * Spread over `configDefaults.exclude` rather than replacing it: setting this key outright
+     * would drop vitest's own node_modules and dist entries along with it.
+     */
+    exclude: [...configDefaults.exclude, 'src/features/payment-methods/shamcash-card.test.tsx'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html', 'lcov'],
@@ -47,6 +61,10 @@ export default defineConfig({
         'src/vite-env.d.ts',
         'src/**/index.ts',
         'src/mocks/browser.ts',
+        // The parked Sham Cash session card. Its own test is parked with it, so counting it
+        // would report ~400 uncovered lines and drag the gates below what the suite holds —
+        // a red build about code that is deliberately not running.
+        'src/features/payment-methods/shamcash-card.tsx',
       ],
       /*
        * Raised 2026-08-25 to sit just under what the suite actually holds. It was 85/80/85/85

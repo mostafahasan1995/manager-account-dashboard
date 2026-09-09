@@ -56,3 +56,36 @@ describe('PlayerIdentity', () => {
     expect(screen.getByText('Pending Ichancy')).toBeInTheDocument();
   });
 });
+
+describe('PlayerIdentity — where the player came from', () => {
+  it('says an old player was imported from Ichancy, and when Ichancy first knew them', () => {
+    renderPlain(<PlayerIdentity player={fixture(PLAYER_IDS.imported)} />);
+
+    expect(rowValue('Source')).toMatch(/^Imported from Ichancy — registered there on \d/);
+    expect(rowValue('Telegram ID')).toBe('—');
+  });
+
+  it('names the other sources as a word', () => {
+    const { unmount } = renderPlain(<PlayerIdentity player={fixture(PLAYER_IDS.linkedActive)} />);
+    expect(rowValue('Source')).toBe('Telegram');
+    unmount();
+
+    renderPlain(<PlayerIdentity player={fixture(PLAYER_IDS.newcomer)} />);
+    expect(rowValue('Source')).toBe('Registered by an admin');
+  });
+
+  it('falls back to the word when an imported row has no registration date', () => {
+    renderPlain(
+      <PlayerIdentity player={{ ...fixture(PLAYER_IDS.imported), ichancyRegisteredAt: null }} />,
+    );
+
+    expect(rowValue('Source')).toBe('Imported from Ichancy');
+  });
+
+  it('reads the source in Arabic', () => {
+    renderPlain(<PlayerIdentity player={fixture(PLAYER_IDS.imported)} />, { locale: 'ar' });
+
+    expect(rowValue('المصدر')).toMatch(/^مستورد من Ichancy — مسجّل هناك بتاريخ /);
+    expect(document.documentElement.getAttribute('dir')).toBe('rtl');
+  });
+});

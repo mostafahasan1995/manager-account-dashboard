@@ -4,10 +4,10 @@ import type { Translator } from '@/lib/i18n/use-translation';
 /**
  * The staff directory, in both languages.
  *
- * Two things stay in English inside the Arabic half on purpose. `DENIED` is the answer the backend
+ * `DENIED` stays in English inside the Arabic half on purpose: it is the answer the backend
  * literally returns when an approval is evaluated against a missing limit, and an operator reading
  * this screen is about to go looking for that word in a log line — translating it would break the
- * search. `/console` is the bot command a new administrator types; it is not a phrase.
+ * search.
  *
  * The role DESCRIPTIONS live here rather than in the shared bundle because only this feature shows
  * them. The role NAMES do not: those are a backend enum and come from `useEnumLabel()`.
@@ -35,6 +35,7 @@ export const staffMessages = defineMessages({
     'staff.column.lastLogin': 'Last login',
     'staff.column.added': 'Added',
     'staff.neverSignedIn': 'Never signed in',
+    'staff.telegram.none': 'No Telegram account',
     'staff.noLimitBadge': 'No approval limit',
     'staff.noLimitTooltip':
       'No approval limit is in force, so the backend denies every deposit this person tries to approve.',
@@ -53,6 +54,8 @@ export const staffMessages = defineMessages({
     'staff.detail.allStaff': 'All staff',
     'staff.detail.identity': 'Identity',
     'staff.detail.recordId': 'Record id',
+    'staff.detail.consolePassword': 'Console password',
+    'staff.detail.consolePasswordSet': 'Set',
     'staff.detail.noLimitTitle': 'No approval limit is in force',
     'staff.detail.noLimitBody':
       '{name} holds a role that decides deposits, but has no open limit version. The backend evaluates every approval against an open limit, so each one they attempt comes back DENIED until a limit is set.',
@@ -64,7 +67,7 @@ export const staffMessages = defineMessages({
       'No limit is in force. This role does not decide deposits, so nothing would evaluate one.',
     'staff.detail.deactivateTitle': 'Deactivate {name}?',
     'staff.detail.deactivateBody':
-      'They can no longer sign in with the bot. Nothing is deleted: every deposit they decided stays attributed to them, and a super admin can reactivate the record later.',
+      'They can no longer sign in. Nothing is deleted: every deposit they decided stays attributed to them, and a super admin can reactivate the record later.',
     'staff.detail.deactivatedToast': '{name} can no longer sign in.',
 
     'staff.apiRefused': 'The API refused this',
@@ -87,30 +90,33 @@ export const staffMessages = defineMessages({
     // ── Add / edit an administrator ──────────────────────────────────────────────────────────
     'staff.form.editTitle': 'Edit {name}',
     'staff.form.addBody':
-      'The person signs in by sending /console to the cashier bot from this Telegram account. There is no password to hand over.',
+      'A username and a password is the whole account. Hand them both over, and this person can sign in.',
     'staff.form.editBody':
-      'The Telegram id identifies the account and cannot be changed. Everything else can.',
-    'staff.form.telegramIdHint':
-      'Digits only. This is the account the bot will accept /console from.',
+      'Everything here can be changed. Leave the password blank to keep the current one.',
     'staff.form.displayNamePlaceholder': 'Lina Farah',
-    'staff.form.telegramUsername': 'Telegram username',
-    'staff.form.usernameHintNew': 'Optional. Only used to recognise the person in lists.',
+    'staff.form.username': 'Username',
+    'staff.form.usernameHintNew':
+      'What they type to sign in. A name or an email, unique to this operator.',
     'staff.form.usernameHintEdit':
-      'Optional. Leaving this blank keeps the current username — the API has no way to remove one.',
+      'What they type to sign in. Leaving this blank keeps the current one — the API has no way to remove it.',
+    'staff.form.password': 'Password',
+    'staff.form.passwordHintNew': 'At least 8 characters. Give it to them yourself.',
+    'staff.form.passwordHintEdit': 'Leave blank to keep the current password.',
     'staff.form.accountActive': 'Account active',
     'staff.form.accountActiveHint':
       'A deactivated administrator cannot sign in. Their past decisions stay attributed to them.',
     'staff.form.saveChanges': 'Save changes',
     'staff.form.duplicate':
-      'That Telegram account already has an administrator record. Find it in the directory and reactivate it instead of adding a second one.',
-    'staff.form.createdToast': '{name} can now sign in with /console.',
+      'That username is already taken here. Pick another, or find the existing account in the directory and reactivate it.',
+    'staff.form.createdToast': '{name} can now sign in.',
     'staff.form.updatedToast': '{name} updated.',
-    'staff.form.error.telegramId': 'A Telegram user id is 1 to 19 digits and nothing else.',
     'staff.form.error.displayNameRequired':
       'Give this person a name their colleagues will recognise.',
     'staff.form.error.displayNameLong': 'Keep the display name under 120 characters.',
-    'staff.form.error.usernameLong': 'Telegram usernames are at most 32 characters.',
-    'staff.form.error.usernameChars': 'Letters, digits and underscores only — leave the @ off.',
+    'staff.form.error.username':
+      'A username is 3 to 64 characters: letters, digits, and . _ @ + - only.',
+    'staff.form.error.passwordShort': 'Passwords are at least 8 characters.',
+    'staff.form.error.passwordLong': 'Passwords are at most 72 characters.',
 
     // ── Approval limits ──────────────────────────────────────────────────────────────────────
     'staff.limit.maxSingle': 'Max single approval',
@@ -181,6 +187,7 @@ export const staffMessages = defineMessages({
     'staff.column.lastLogin': 'آخر دخول',
     'staff.column.added': 'تاريخ الإضافة',
     'staff.neverSignedIn': 'لم يسجّل الدخول قط',
+    'staff.telegram.none': 'لا يوجد حساب تلغرام',
     'staff.noLimitBadge': 'بلا حد موافقة',
     'staff.noLimitTooltip':
       'لا يوجد حد موافقة ساري، لذا يرفض الخادم كل إيداع يحاول هذا الشخص الموافقة عليه.',
@@ -197,6 +204,8 @@ export const staffMessages = defineMessages({
     'staff.detail.allStaff': 'كل الموظفين',
     'staff.detail.identity': 'الهوية',
     'staff.detail.recordId': 'معرّف السجل',
+    'staff.detail.consolePassword': 'كلمة مرور اللوحة',
+    'staff.detail.consolePasswordSet': 'مضبوطة',
     'staff.detail.noLimitTitle': 'لا يوجد حد موافقة ساري',
     'staff.detail.noLimitBody':
       '{name} يحمل دوراً يقرّر في الإيداعات، لكن لا توجد لديه نسخة حد مفتوحة. الخادم يقيّم كل موافقة مقابل حد مفتوح، لذا تعود كل محاولة موافقة بنتيجة DENIED حتى يُضبط له حد.',
@@ -208,7 +217,7 @@ export const staffMessages = defineMessages({
       'لا يوجد حد ساري. هذا الدور لا يقرّر في الإيداعات، فلا شيء سيقيّم حداً أصلاً.',
     'staff.detail.deactivateTitle': 'إيقاف {name}؟',
     'staff.detail.deactivateBody':
-      'لن يعود بإمكانه الدخول عبر البوت. لا شيء يُحذف: كل إيداع قرّر فيه يبقى منسوباً إليه، ويستطيع المدير العام إعادة تفعيل السجل لاحقاً.',
+      'لن يعود بإمكانه تسجيل الدخول. لا شيء يُحذف: كل إيداع قرّر فيه يبقى منسوباً إليه، ويستطيع المدير العام إعادة تفعيل السجل لاحقاً.',
     'staff.detail.deactivatedToast': 'لم يعد بإمكان {name} تسجيل الدخول.',
 
     'staff.apiRefused': 'الخادم رفض هذا الطلب',
@@ -229,27 +238,31 @@ export const staffMessages = defineMessages({
 
     'staff.form.editTitle': 'تعديل {name}',
     'staff.form.addBody':
-      'يسجّل الشخص دخوله بإرسال ‎/console‎ إلى بوت الصرّاف من حساب تلغرام هذا. لا توجد كلمة مرور تُسلَّم له.',
-    'staff.form.editBody': 'معرّف تلغرام يحدّد الحساب ولا يمكن تغييره. وكل ما عداه يمكن تغييره.',
-    'staff.form.telegramIdHint': 'أرقام فقط. هذا هو الحساب الذي سيقبل البوت منه ‎/console‎.',
+      'اسم مستخدم وكلمة مرور هما الحساب كله. سلّمهما له ليتمكن من تسجيل الدخول.',
+    'staff.form.editBody': 'كل ما هنا قابل للتعديل. اترك كلمة المرور فارغة للإبقاء على الحالية.',
     'staff.form.displayNamePlaceholder': 'لينا فرح',
-    'staff.form.telegramUsername': 'اسم مستخدم تلغرام',
-    'staff.form.usernameHintNew': 'اختياري. يُستخدم فقط للتعرّف على الشخص في القوائم.',
+    'staff.form.username': 'اسم المستخدم',
+    'staff.form.usernameHintNew':
+      'ما سيكتبه لتسجيل الدخول. اسم أو بريد إلكتروني، لا يتكرر عند هذا المشغّل.',
     'staff.form.usernameHintEdit':
-      'اختياري. تركه فارغاً يبقي اسم المستخدم الحالي — لا توجد في الخادم طريقة لإزالته.',
+      'ما سيكتبه لتسجيل الدخول. تركه فارغاً يبقي الاسم الحالي — لا توجد في الخادم طريقة لإزالته.',
+    'staff.form.password': 'كلمة المرور',
+    'staff.form.passwordHintNew': '8 أحرف على الأقل. سلّمها له بنفسك.',
+    'staff.form.passwordHintEdit': 'اتركها فارغة لإبقاء كلمة المرور الحالية.',
     'staff.form.accountActive': 'الحساب نشط',
     'staff.form.accountActiveHint':
       'المدير الموقوف لا يستطيع تسجيل الدخول. وقراراته السابقة تبقى منسوبة إليه.',
     'staff.form.saveChanges': 'حفظ التعديلات',
     'staff.form.duplicate':
-      'حساب تلغرام هذا لديه سجل مدير بالفعل. ابحث عنه في الدليل وأعد تفعيله بدل إضافة سجل ثانٍ.',
-    'staff.form.createdToast': 'يستطيع {name} الآن تسجيل الدخول بإرسال ‎/console‎.',
+      'اسم المستخدم هذا مستخدم بالفعل هنا. اختر غيره، أو ابحث عن الحساب الموجود في الدليل وأعد تفعيله.',
+    'staff.form.createdToast': 'يستطيع {name} الآن تسجيل الدخول.',
     'staff.form.updatedToast': 'تم تحديث {name}.',
-    'staff.form.error.telegramId': 'معرّف مستخدم تلغرام من 1 إلى 19 رقماً ولا شيء غير ذلك.',
     'staff.form.error.displayNameRequired': 'اكتب اسماً يعرفه زملاؤه.',
     'staff.form.error.displayNameLong': 'أبقِ الاسم الظاهر أقل من 120 حرفاً.',
-    'staff.form.error.usernameLong': 'اسم مستخدم تلغرام 32 حرفاً كحد أقصى.',
-    'staff.form.error.usernameChars': 'حروف وأرقام وشرطة سفلية فقط — من دون علامة @.',
+    'staff.form.error.username':
+      'اسم المستخدم من 3 إلى 64 حرفاً: حروف وأرقام والرموز . _ @ + - فقط.',
+    'staff.form.error.passwordShort': 'كلمة المرور 8 أحرف على الأقل.',
+    'staff.form.error.passwordLong': 'كلمة المرور 72 حرفاً كحد أقصى.',
 
     'staff.limit.maxSingle': 'الحد الأقصى للموافقة الواحدة',
     'staff.limit.maxDaily': 'الحد الأقصى اليومي للموافقات',

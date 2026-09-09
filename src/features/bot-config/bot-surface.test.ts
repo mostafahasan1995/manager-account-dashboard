@@ -147,12 +147,15 @@ describe('the 64-byte callback payload', () => {
 });
 
 describe('the advertised command list', () => {
-  it('carries the ten player commands and the six staff ones', () => {
+  it('carries the ten player commands and the five staff ones', () => {
     expect(BOT_COMMANDS.filter((row) => row.audience === 'PLAYER')).toHaveLength(10);
-    expect(BOT_COMMANDS.filter((row) => row.audience === 'ADMIN')).toHaveLength(6);
+    expect(BOT_COMMANDS.filter((row) => row.audience === 'ADMIN')).toHaveLength(5);
   });
 
-  it('keeps /console in the staff list, which is the command a new operator signs in with', () => {
-    expect(BOT_COMMANDS.find((row) => row.command === 'console')?.audience).toBe('ADMIN');
+  it('advertises no /console, because the bot no longer has one to answer', () => {
+    // The API stopped registering the handler on 2026-09-05 — signing in is a username and a
+    // password now. A menu that still lists it pushes a command Telegram will show and the bot
+    // will ignore, which reads to staff as the console being broken.
+    expect(BOT_COMMANDS.find((row) => row.command === 'console')).toBeUndefined();
   });
 });

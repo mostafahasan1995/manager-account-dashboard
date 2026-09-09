@@ -59,6 +59,20 @@ describe('SUPER_ADMIN is the top of ONE tenant', () => {
     expect(can('SUPER_ADMIN', 'reconciliation.act')).toBe(true);
   });
 
+  it('administers its own players: registers, attaches, blocks and imports them', () => {
+    // PLAYER_CREATE_ROLES, PLAYER_BLOCK_ROLES and PLAYER_IMPORT_ROLES are all [SUPER_ADMIN,
+    // FINANCE_ADMIN] on the backend — the same pair that already creates Ichancy accounts.
+    expect(can('SUPER_ADMIN', 'players.write')).toBe(true);
+    expect(can('SUPER_ADMIN', 'players.block')).toBe(true);
+    expect(can('SUPER_ADMIN', 'players.import')).toBe(true);
+  });
+
+  it('decides cash-outs and sets how its bot answers them', () => {
+    expect(can('SUPER_ADMIN', 'withdrawals.read')).toBe(true);
+    expect(can('SUPER_ADMIN', 'withdrawals.decide')).toBe(true);
+    expect(can('SUPER_ADMIN', 'botSettings.write')).toBe(true);
+  });
+
   it('cannot touch tenants — that is deliberately a different job', () => {
     expect(can('SUPER_ADMIN', 'tenants.manage')).toBe(false);
   });
@@ -75,6 +89,15 @@ describe('FINANCE_ADMIN', () => {
   it('reads the staff directory but cannot change who has authority', () => {
     expect(can('FINANCE_ADMIN', 'admins.read')).toBe(true);
     expect(can('FINANCE_ADMIN', 'admins.write')).toBe(false);
+  });
+
+  it('holds the same player-administration and withdrawal authority as SUPER_ADMIN', () => {
+    expect(can('FINANCE_ADMIN', 'players.write')).toBe(true);
+    expect(can('FINANCE_ADMIN', 'players.block')).toBe(true);
+    expect(can('FINANCE_ADMIN', 'players.import')).toBe(true);
+    expect(can('FINANCE_ADMIN', 'withdrawals.read')).toBe(true);
+    expect(can('FINANCE_ADMIN', 'withdrawals.decide')).toBe(true);
+    expect(can('FINANCE_ADMIN', 'botSettings.write')).toBe(true);
   });
 });
 
@@ -94,6 +117,18 @@ describe('REVIEWER', () => {
     expect(can('REVIEWER', 'reconciliation.read')).toBe(true);
     expect(can('REVIEWER', 'reconciliation.act')).toBe(false);
   });
+
+  it('decides withdrawals — the same decide set as deposits and debits', () => {
+    expect(can('REVIEWER', 'withdrawals.read')).toBe(true);
+    expect(can('REVIEWER', 'withdrawals.decide')).toBe(true);
+  });
+
+  it('cannot register, block or import players, nor change the bot settings', () => {
+    expect(can('REVIEWER', 'players.write')).toBe(false);
+    expect(can('REVIEWER', 'players.block')).toBe(false);
+    expect(can('REVIEWER', 'players.import')).toBe(false);
+    expect(can('REVIEWER', 'botSettings.write')).toBe(false);
+  });
 });
 
 describe('SUPPORT looks; it decides nothing', () => {
@@ -111,6 +146,18 @@ describe('SUPPORT looks; it decides nothing', () => {
   it('sees no reconciliation at all', () => {
     expect(can('SUPPORT', 'reconciliation.read')).toBe(false);
   });
+
+  it('reads the withdrawal queue, to answer "where is my money", and decides nothing on it', () => {
+    expect(can('SUPPORT', 'withdrawals.read')).toBe(true);
+    expect(can('SUPPORT', 'withdrawals.decide')).toBe(false);
+  });
+
+  it('cannot register, block or import players, nor touch the bot settings', () => {
+    expect(can('SUPPORT', 'players.write')).toBe(false);
+    expect(can('SUPPORT', 'players.block')).toBe(false);
+    expect(can('SUPPORT', 'players.import')).toBe(false);
+    expect(can('SUPPORT', 'botSettings.write')).toBe(false);
+  });
 });
 
 describe('VIEWER is read-only, and narrower than SUPPORT', () => {
@@ -120,6 +167,23 @@ describe('VIEWER is read-only, and narrower than SUPPORT', () => {
 
   it('cannot even read players', () => {
     expect(can('VIEWER', 'players.read')).toBe(false);
+  });
+
+  it('cannot read withdrawals either — the reader set is the player reader set', () => {
+    expect(can('VIEWER', 'withdrawals.read')).toBe(false);
+    expect(can('VIEWER', 'withdrawals.decide')).toBe(false);
+    expect(can('VIEWER', 'botSettings.write')).toBe(false);
+  });
+});
+
+describe('PLATFORM_ADMIN holds the new capabilities too, as the superset it is', () => {
+  it('administers players, decides withdrawals and sets the bot', () => {
+    expect(can('PLATFORM_ADMIN', 'players.write')).toBe(true);
+    expect(can('PLATFORM_ADMIN', 'players.block')).toBe(true);
+    expect(can('PLATFORM_ADMIN', 'players.import')).toBe(true);
+    expect(can('PLATFORM_ADMIN', 'withdrawals.read')).toBe(true);
+    expect(can('PLATFORM_ADMIN', 'withdrawals.decide')).toBe(true);
+    expect(can('PLATFORM_ADMIN', 'botSettings.write')).toBe(true);
   });
 });
 

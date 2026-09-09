@@ -15,16 +15,19 @@ import { AddMeAsAdminAction } from './add-me-admin-dialog';
 /**
  * The one thing that must never happen here is a SUPER_ADMIN row landing in an operator nobody
  * asked for. Every case below is about that: which operator is named, which operator the request
- * is actually aimed at, and what the owner is told to do next — because a /console code from the
- * wrong bot signs them into the wrong operator just as effectively as a misdirected write.
+ * is actually aimed at, and what the owner is told to do next.
+ *
+ * Since 2026-09-05 a staff account is a username and a password, so this dialog asks for both
+ * rather than cloning the caller's Telegram id — there is nothing of theirs left to clone, and
+ * `POST /v1/admin/admins` does not accept a Telegram id at all any more.
  */
 
 const northern = mockTenants[1]!;
-const pilot = mockTenants[2]!;
 
-/** Already an admin in the mock directory, which is what makes the duplicate path reachable. */
-const EXISTING_TELEGRAM_ID = '700000001';
-const NEW_TELEGRAM_ID = '700000999';
+/** Already in the mock directory, which is what makes the duplicate path reachable. */
+const TAKEN_USERNAME = 'nour_ops';
+const FREE_USERNAME = 'nour.platform@example.com';
+const NEW_PASSWORD = 'Sup3rSecret!';
 
 interface DialogOptions {
   role?: AdminRole;
@@ -32,7 +35,6 @@ interface DialogOptions {
   tenantId?: string | null;
   /** The operator this session signed into. Absent on a token minted before the tenant claim. */
   homeTenantId?: string;
-  telegramUserId?: string;
   tenantHeaderEnabled?: boolean;
   locale?: Locale;
   tenant?: typeof northern;
@@ -54,7 +56,6 @@ function renderAction(options: DialogOptions = {}) {
           ...base.session,
           admin: {
             ...base.session.admin,
-            telegramUserId: options.telegramUserId ?? EXISTING_TELEGRAM_ID,
             displayName: 'Nour Haddad',
           },
           ...(options.homeTenantId === undefined ? {} : { tenantId: options.homeTenantId }),
@@ -85,6 +86,19 @@ const openDialog = async (options: DialogOptions = {}, action = /add me as an ad
   return rendered;
 };
 
+/**
+ * The credential the new account will be signed into with. Filled by every case that submits,
+ * because the form now refuses without it — which is the point: an account with no password is one
+ * nobody can use.
+ */
+async function fillCredential(
+  user: Awaited<ReturnType<typeof openDialog>>['user'],
+  username = FREE_USERNAME,
+): Promise<void> {
+  await user.type(await screen.findByLabelText(/username/i), username);
+  await user.type(screen.getByLabelText(/password/i), NEW_PASSWORD);
+}
+
 describe('who is offered it', () => {
   it('offers the action to a platform admin, who is the only role the API accepts it from', () => {
     renderAction();
@@ -101,11 +115,13 @@ describe('who is offered it', () => {
 });
 
 describe('what the dialog knows before it asks anything', () => {
-  it('fills in the Telegram id and the name from the session, not from memory', async () => {
+  it('fills the name from the session, and asks for the login it cannot know', async () => {
     await openDialog();
 
-    expect(await screen.findByText(EXISTING_TELEGRAM_ID)).toBeInTheDocument();
-    expect(screen.getByLabelText(/display name/i)).toHaveValue('Nour Haddad');
+    expect(await screen.findByLabelText(/display name/i)).toHaveValue('Nour Haddad');
+    // A password is never readable back from a session, so it is the one thing that must be typed.
+    expect(screen.getByLabelText(/^password$/i)).toHaveValue('');
+    expect(screen.queryByText(/telegram/i)).toBeNull();
   });
 
   it('defaults to super admin and explains every role it offers', async () => {
@@ -137,8 +153,9 @@ describe('aiming the write at the operator being viewed', () => {
             success: true,
             data: {
               id: 'new-admin',
-              telegramUserId: NEW_TELEGRAM_ID,
+              telegramUserId: null,
               username: null,
+              hasPassword: false,
               displayName: 'Nour Haddad',
               role: 'SUPER_ADMIN',
               isActive: true,
@@ -153,8 +170,9 @@ describe('aiming the write at the operator being viewed', () => {
       }),
     );
 
-    const { user } = await openDialog({ telegramUserId: NEW_TELEGRAM_ID });
-    await user.click(await screen.findByRole('button', { name: /^add me as an admin$/i }));
+    const { user } = await openDialog();
+    await fillCredential(user);
+    await user.click(screen.getByRole('button', { name: /^add me as an admin$/i }));
 
     expect(await screen.findByText(/next: sign in to northern branch/i)).toBeInTheDocument();
     expect(sentTenantId).toBe(northern.id);
@@ -193,39 +211,42 @@ describe('aiming the write at the operator being viewed', () => {
 });
 
 describe('what it says afterwards', () => {
-  it('reads an existing admin row as the outcome the owner wanted, not as a failure', async () => {
+  it('reads a taken username as the outcome the owner wanted, not as a failure', async () => {
     const { user } = await openDialog();
+    await fillCredential(user, TAKEN_USERNAME);
 
-    await user.click(await screen.findByRole('button', { name: /^add me as an admin$/i }));
+    await user.click(screen.getByRole('button', { name: /^add me as an admin$/i }));
 
     expect(await screen.findByText(/you are already an admin there/i)).toBeInTheDocument();
-    expect(screen.getByText(/nothing changed, and nothing needed to/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/if the existing account is yours, sign in with it/i),
+    ).toBeInTheDocument();
     expect(screen.queryByText(/could not add you as an admin/i)).toBeNull();
-    // The next step is the same either way: the account still has to sign in to that operator.
-    expect(screen.getByText(/@northern_cashier_bot/)).toBeInTheDocument();
   });
 
-  it('names THAT operator’s bot, because a code from any other one signs you in elsewhere', async () => {
-    const { user } = await openDialog({ telegramUserId: NEW_TELEGRAM_ID });
+  it('tells the owner to sign in with what they just set, naming no bot at all', async () => {
+    // The old instruction was "send /console to THAT operator's bot", because a code from another
+    // bot signed you into another operator. Signing in no longer goes through Telegram, so the
+    // wrong-bot mistake it guarded against cannot happen.
+    const { user } = await openDialog();
+    await fillCredential(user);
 
-    await user.click(await screen.findByRole('button', { name: /^add me as an admin$/i }));
+    await user.click(screen.getByRole('button', { name: /^add me as an admin$/i }));
 
-    const instruction = await screen.findByText(/@northern_cashier_bot/);
-    expect(instruction).toHaveTextContent('/console');
-    expect(instruction).toHaveTextContent(/not into Northern branch/i);
-    expect(screen.queryByText(/main_cashier_bot/)).toBeNull();
+    expect(await screen.findByText(/next: sign in to northern branch/i)).toBeInTheDocument();
+    expect(screen.getByText(/username and password you just set/i)).toBeInTheDocument();
+    expect(screen.queryByText(/@northern_cashier_bot/)).toBeNull();
+    expect(screen.queryByText(/\/console/)).toBeNull();
   });
 
-  it('says which bot token to check when the operator has no bot username recorded', async () => {
-    const { user } = await openDialog({
-      tenant: pilot,
-      tenantId: pilot.id,
-      telegramUserId: NEW_TELEGRAM_ID,
-    });
+  it('refuses a password too short to be one, before anything is sent', async () => {
+    const { user } = await openDialog();
+    await user.type(await screen.findByLabelText(/username/i), FREE_USERNAME);
+    await user.type(screen.getByLabelText(/^password$/i), 'short');
 
-    await user.click(await screen.findByRole('button', { name: /^add me as an admin$/i }));
+    await user.click(screen.getByRole('button', { name: /^add me as an admin$/i }));
 
-    expect(await screen.findByText(/confirm which bot that is in botfather/i)).toBeInTheDocument();
+    expect(await screen.findByRole('alert')).toHaveTextContent(/at least 8 characters/i);
   });
 
   it('shows the API refusal as worded, rather than a shrug', async () => {
@@ -235,7 +256,7 @@ describe('what it says afterwards', () => {
           {
             success: false,
             data: null,
-            error: { code: 'VALIDATION_FAILED', message: 'telegramUserId must be numeric.' },
+            error: { code: 'VALIDATION_FAILED', message: 'username is already taken.' },
             meta: { correlationId: 'test', timestamp: '' },
           },
           { status: 422 },
@@ -244,23 +265,21 @@ describe('what it says afterwards', () => {
     );
 
     const { user } = await openDialog();
-    await user.click(await screen.findByRole('button', { name: /^add me as an admin$/i }));
+    await fillCredential(user);
+    await user.click(screen.getByRole('button', { name: /^add me as an admin$/i }));
 
-    expect(await screen.findByText('telegramUserId must be numeric.')).toBeInTheDocument();
+    expect(await screen.findByText('username is already taken.')).toBeInTheDocument();
   });
 });
 
 describe('in Arabic', () => {
-  it('keeps the bot handle readable while the instruction reads right to left', async () => {
-    const { user } = await openDialog(
-      { locale: 'ar', telegramUserId: NEW_TELEGRAM_ID },
-      /أضِفني مديراً هنا/,
-    );
+  it('asks for the login in Arabic, and says what to do next in Arabic', async () => {
+    const { user } = await openDialog({ locale: 'ar' }, /أضِفني مديراً هنا/);
 
-    await user.click(await screen.findByRole('button', { name: /^أضِفني مديراً$/ }));
+    await user.type(await screen.findByLabelText('اسم المستخدم'), FREE_USERNAME);
+    await user.type(screen.getByLabelText('كلمة المرور'), NEW_PASSWORD);
+    await user.click(screen.getByRole('button', { name: /^أضِفني مديراً$/ }));
 
-    const instruction = await screen.findByText(/northern_cashier_bot/);
-    expect(instruction).toHaveTextContent('/console');
-    expect(screen.getByText(/الخطوة التالية/)).toBeInTheDocument();
+    expect(await screen.findByText(/الخطوة التالية/)).toBeInTheDocument();
   });
 });

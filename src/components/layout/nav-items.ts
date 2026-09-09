@@ -1,7 +1,9 @@
 import {
+  ArrowUpFromLine,
   Banknote,
   Bot,
   Building2,
+  ChartColumn,
   HandCoins,
   LayoutDashboard,
   Landmark,
@@ -37,6 +39,29 @@ export interface NavItem {
 export const NAV_ITEMS: readonly NavItem[] = [
   { to: '/', labelKey: 'nav.overview', icon: LayoutDashboard, capability: 'deposits.read' },
   { to: '/deposits', labelKey: 'nav.deposits', icon: Banknote, capability: 'deposits.read' },
+  /*
+   * Money OUT, right after money IN. Read-gated like the deposit queue: the same readers as the
+   * player directory, and the decide controls inside ask for their own capability.
+   */
+  {
+    to: '/withdrawals',
+    labelKey: 'nav.withdrawals',
+    icon: ArrowUpFromLine,
+    capability: 'withdrawals.read',
+  },
+  /*
+   * After the two queues, because it is the same subject read the other way round: a queue is the
+   * rows still to decide, this is every row including the ones that worked. Somebody who has just
+   * worked the queue is exactly who asks "so how did we do".
+   *
+   * NOT between deposits and withdrawals: those two are a pair — money in beside money out — and
+   * withdrawals-page.test.tsx pins that adjacency.
+   *
+   * On `deposits.read` because that is what it reports on; a VIEWER who can already page through
+   * every row one at a time learns nothing new from their sum. The cross-operator table inside asks
+   * for `platformFinance.read` separately and simply does not mount without it.
+   */
+  { to: '/stats', labelKey: 'nav.stats', icon: ChartColumn, capability: 'deposits.read' },
   { to: '/players', labelKey: 'nav.players', icon: Users, capability: 'players.read' },
   {
     to: '/payment-methods',

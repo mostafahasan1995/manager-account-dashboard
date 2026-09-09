@@ -13,13 +13,15 @@ import { LoginPage } from './login-page';
 
 /**
  * Sign-in is the one screen an operator meets before they know anything about the console, so what
- * is tested here is mostly whether it explains itself: which of the two accounts it is asking for,
- * why a session ended, and — the part that costs real time when it is wrong — what to do about each
- * of the ways a sign-in can be refused.
+ * is tested here is mostly whether it explains itself: what it is asking for, why a session ended,
+ * and — the part that costs real time when it is wrong — what to do about each of the ways a
+ * sign-in can be refused.
  *
- * Two doors, and they are not interchangeable. An OPERATOR holds an Ichancy agent account; the
- * PLATFORM holds a Telegram bot code and no agent at all. Most of the cases below exist because a
- * screen that blurred the two would send half the people who see it to the wrong field.
+ * ONE DOOR as of 2026-09-05. The bot-code tab is gone with the `/console` command that fed it, and
+ * the Ichancy agent account is no longer a separate tab: the server tries a person's own console
+ * credential first and the operator's agent account second behind the same two fields. So the cases
+ * that used to be "which tab" are now "which refusal", and both spellings of each refusal are
+ * exercised, because which one comes back depends on how far the credential got.
  *
  * The first query in each case is a `findBy` because the router resolves its route asynchronously —
  * the same reason the real screen never flashes a wrong page.
@@ -38,15 +40,9 @@ const render = (options: Parameters<typeof renderWithProviders>[1] = {}) =>
     ...options,
   });
 
-const usernameField = () => screen.findByLabelText(/ichancy username/i);
-const passwordField = () => screen.findByLabelText(/ichancy password/i);
-const codeField = () => screen.findByLabelText(/one-time code/i);
+const usernameField = () => screen.findByLabelText(/username or email/i);
+const passwordField = () => screen.findByLabelText(/^password$/i);
 const submit = () => screen.getByRole('button', { name: /sign in/i });
-
-/** The code lives behind its own tab now; nearly every bot-code case starts by opening it. */
-async function openCodeTab(user: ReturnType<typeof render>['user']): Promise<void> {
-  await user.click(await screen.findByRole('tab', { name: /bot code/i }));
-}
 
 const apiError = (status: number, code: string, details?: unknown) =>
   new ApiError({
@@ -57,15 +53,14 @@ const apiError = (status: number, code: string, details?: unknown) =>
   });
 
 describe('what it tells you', () => {
-  it('offers both accounts, and opens on the one an operator holds', async () => {
+  it('asks for one credential, with no choice of door to make first', async () => {
     render();
 
-    expect(await screen.findByRole('tab', { name: /ichancy account/i })).toHaveAttribute(
-      'data-state',
-      'active',
-    );
-    expect(screen.getByRole('tab', { name: /bot code/i })).toBeInTheDocument();
     expect(await usernameField()).toBeInTheDocument();
+    expect(await passwordField()).toBeInTheDocument();
+    // The tabs are gone: a screen that still asked "which kind of account?" would be asking a
+    // question only the backend can answer.
+    expect(screen.queryByRole('tab')).not.toBeInTheDocument();
   });
 
   it('focuses the username field so the operator can just type', async () => {
@@ -77,50 +72,74 @@ describe('what it tells you', () => {
     const { user } = render();
 
     expect(await screen.findByRole('button', { name: /sign in/i })).toBeDisabled();
-    await user.type(await usernameField(), 'agent_main');
+    await user.type(await usernameField(), 'nadia_ops');
     expect(submit()).toBeDisabled();
     await user.type(await passwordField(), 'x');
     expect(submit()).toBeEnabled();
   });
 
-  it('still says where a bot code comes from, on the door that needs one', async () => {
-    const { user } = render();
-    await openCodeTab(user);
+  it('mentions no bot command anywhere — there is none to send', async () => {
+    render();
 
-    expect(await screen.findByText('/console')).toBeInTheDocument();
-    expect(await codeField()).toBeInTheDocument();
+    await usernameField();
+    expect(screen.queryByText('/console')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/one-time code/i)).not.toBeInTheDocument();
   });
 });
 
-describe('signing in as an operator', () => {
-  it('sends the agent credentials and navigates away from the login screen', async () => {
-    const signInWithAgent = vi.fn().mockResolvedValue(createTestSession('SUPER_ADMIN'));
-    const { user, location } = render({ auth: { isAuthenticated: false, signInWithAgent } });
+describe('signing in', () => {
+  it('sends the credential and navigates away from the login screen', async () => {
+    const signIn = vi.fn().mockResolvedValue(createTestSession('FINANCE_ADMIN'));
+    const { user, location } = render({ auth: { isAuthenticated: false, signIn } });
 
-    await user.type(await usernameField(), 'agent_main');
-    await user.type(await passwordField(), 'agent-demo');
+    await user.type(await usernameField(), 'nadia_ops');
+    await user.type(await passwordField(), 'Sup3rSecret!');
     await user.click(submit());
 
-    // No operatorSlug on the first attempt: the overwhelming majority of agents run one operator
+    // No operatorSlug on the first attempt: the overwhelming majority of logins open one operator
     // and must not be asked a question with one answer.
-    expect(signInWithAgent).toHaveBeenCalledWith({
-      username: 'agent_main',
-      password: 'agent-demo',
-    });
+    expect(signIn).toHaveBeenCalledWith({ username: 'nadia_ops', password: 'Sup3rSecret!' });
     await vi.waitFor(() => {
       expect(location()).not.toContain('/login');
     });
   });
 
+  it('accepts an email as the login, which is what the real accounts are spelled as', async () => {
+    const signIn = vi.fn().mockResolvedValue(createTestSession('SUPER_ADMIN'));
+    const { user } = render({ auth: { isAuthenticated: false, signIn } });
+
+    await user.type(await usernameField(), 'owner@example.com');
+    await user.type(await passwordField(), 'Sup3rSecret!');
+    await user.click(submit());
+
+    expect(signIn).toHaveBeenCalledWith({
+      username: 'owner@example.com',
+      password: 'Sup3rSecret!',
+    });
+  });
+
+  it('sends a PLATFORM_ADMIN to the operators screen, the only one it can open', async () => {
+    const signIn = vi.fn().mockResolvedValue(createTestSession('PLATFORM_ADMIN'));
+    const { user, location } = render({ auth: { isAuthenticated: false, signIn } });
+
+    await user.type(await usernameField(), 'platform');
+    await user.type(await passwordField(), 'Sup3rSecret!');
+    await user.click(submit());
+
+    await vi.waitFor(() => {
+      expect(location()).toContain('/tenants');
+    });
+  });
+
   it('returns the operator to where they were sent away from', async () => {
-    const signInWithAgent = vi.fn().mockResolvedValue(createTestSession('SUPER_ADMIN'));
+    const signIn = vi.fn().mockResolvedValue(createTestSession('SUPER_ADMIN'));
     const { user, location } = render({
       route: '/login?redirect=%2Fdeposits',
-      auth: { isAuthenticated: false, signInWithAgent },
+      auth: { isAuthenticated: false, signIn },
     });
 
-    await user.type(await usernameField(), 'agent_main');
-    await user.type(await passwordField(), 'agent-demo');
+    await user.type(await usernameField(), 'nadia_ops');
+    await user.type(await passwordField(), 'Sup3rSecret!');
     await user.click(submit());
 
     await vi.waitFor(() => {
@@ -129,45 +148,56 @@ describe('signing in as an operator', () => {
   });
 });
 
-describe('when one Ichancy agent runs several operators', () => {
-  const ambiguous = () =>
-    apiError(409, 'AGENT_OPERATOR_AMBIGUOUS', {
+describe('when one credential opens several operators', () => {
+  const ambiguous = (code: string) =>
+    apiError(409, code, {
       operators: [
         { slug: 'tenant-zero', displayName: 'Main operation' },
         { slug: 'northern-branch', displayName: 'Northern branch' },
       ],
     });
 
-  const arrive = async (signInWithAgent: AuthState['signInWithAgent']) => {
-    const rendered = render({ auth: { isAuthenticated: false, signInWithAgent } });
-    await rendered.user.type(await usernameField(), 'shared_agent');
-    await rendered.user.type(await passwordField(), 'agent-demo');
+  const arrive = async (signIn: AuthState['signIn']) => {
+    const rendered = render({ auth: { isAuthenticated: false, signIn } });
+    await rendered.user.type(await usernameField(), 'shared_login');
+    await rendered.user.type(await passwordField(), 'Sup3rSecret!');
     await rendered.user.click(submit());
     return rendered;
   };
 
   it('asks which one rather than refusing, and never calls it a bad password', async () => {
-    const signInWithAgent = vi.fn().mockRejectedValue(ambiguous());
-    await arrive(signInWithAgent);
+    const signIn = vi.fn().mockRejectedValue(ambiguous('ADMIN_OPERATOR_AMBIGUOUS'));
+    await arrive(signIn);
 
     expect(await screen.findByText(/which operator/i)).toBeInTheDocument();
     expect(screen.getByText('Northern branch')).toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
+  it('does the same when it was the agent credential that opened several', async () => {
+    // Same question, different spelling: the server answers AGENT_ when the credential reached the
+    // operator's Ichancy account rather than a personal one. A screen that handled only one would
+    // report the other as a bad password and throw the credential away.
+    const signIn = vi.fn().mockRejectedValue(ambiguous('AGENT_OPERATOR_AMBIGUOUS'));
+    await arrive(signIn);
+
+    expect(await screen.findByText(/which operator/i)).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
   it('re-sends the same credential with the chosen operator, without asking for it again', async () => {
-    const signInWithAgent = vi
+    const signIn = vi
       .fn()
-      .mockRejectedValueOnce(ambiguous())
+      .mockRejectedValueOnce(ambiguous('ADMIN_OPERATOR_AMBIGUOUS'))
       .mockResolvedValueOnce(createTestSession('SUPER_ADMIN'));
-    const { user, location } = await arrive(signInWithAgent);
+    const { user, location } = await arrive(signIn);
 
     await user.click(await screen.findByRole('radio', { name: /northern branch/i }));
     await user.click(screen.getByRole('button', { name: /sign in to northern branch/i }));
 
-    expect(signInWithAgent).toHaveBeenLastCalledWith({
-      username: 'shared_agent',
-      password: 'agent-demo',
+    expect(signIn).toHaveBeenLastCalledWith({
+      username: 'shared_login',
+      password: 'Sup3rSecret!',
       operatorSlug: 'northern-branch',
     });
     await vi.waitFor(() => {
@@ -175,9 +205,9 @@ describe('when one Ichancy agent runs several operators', () => {
     });
   });
 
-  it('offers a way back to the credentials, for an agent signed into with the wrong account', async () => {
-    const signInWithAgent = vi.fn().mockRejectedValue(ambiguous());
-    const { user } = await arrive(signInWithAgent);
+  it('offers a way back to the credential, for somebody who used the wrong account', async () => {
+    const signIn = vi.fn().mockRejectedValue(ambiguous('ADMIN_OPERATOR_AMBIGUOUS'));
+    const { user } = await arrive(signIn);
 
     await user.click(await screen.findByRole('button', { name: /use a different account/i }));
 
@@ -187,20 +217,28 @@ describe('when one Ichancy agent runs several operators', () => {
   });
 });
 
-describe('when the agent credentials are refused', () => {
+describe('when the credential is refused', () => {
   const refuse = async (error: unknown) => {
-    const signInWithAgent = vi.fn().mockRejectedValue(error);
-    const rendered = render({ auth: { isAuthenticated: false, signInWithAgent } });
-    await rendered.user.type(await usernameField(), 'agent_main');
+    const signIn = vi.fn().mockRejectedValue(error);
+    const rendered = render({ auth: { isAuthenticated: false, signIn } });
+    await rendered.user.type(await usernameField(), 'nadia_ops');
     await rendered.user.type(await passwordField(), 'wrong');
     await rendered.user.click(submit());
     return rendered;
   };
 
   it('says the credentials open nothing, without saying which half was wrong', async () => {
+    await refuse(apiError(401, 'ADMIN_CREDENTIALS_INVALID'));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/do not open anything/i);
+  });
+
+  it('says the same for a credential that got as far as the agent account', async () => {
+    // The person typing cannot tell the two apart and should not have to: a sentence about Ichancy
+    // would be about an account a new manager may not know exists.
     await refuse(apiError(401, 'AGENT_CREDENTIALS_INVALID'));
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(/do not open any operator/i);
+    expect(await screen.findByRole('alert')).toHaveTextContent(/do not open anything/i);
   });
 
   it('tells a suspended operator to ask a platform admin, not to retype', async () => {
@@ -213,32 +251,32 @@ describe('when the agent credentials are refused', () => {
   });
 
   it('explains a console account somebody switched off, rather than blaming the password', async () => {
-    // Not "this operator has no staff yet" — the first sign-in creates that row. This is the row
-    // having been deactivated afterwards, which is a decision and needs naming as one.
+    // Not "this operator has no staff yet" — the first agent sign-in creates that row. This is the
+    // row having been deactivated afterwards, which is a decision and needs naming as one.
     await refuse(apiError(403, 'AGENT_OPERATOR_HAS_NO_OWNER'));
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/has been deactivated/i);
   });
 
   it('keeps the username and clears the password, then returns focus to it', async () => {
-    await refuse(apiError(401, 'AGENT_CREDENTIALS_INVALID'));
+    await refuse(apiError(401, 'ADMIN_CREDENTIALS_INVALID'));
 
     await screen.findByRole('alert');
-    expect(await usernameField()).toHaveValue('agent_main');
+    expect(await usernameField()).toHaveValue('nadia_ops');
     expect(await passwordField()).toHaveValue('');
     expect(await passwordField()).toHaveFocus();
   });
 
   it('carries a real API refusal all the way from the wire to the sentence', async () => {
     server.use(
-      http.post(`${config.apiBaseUrl}/v1/admin/auth/ichancy`, () =>
+      http.post(`${config.apiBaseUrl}/v1/admin/auth/credentials`, () =>
         HttpResponse.json(
           {
             success: false,
             data: null,
             error: {
-              code: 'AGENT_CREDENTIALS_INVALID',
-              message: 'Those Ichancy credentials are not valid.',
+              code: 'ADMIN_CREDENTIALS_INVALID',
+              message: 'Those credentials are not valid.',
             },
             meta: { correlationId: 'c', timestamp: 't' },
           },
@@ -247,110 +285,30 @@ describe('when the agent credentials are refused', () => {
       ),
     );
 
-    // The real signInWithAgent, so the ApiError travels the whole way from the API to the message.
+    // The real signIn, so the ApiError travels the whole way from the API to the message.
     const { user } = renderWithProviders(<LoginPage />, {
       route: '/login',
       routePath: '/login',
       validateSearch: loginSearchSchema,
       auth: {
         isAuthenticated: false,
-        signInWithAgent: async (credentials) => {
+        signIn: async (credentials) => {
           const { authApi } = await import('@/lib/api/endpoints');
-          return authApi.signInWithAgent(credentials);
+          return authApi.signIn(credentials);
         },
       },
     });
 
-    await user.type(await usernameField(), 'agent_main');
+    await user.type(await usernameField(), 'nadia_ops');
     await user.type(await passwordField(), 'wrong');
     await user.click(submit());
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(/do not open any operator/i);
-  });
-});
-
-describe('signing in with a bot code', () => {
-  it('exchanges the code and navigates away from the login screen', async () => {
-    const signIn = vi.fn().mockResolvedValue(createTestSession('REVIEWER'));
-    const { user, location } = render({ auth: { isAuthenticated: false, signIn } });
-    await openCodeTab(user);
-
-    await user.type(await codeField(), '123456');
-    await user.click(submit());
-
-    expect(signIn).toHaveBeenCalledWith('123456');
-    await vi.waitFor(() => {
-      expect(location()).not.toContain('/login');
-    });
-  });
-
-  it('sends a PLATFORM_ADMIN to the operators screen, which is the only one it can open', async () => {
-    // And it is only reachable through this door: the platform runs no Ichancy agent of its own.
-    const signIn = vi.fn().mockResolvedValue(createTestSession('PLATFORM_ADMIN'));
-    const { user, location } = render({ auth: { isAuthenticated: false, signIn } });
-    await openCodeTab(user);
-
-    await user.type(await codeField(), '111111');
-    await user.click(submit());
-
-    await vi.waitFor(() => {
-      expect(location()).toContain('/tenants');
-    });
-  });
-
-  it('says a code is refused without distinguishing invalid from expired, as the backend does', async () => {
-    server.use(
-      http.post(`${config.apiBaseUrl}/v1/admin/auth/bot-code`, () =>
-        HttpResponse.json(
-          {
-            success: false,
-            data: null,
-            error: { code: 'BOT_CODE_INVALID', message: 'That code is not valid.' },
-            meta: { correlationId: 'c', timestamp: 't' },
-          },
-          { status: 401 },
-        ),
-      ),
-    );
-
-    const { user } = renderWithProviders(<LoginPage />, {
-      route: '/login',
-      routePath: '/login',
-      validateSearch: loginSearchSchema,
-      auth: {
-        isAuthenticated: false,
-        signIn: async (code: string) => {
-          const { authApi } = await import('@/lib/api/endpoints');
-          return authApi.exchangeBotCode(code);
-        },
-      },
-    });
-
-    await openCodeTab(user);
-    await user.type(await codeField(), '000000');
-    await user.click(submit());
-
-    expect(await screen.findByRole('alert')).toHaveTextContent(/not valid or has expired/i);
-  });
-
-  it('clears the field and returns focus, so the next code can be typed straight in', async () => {
-    const signIn = vi.fn().mockRejectedValue(new Error('nope'));
-    const { user } = render({ auth: { isAuthenticated: false, signIn } });
-    await openCodeTab(user);
-
-    const field = await codeField();
-    await user.type(field, '000000');
-    await user.click(submit());
-
-    await vi.waitFor(() => {
-      expect(field).toHaveValue('');
-    });
-    expect(field).toHaveFocus();
+    expect(await screen.findByRole('alert')).toHaveTextContent(/do not open anything/i);
   });
 });
 
 describe('when the session ended by itself', () => {
-  it('says why, above whichever door is open', async () => {
+  it('says why, above the form', async () => {
     render({ auth: { isAuthenticated: false, signOutReason: 'expired' } });
 
     expect(await screen.findByText(/your session expired/i)).toBeInTheDocument();
@@ -362,8 +320,8 @@ describe('in Arabic', () => {
     render({ locale: 'ar' });
 
     expect(await screen.findByRole('heading', { name: 'تسجيل الدخول' })).toBeInTheDocument();
-    expect(screen.getByLabelText('اسم مستخدم Ichancy')).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: 'رمز البوت' })).toBeInTheDocument();
+    expect(screen.getByLabelText('اسم المستخدم أو البريد الإلكتروني')).toBeInTheDocument();
+    expect(screen.getByLabelText('كلمة المرور')).toBeInTheDocument();
   });
 
   it('calls itself by its Arabic name, not by an English one baked in at build time', async () => {
@@ -384,12 +342,15 @@ describe('in Arabic', () => {
     expect(await screen.findByText('Cashier Admin')).toBeInTheDocument();
   });
 
-  it('leaves the bot command in Latin, because it is typed into Telegram exactly as shown', async () => {
-    const { user } = render({ locale: 'ar' });
-    await user.click(await screen.findByRole('tab', { name: 'رمز البوت' }));
+  it('types the login left to right, even in an Arabic layout', async () => {
+    // A login is Latin. Left in the RTL run, the caret lands on the wrong end of a half-typed
+    // email and the value reads back reordered.
+    render({ locale: 'ar' });
 
-    const command = await screen.findByText('/console');
-    expect(command).toHaveAttribute('dir', 'ltr');
+    expect(await screen.findByLabelText('اسم المستخدم أو البريد الإلكتروني')).toHaveAttribute(
+      'dir',
+      'ltr',
+    );
   });
 
   it('mirrors the document, and mirrors it back for English', async () => {
@@ -416,26 +377,25 @@ describe('which backend it is talking to', () => {
 
   // Last on purpose: replacing a data property with a getter is not something a spy restores
   // cleanly, so nothing after this may depend on `config.enableMocks`.
-  it('tells the operator which code the mock API accepts when mocks are on', async () => {
+  it('tells the operator which password the mock API accepts when mocks are on', async () => {
     vi.spyOn(config, 'enableMocks', 'get').mockReturnValue(true);
     render();
 
     expect(await screen.findByText(/demo mode/i)).toBeInTheDocument();
-    // The code appears twice on purpose: once in the sentence, once in the role list below it.
-    expect(screen.getAllByText('123456').length).toBeGreaterThan(0);
+    expect(screen.getByText(/demo-pass/)).toBeInTheDocument();
   });
 
-  it('lists a code per role, so every role-gated screen can actually be demonstrated', async () => {
+  it('lists a login per role, so every role-gated screen can actually be demonstrated', async () => {
     vi.spyOn(config, 'enableMocks', 'get').mockReturnValue(true);
     render();
 
     await screen.findByText(/demo mode/i);
     expect(screen.getByText('Platform admin')).toBeInTheDocument();
     expect(screen.getByText('Reviewer')).toBeInTheDocument();
-    expect(screen.getByText('111111')).toBeInTheDocument();
+    expect(screen.getByText('platform')).toBeInTheDocument();
   });
 
-  it('demonstrates the other door too, refusal included', async () => {
+  it('demonstrates the agent credential too, refusal included', async () => {
     vi.spyOn(config, 'enableMocks', 'get').mockReturnValue(true);
     render();
 

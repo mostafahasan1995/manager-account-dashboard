@@ -173,6 +173,14 @@ describe('StaffDetailPage', () => {
     expect(await screen.findByText('Admin not found.')).toBeInTheDocument();
   });
 
+  it('shows a manager with no Telegram account plainly, and that a console password is set', async () => {
+    renderDetail(ADMIN_IDS.noTelegram);
+
+    expect(await screen.findByRole('heading', { name: 'Maya Console' })).toBeInTheDocument();
+    expect(screen.getByText('No Telegram account')).toBeInTheDocument();
+    expect(screen.getByText('Console password').parentElement).toHaveTextContent('Set');
+  });
+
   it('points back at the directory when the URL names nobody', async () => {
     renderWithProviders(<StaffDetailPage />, { route: '/staff', routePath: '/staff' });
 

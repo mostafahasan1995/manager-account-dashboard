@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link } from '@tanstack/react-router';
 
-import { Banknote, PlusCircle, UserPlus } from 'lucide-react';
+import { Ban, Banknote, LockOpen, PlusCircle, Send, UserPlus } from 'lucide-react';
 
 import { Can, CopyableValue, PlayerStatusBadge, TimeAgo } from '@/components/common';
 import {
@@ -16,7 +16,7 @@ import {
   Tooltip,
 } from '@/components/ui';
 import { useT } from '@/lib/i18n/use-translation';
-import { playerDisplayName, type AdminPlayer } from '@/types/player';
+import { isPlayerBlocked, playerDisplayName, type AdminPlayer } from '@/types/player';
 
 import { playerMessages } from './messages';
 import { PlayerBalanceCell } from './player-balance-cell';
@@ -81,6 +81,13 @@ const ROW_SURFACE = 'bg-[var(--surface)]';
 const ROW_SURFACE_WAITING = 'bg-[color-mix(in_oklab,var(--warning-muted)_50%,var(--surface))]';
 
 /**
+ * The blocked tint, mixed the same way for the same reason. The colour alone says nothing an
+ * operator may act on — the status badge in the row says "Blocked" in words — but a locked-out
+ * account should not look like an ordinary one from across the room.
+ */
+const ROW_SURFACE_BLOCKED = 'bg-[color-mix(in_oklab,var(--danger-muted)_50%,var(--surface))]';
+
+/**
  * The player list itself.
  *
  * The column that earns its place is Ichancy: a player without a linked account cannot be
@@ -93,6 +100,9 @@ export function PlayerTable({
   onLink,
   onDeposit,
   onWithdraw,
+  onBlock,
+  onUnblock,
+  onAttachTelegram,
 }: {
   players: readonly AdminPlayer[];
   onLink: (player: AdminPlayer) => void;
@@ -100,6 +110,12 @@ export function PlayerTable({
   onDeposit: (player: AdminPlayer) => void;
   /** Opens the debit form — what this product calls a withdrawal from a player's account. */
   onWithdraw: (player: AdminPlayer) => void;
+  /** Opens the block form. Offered for every row that is not already blocked or closed. */
+  onBlock: (player: AdminPlayer) => void;
+  /** Opens the unblock confirmation. Offered only for a BLOCKED row. */
+  onUnblock: (player: AdminPlayer) => void;
+  /** Opens the attach form. Offered only for a row with no Telegram id. */
+  onAttachTelegram: (player: AdminPlayer) => void;
 }) {
   const t = useT(playerMessages);
   const [balancesRequested, setBalancesRequested] = useState(false);
@@ -146,9 +162,15 @@ export function PlayerTable({
           const name = playerDisplayName(player);
           const username = player.telegramUsername;
           const waiting = player.status === 'PENDING_ICHANCY';
+          const blocked = isPlayerBlocked(player);
+          const rowSurface = blocked
+            ? ROW_SURFACE_BLOCKED
+            : waiting
+              ? ROW_SURFACE_WAITING
+              : ROW_SURFACE;
 
           return (
-            <TableRow key={player.id} className={waiting ? ROW_SURFACE_WAITING : ROW_SURFACE}>
+            <TableRow key={player.id} className={rowSurface}>
               <TableCell>
                 <Link
                   to="/players/$playerId"
@@ -163,7 +185,13 @@ export function PlayerTable({
               </TableCell>
 
               <TableCell>
-                <CopyableValue value={player.telegramUserId} />
+                {/* Null for an imported or admin-registered row: a dash, no copy button, and the
+                    attach action waits in the actions cell for the roles that hold it. */}
+                {player.telegramUserId === null ? (
+                  <span aria-label={t('players.telegram.none')}>—</span>
+                ) : (
+                  <CopyableValue value={player.telegramUserId} />
+                )}
               </TableCell>
 
               <TableCell>
@@ -275,6 +303,63 @@ export function PlayerTable({
                           aria-label={t('players.link.forPlayer', { name })}
                         >
                           <UserPlus className="size-3.5" aria-hidden="true" />
+                        </Button>
+                      </Tooltip>
+                    </Can>
+                  )}
+
+                  {/* Only for a row with no Telegram at all. Attaching to one that has an id would
+                      be repointing an account, which the backend refuses and this table does not
+                      offer. */}
+                  {player.telegramUserId === null ? (
+                    <Can capability="players.write">
+                      <Tooltip content={t('players.attach.action')}>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-8"
+                          onClick={() => {
+                            onAttachTelegram(player);
+                          }}
+                          aria-label={t('players.attach.forPlayer', { name })}
+                        >
+                          <Send className="size-3.5" aria-hidden="true" />
+                        </Button>
+                      </Tooltip>
+                    </Can>
+                  ) : null}
+
+                  {/* Block or unblock, never both: the row's status decides which one is real. A
+                      closed account has nothing left to lock, so it gets neither. */}
+                  {blocked ? (
+                    <Can capability="players.block">
+                      <Tooltip content={t('players.unblock.action')}>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-8"
+                          onClick={() => {
+                            onUnblock(player);
+                          }}
+                          aria-label={t('players.unblock.forPlayer', { name })}
+                        >
+                          <LockOpen className="size-3.5" aria-hidden="true" />
+                        </Button>
+                      </Tooltip>
+                    </Can>
+                  ) : player.status === 'CLOSED' ? null : (
+                    <Can capability="players.block">
+                      <Tooltip content={t('players.block.action')}>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-8 text-[var(--danger)]"
+                          onClick={() => {
+                            onBlock(player);
+                          }}
+                          aria-label={t('players.block.forPlayer', { name })}
+                        >
+                          <Ban className="size-3.5" aria-hidden="true" />
                         </Button>
                       </Tooltip>
                     </Can>

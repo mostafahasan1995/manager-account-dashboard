@@ -178,12 +178,18 @@ export const CREDIT_VERIFIED_BY_LABELS: Record<CreditVerifiedBy, string> = {
 
 // ── Players ────────────────────────────────────────────────────────────────────────────────────
 
+/**
+ * `BLOCKED` is the operator's own lock, not an Ichancy state: a blocked player can do nothing in
+ * this tenant's bot — no deposit, no withdrawal, no menu — while their casino account is untouched.
+ * It is set and cleared from this console (`players.block`), and it carries a reason.
+ */
 export const PLAYER_STATUSES = [
   'PENDING_ICHANCY',
   'ACTIVE',
   'SUSPENDED',
   'SELF_EXCLUDED',
   'CLOSED',
+  'BLOCKED',
 ] as const;
 export const playerStatusSchema = z.enum(PLAYER_STATUSES);
 export type PlayerStatus = (typeof PLAYER_STATUSES)[number];
@@ -194,6 +200,7 @@ export const PLAYER_STATUS_LABELS: Record<PlayerStatus, string> = {
   SUSPENDED: 'Suspended',
   SELF_EXCLUDED: 'Self-excluded',
   CLOSED: 'Closed',
+  BLOCKED: 'Blocked',
 };
 
 export const PLAYER_STATUS_TONES: Record<PlayerStatus, Tone> = {
@@ -202,6 +209,25 @@ export const PLAYER_STATUS_TONES: Record<PlayerStatus, Tone> = {
   SUSPENDED: 'danger',
   SELF_EXCLUDED: 'danger',
   CLOSED: 'muted',
+  BLOCKED: 'danger',
+};
+
+/**
+ * Where a player row came from.
+ *
+ * `TELEGRAM` is the ordinary case — the player pressed Start. `ICHANCY_IMPORT` is an account that
+ * already existed under the operator's Ichancy agent before the bot did, pulled in when the tenant
+ * was created (the "old players"); it has no Telegram id until somebody attaches one. `ADMIN` is a
+ * row registered from this console.
+ */
+export const PLAYER_SOURCES = ['TELEGRAM', 'ICHANCY_IMPORT', 'ADMIN'] as const;
+export const playerSourceSchema = z.enum(PLAYER_SOURCES);
+export type PlayerSource = (typeof PLAYER_SOURCES)[number];
+
+export const PLAYER_SOURCE_LABELS: Record<PlayerSource, string> = {
+  TELEGRAM: 'Telegram',
+  ICHANCY_IMPORT: 'Imported from Ichancy',
+  ADMIN: 'Registered by an admin',
 };
 
 // ── Manual player debits ───────────────────────────────────────────────────────────────────────
@@ -232,6 +258,140 @@ export const PLAYER_DEBIT_STATUS_TONES: Record<PlayerDebitStatus, Tone> = {
   DEBITED: 'success',
   REJECTED: 'warning',
   NEEDS_RECONCILIATION: 'danger',
+};
+
+// ── Withdrawals (player cash-out) ──────────────────────────────────────────────────────────────
+
+/**
+ * The life of a withdrawal request, mirrored from the backend's `WithdrawalStatus`.
+ *
+ * Two of these are easy to misread:
+ *
+ *   - `DEBITED` is NOT paid. The player's casino balance has been taken (so it cannot be spent
+ *     twice), the payout wallet has been checked, and a HUMAN still has to send the money and press
+ *     "mark paid". No payout rail here can send money over an API — Sham Cash is read-only — so
+ *     this is the state a withdrawal waits in for a person, in AUTO mode as much as in MANUAL.
+ *   - `NEEDS_RECONCILIATION` is the same word, and the same condition, the debit path uses: Ichancy
+ *     neither confirmed nor denied the debit. Nothing here may be retried; a human checks Ichancy.
+ */
+export const WITHDRAWAL_STATUSES = [
+  'REQUESTED',
+  'APPROVED',
+  'DEBITING',
+  'DEBITED',
+  'PAID',
+  'DEBIT_FAILED',
+  'NEEDS_RECONCILIATION',
+  'REJECTED',
+  'CANCELLED',
+] as const;
+export const withdrawalStatusSchema = z.enum(WITHDRAWAL_STATUSES);
+export type WithdrawalStatus = (typeof WITHDRAWAL_STATUSES)[number];
+
+/** Still moving: somebody, or the worker, has something left to do. The queue's default view. */
+export const OPEN_WITHDRAWAL_STATUSES: readonly WithdrawalStatus[] = [
+  'REQUESTED',
+  'APPROVED',
+  'DEBITING',
+  'DEBITED',
+];
+
+/** Money was taken, or may have been, and nobody was paid. Somebody has to look. */
+export const ATTENTION_WITHDRAWAL_STATUSES: readonly WithdrawalStatus[] = [
+  'DEBIT_FAILED',
+  'NEEDS_RECONCILIATION',
+];
+
+export const WITHDRAWAL_STATUS_LABELS: Record<WithdrawalStatus, string> = {
+  REQUESTED: 'Requested',
+  APPROVED: 'Approved',
+  DEBITING: 'Debiting',
+  DEBITED: 'Ready to pay',
+  PAID: 'Paid',
+  DEBIT_FAILED: 'Debit failed',
+  NEEDS_RECONCILIATION: 'Needs reconciliation',
+  REJECTED: 'Rejected',
+  CANCELLED: 'Cancelled',
+};
+
+export const WITHDRAWAL_STATUS_TONES: Record<WithdrawalStatus, Tone> = {
+  REQUESTED: 'info',
+  APPROVED: 'info',
+  DEBITING: 'info',
+  DEBITED: 'warning',
+  PAID: 'success',
+  DEBIT_FAILED: 'danger',
+  NEEDS_RECONCILIATION: 'danger',
+  REJECTED: 'neutral',
+  CANCELLED: 'muted',
+};
+
+/**
+ * How an operator's bot answers a cash-out.
+ *
+ * `MANUAL`: a human approves first; nothing moves until then. `AUTO`: the platform approves, debits
+ * the player's casino balance and checks the payout wallet by itself — and a human STILL performs
+ * the transfer and marks it paid, because no payout rail here can send money over an API.
+ */
+export const WITHDRAWAL_MODES = ['AUTO', 'MANUAL'] as const;
+export const withdrawalModeSchema = z.enum(WITHDRAWAL_MODES);
+export type WithdrawalMode = (typeof WITHDRAWAL_MODES)[number];
+
+export const WITHDRAWAL_MODE_LABELS: Record<WithdrawalMode, string> = {
+  AUTO: 'Automatic',
+  MANUAL: 'Manual',
+};
+
+/**
+ * How an operator's bot answers a submitted deposit.
+ *
+ * `MANUAL`: a human decides every deposit. `AUTO`: the platform attempts to match the player's
+ * claim against the rail's own records (a Sham Cash statement line, a confirmed on-chain transfer)
+ * before a human sees the card, and approves ONLY on that evidence — never on the claim alone. Not
+ * to be confused with a legacy DEPOSIT_AUTO_APPROVE env flag, which approved with no evidence at
+ * all and is refused outright on any real deployment.
+ */
+export const DEPOSIT_MODES = ['AUTO', 'MANUAL'] as const;
+export const depositModeSchema = z.enum(DEPOSIT_MODES);
+export type DepositMode = (typeof DEPOSIT_MODES)[number];
+
+export const DEPOSIT_MODE_LABELS: Record<DepositMode, string> = {
+  AUTO: 'Automatic',
+  MANUAL: 'Manual',
+};
+
+export const WITHDRAWAL_SORTS = ['newest', 'oldest'] as const;
+export const withdrawalSortSchema = z.enum(WITHDRAWAL_SORTS);
+export type WithdrawalSort = (typeof WITHDRAWAL_SORTS)[number];
+
+export const WITHDRAWAL_SORT_LABELS: Record<WithdrawalSort, string> = {
+  newest: 'Newest first',
+  oldest: 'Oldest first',
+};
+
+/**
+ * What the payout wallet held when the debit landed.
+ *
+ * `not_configured` is a rail with no readable wallet (a placeholder address, a cash office) and
+ * `unknown` is the chain or Sham Cash not answering — neither is `insufficient`, and neither may be
+ * rendered as a zero. The same never-0 rule as every other balance on this console.
+ */
+export const WALLET_CHECK_STATUSES = ['ok', 'insufficient', 'unknown', 'not_configured'] as const;
+export const walletCheckStatusSchema = z.enum(WALLET_CHECK_STATUSES);
+export type WalletCheckStatus = (typeof WALLET_CHECK_STATUSES)[number];
+
+export const WALLET_CHECK_STATUS_LABELS: Record<WalletCheckStatus, string> = {
+  ok: 'Wallet covers it',
+  insufficient: 'Wallet short',
+  unknown: 'Wallet unknown',
+  not_configured: 'No wallet to check',
+};
+
+export const WALLET_CHECK_STATUS_TONES: Record<WalletCheckStatus, Tone> = {
+  ok: 'success',
+  insufficient: 'danger',
+  unknown: 'warning',
+  not_configured: 'muted',
 };
 
 // ── Payment methods ────────────────────────────────────────────────────────────────────────────

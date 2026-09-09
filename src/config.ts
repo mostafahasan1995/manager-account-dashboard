@@ -42,6 +42,19 @@ export const config = {
    * the Tenants page is tenant zero, rather than implying a selection it cannot honour.
    */
   tenantHeaderEnabled: bool(import.meta.env.VITE_TENANT_HEADER_ENABLED),
+  /**
+   * The Sham Cash developer bench at /dev/shamcash. OFF, and it should stay off.
+   *
+   * Sham Cash is read over its HTTP API; the bench drives the OLD mechanism — a headless browser
+   * replaying a signed-in session — for the two questions only a browser can answer when the site
+   * changes. It takes a live cashier session in a form, so it has no place on a console an operator
+   * uses, and without this flag the route is not registered at all.
+   *
+   * BOTH SIDES HAVE TO BE ON. This only shows the page; the API answers 404 on its own routes
+   * unless SHAM_CASH_DEV_CHECK is set there too. Turning on one and not the other gives a page
+   * whose buttons all report "not found", which is the honest result of a half-enabled feature.
+   */
+  shamCashDevEnabled: bool(import.meta.env.VITE_ENABLE_SHAMCASH_DEV),
 } as const;
 
 export type AppConfig = typeof config;

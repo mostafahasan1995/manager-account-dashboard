@@ -52,19 +52,29 @@ AdminSessionView = { accessToken, expiresAt, admin, tenantId, tenantSlug }
                    admin = { id, telegramUserId, role, displayName }
 ```
 
-### 2a. Bot code — "I am this person"
-
-The admin sends `/console` to the tenant's Telegram bot, gets a one-time code, and exchanges it:
+### 2a. Username and password — the console's only sign-in
 
 ```
-POST /v1/admin/auth/bot-code        { code }  ->  AdminSessionView
+POST /v1/admin/auth/credentials   { username, password, operatorSlug? }  ->  AdminSessionView
 ```
 
-- Rate limited to 10 attempts per minute, blocked for 5 after that.
-- Any role. **This is the only way to sign in as a `PLATFORM_ADMIN`**, which has no Ichancy agent of
-  its own to prove itself with.
-- An invalid _and_ an expired code both answer `BOT_CODE_INVALID` on purpose. Do not tell them apart
-  in the UI either.
+- `username` is the console login on the caller's own `admin_users` row. It may be a plain name or
+  an **email** — both are ordinary values of one column, so there is no separate `email` field.
+  Lower-cased on write, matched case-insensitively.
+- Rate limited to 10 attempts per minute, blocked for **15** after that: this credential does not
+  expire on its own, so a patient guessing loop has to be made hopeless rather than slow.
+- **Two credentials live behind these two fields.** The server tries the caller's own console
+  password first, and the operator's Ichancy agent account (2b) second. Which one answered is not
+  reported and must not be inferred — the response is the same `AdminSessionView` either way.
+- A miss on both is `ADMIN_CREDENTIALS_INVALID` (401), one sentence for every cause. Everything
+  said _after_ a credential is proved keeps its own code, because only those are actionable:
+  `ADMIN_OPERATOR_AMBIGUOUS` / `AGENT_OPERATOR_AMBIGUOUS` (409, `details.operators`, retry with
+  `operatorSlug`), `AGENT_OPERATOR_NOT_ACTIVE` (403), `AGENT_OPERATOR_HAS_NO_OWNER` (403).
+
+> **`POST /v1/admin/auth/bot-code` was removed on 2026-09-05**, with the bot's `/console` command
+> that fed it. Staff are username+password accounts now; most have no Telegram account for a code
+> to be tied to, and a bot that hands out console credentials leaves them in a chat log.
+> `BOT_CODE_INVALID` and `BOT_CODE_EXPIRED` are retired and must not be reused.
 
 ### 2b. Ichancy agent account — "I am this operator"
 
@@ -94,7 +104,7 @@ POST /v1/admin/auth/ichancy   { username, password, operatorSlug? }  ->  AdminSe
   the `SYSTEM` actor, and idempotent — `@@unique([tenantId, username])` settles a race.
 - Consequence worth knowing: decisions taken through this door are attributed to the operator's
   agent principal, **not to a named person**. An operator that needs per-person attribution adds
-  staff and has them sign in with bot codes.
+  staff with their own console usernames and passwords, and has them sign in with those.
 - `operatorSlug` is **absent** on the first attempt. Two tenants may share one Ichancy agent — it is
   how a second operator is tested, and `TenantIchancyHealth.sharesAgentWith` already reports the
   coupling — so when they do, the server names them rather than picking one.
@@ -142,6 +152,12 @@ the backend constants on 2026-08-25.
 | `deposits.sweep`              | SUPER_ADMIN, FINANCE_ADMIN                                            |
 | `players.read`                | SUPER_ADMIN, FINANCE_ADMIN, REVIEWER, SUPPORT, PLATFORM_ADMIN         |
 | `players.link`                | SUPER_ADMIN, FINANCE_ADMIN                                            |
+| `players.write`               | SUPER_ADMIN, FINANCE_ADMIN                                            |
+| `players.block`               | SUPER_ADMIN, FINANCE_ADMIN                                            |
+| `players.import`              | SUPER_ADMIN, FINANCE_ADMIN                                            |
+| `withdrawals.read`            | SUPER_ADMIN, FINANCE_ADMIN, REVIEWER, SUPPORT, PLATFORM_ADMIN         |
+| `withdrawals.decide`          | SUPER_ADMIN, FINANCE_ADMIN, REVIEWER                                  |
+| `botSettings.write`           | SUPER_ADMIN, FINANCE_ADMIN                                            |
 | `paymentMethods.read`         | SUPER_ADMIN, FINANCE_ADMIN, REVIEWER, SUPPORT, PLATFORM_ADMIN         |
 | `paymentMethods.write`        | SUPER_ADMIN, FINANCE_ADMIN                                            |
 | `admins.read`                 | SUPER_ADMIN, FINANCE_ADMIN, PLATFORM_ADMIN                            |
@@ -279,26 +295,41 @@ operator's rate. Readable by anyone who can read deposits.
 ### Players — `/v1/admin/players` (offset paginated)
 
 ```
-GET  /v1/admin/players?status=&telegramUserId=&linked=true|false&search=&limit=&offset=
+GET  /v1/admin/players?status=&telegramUserId=&linked=true|false&search=
+                      &source=TELEGRAM|ICHANCY_IMPORT|ADMIN&blocked=true|false&limit=&offset=
 GET  /v1/admin/players/:id
 GET  /v1/admin/players/:id/balance
      -> { playerId, balanceMinor, currencyCode, readAt }
+POST /v1/admin/players
+     { telegramUserId?, firstName?, lastName?, phone?, createIchancyAccount? }
+     -> 201 { player: AdminPlayerView,
+              ichancy: { playerId, ichancyPlayerId, ichancyLogin, created, agentId } | null,
+              ichancyError: string | null }
 POST /v1/admin/players/:id/ichancy-account
      -> { playerId, ichancyPlayerId, ichancyLogin, created, agentId }
+POST /v1/admin/players/:id/block          { reason: string (1..280) }  -> AdminPlayerView
+POST /v1/admin/players/:id/unblock                                     -> AdminPlayerView
+PATCH /v1/admin/players/:id/telegram      { telegramUserId: string }   -> AdminPlayerView
+POST /v1/admin/players/import             { limit?: number }           -> PlayerImportSummary
 POST /v1/admin/players/:id/debit
      { amountMinor, reason }
      -> { debitId, playerId, amountMinor, status, playerBalanceBeforeMinor,
           playerBalanceAfterMinor, verifiedBy, reason, decidedBy, createdAt }
 ```
 
+`PlayerImportSummary`: `{ scanned, created, existing, error: string | null, startedAt, finishedAt }`.
+
 Roles, read out of `src/modules/player/player.constants.ts` on 2026-08-25 and matching
 `permissions.ts` exactly:
 
-| Route                   | Backend constant               | Roles                                                         |
-| ----------------------- | ------------------------------ | ------------------------------------------------------------- |
-| list, get, **balance**  | `PLAYER_READER_ROLES`          | SUPER_ADMIN, FINANCE_ADMIN, REVIEWER, SUPPORT, PLATFORM_ADMIN |
-| `POST /ichancy-account` | `PLAYER_ICHANCY_MANAGER_ROLES` | SUPER_ADMIN, FINANCE_ADMIN                                    |
-| `POST /debit`           | `PLAYER_DEBIT_DECIDE_ROLES`    | SUPER_ADMIN, FINANCE_ADMIN, REVIEWER                          |
+| Route                             | Backend constant               | Roles                                                         |
+| --------------------------------- | ------------------------------ | ------------------------------------------------------------- |
+| list, get, **balance**            | `PLAYER_READER_ROLES`          | SUPER_ADMIN, FINANCE_ADMIN, REVIEWER, SUPPORT, PLATFORM_ADMIN |
+| `POST /ichancy-account`           | `PLAYER_ICHANCY_MANAGER_ROLES` | SUPER_ADMIN, FINANCE_ADMIN                                    |
+| `POST /debit`                     | `PLAYER_DEBIT_DECIDE_ROLES`    | SUPER_ADMIN, FINANCE_ADMIN, REVIEWER                          |
+| `POST /`, `PATCH /:id/telegram`   | `PLAYER_CREATE_ROLES`          | SUPER_ADMIN, FINANCE_ADMIN                                    |
+| `POST /:id/block`, `/:id/unblock` | `PLAYER_BLOCK_ROLES`           | SUPER_ADMIN, FINANCE_ADMIN                                    |
+| `POST /import`                    | `PLAYER_IMPORT_ROLES`          | SUPER_ADMIN, FINANCE_ADMIN                                    |
 
 The table above is the backend's per-route constant, and `PLATFORM_ADMIN` appears in it only as a
 reader. That is the constant, not the effective answer: the backend `RolesGuard` short-circuits
@@ -329,11 +360,44 @@ a page of them fired at once earns challenges instead of numbers.
 > The console reaches it as `playersApi.credit(id, …)`, which puts `playerId` in the BODY because the
 > route lives under `/deposits` — the module that owns the machinery — not under `/players`.
 
-`AdminPlayerView`: `id, telegramUserId, telegramUsername, firstName, lastName, languageCode, status,
-currencyCode, ichancyLinked, createdAt, lastSeenAt, ichancyPlayerId, ichancyLogin,
-ichancyRegisteredAt, phone`.
+`AdminPlayerView`: `id, telegramUserId: string | null, telegramUsername, firstName, lastName,
+languageCode, status, source, currencyCode, ichancyLinked, createdAt, lastSeenAt, ichancyPlayerId,
+ichancyLogin, ichancyRegisteredAt, phone, blockedAt, blockedReason, blockedByAdminId`.
 
-`PlayerStatus`: `PENDING_ICHANCY ACTIVE SUSPENDED SELF_EXCLUDED CLOSED`.
+`PlayerStatus`: `PENDING_ICHANCY ACTIVE SUSPENDED SELF_EXCLUDED CLOSED BLOCKED`.
+`PlayerSource`: `TELEGRAM ICHANCY_IMPORT ADMIN`.
+
+#### Players that were never a Telegram account
+
+**`telegramUserId` is nullable now**, and the reason is `source`. A player used to BE a Telegram
+account that pressed Start (`TELEGRAM`). Two other doors exist since 2026-09-04:
+
+- `ICHANCY_IMPORT` — the "old players": accounts that already existed under the operator's Ichancy
+  agent before the bot did. `POST /v1/admin/tenants` pulls them in after activation (see the
+  `provisioning` block), and `POST /v1/admin/players/import` re-runs that for an operator whose
+  first run met an outage. Both are idempotent: a row already known by Ichancy id or login counts
+  as `existing`. An Ichancy failure is REPORTED in `error`, never thrown — the rows written before it
+  stay written, and the summary says how far it got.
+- `ADMIN` — a row registered from this console with `POST /v1/admin/players`. Every body field is
+  optional in the strict sense (absent, never `""`). With `createIchancyAccount: true` the server
+  links the row AFTER the transaction (an outside call is never made inside one) and reports that
+  link separately: a failed link is `ichancy: null` plus an `ichancyError`, and the player still
+  exists. Known refusals: `PLAYER_TELEGRAM_ID_TAKEN` (409) for an id another player holds.
+
+Either kind gets a Telegram id later with `PATCH /v1/admin/players/:id/telegram`, which is
+refused for a row that already has one (`PLAYER_HAS_TELEGRAM`) — repointing an account is a
+different act — and for an id somebody else holds (`PLAYER_TELEGRAM_ID_TAKEN`). Once attached, the
+next `/start` from that account lands on this row.
+
+#### Blocking — the operator's own lock
+
+`BLOCKED` is not an Ichancy state. A blocked player can do nothing in this tenant's bot — no menu,
+no deposit, no withdrawal — and is refused by the player API with `403 PLAYER_BLOCKED`, while their
+casino account is untouched. `POST /:id/block` takes a reason (1..280), sets `blockedAt`,
+`blockedReason` and `blockedByAdminId` together, revokes the player's sessions and publishes a
+`PLAYER_STATUS_CHANGE`; `POST /:id/unblock` clears the three and returns the row to `ACTIVE` when
+it is linked, `PENDING_ICHANCY` when it is not. A `CLOSED` row cannot be blocked (409
+`PLAYER_NOT_ACTIVE`); blocking twice is 409 `PLAYER_ALREADY_BLOCKED`.
 
 `POST .../ichancy-account` is safe to repeat: `created:false` means the player was already linked.
 
@@ -347,6 +411,157 @@ Ichancy has no idempotency key, so a second call is a second debit. The server v
 the balance before and after; when it still cannot tell, it answers `NEEDS_RECONCILIATION`, which
 means a human checks Ichancy. The console must never turn that into a retry.
 
+### The bot's menu — `/v1/admin/bot-menu`
+
+The player's Telegram menu, as a graph the operator edits. **Nodes are screens, buttons are the
+edges between them.**
+
+```
+GET    /v1/admin/bot-menu                       (the whole tree, the action catalogue, the gate)
+POST   /v1/admin/bot-menu/nodes
+PATCH  /v1/admin/bot-menu/nodes/:id
+DELETE /v1/admin/bot-menu/nodes/:id             (refused for root, and for a screen still linked to)
+PATCH  /v1/admin/bot-menu/nodes/:id/reorder
+POST   /v1/admin/bot-menu/buttons
+PATCH  /v1/admin/bot-menu/buttons/:id
+DELETE /v1/admin/bot-menu/buttons/:id           (a real delete — no history references a button)
+PATCH  /v1/admin/bot-menu/gate
+GET    /v1/admin/bot-menu/settings              -> { miniAppUrl, withdrawalMode, chatMenuButtonSet }
+PATCH  /v1/admin/bot-menu/settings              { miniAppUrl?: string | null, withdrawalMode?: 'AUTO'|'MANUAL' }
+```
+
+**The whole tree is one GET, and that is deliberate.** The editor draws a graph: a `NAVIGATE`
+button names its destination, so a client holding one screen without the others cannot render its
+own edges. Paginating this would mean assembling a graph from pages and guessing at the links
+between them. A menu is a few dozen rows.
+
+**A button's `label` is the routing key, not a caption.** The menu is a Telegram
+`ReplyKeyboardMarkup`, which carries no hidden payload — a tap arrives at the bot as a plain text
+message whose body IS the label. Hence the unique index on `(node, label)`: two buttons sharing a
+label on one screen would be indistinguishable to the bot. Renaming one changes behaviour.
+
+`kind` decides which payload column a button carries, and exactly one:
+
+| `kind`     | carries         | does                                             |
+| ---------- | --------------- | ------------------------------------------------ |
+| `BUILTIN`  | `builtinAction` | runs a handler the bot already has               |
+| `NAVIGATE` | `targetNodeId`  | opens another screen                             |
+| `TEXT`     | `bodyText`      | replies with the operator's message, staying put |
+| `BACK`     | nothing         | returns to whichever screen the player came from |
+
+The server nulls the other columns on every write, and a CHECK constraint refuses any row that
+carries the wrong one. `builtinAction` is validated against the bot's own action list — an operator
+may move, rename, hide or delete the deposit button, but cannot invent a ninth action, because an
+action is a method. `GET` returns that list as `builtinActions: [{ action, description }]`.
+
+`BACK` carries no target because where it returns to is the **player's own path**, held server-side
+as a stack. A screen reachable from two places has no single parent.
+
+Reorder takes the screen's whole layout in one request — `{ positions: [{ id, rowIndex, sortOrder
+}] }` — applied in a transaction. A drag moves several buttons, and applying it as a sequence of
+PATCHes would serve players the half-moved arrangements in between.
+
+`PATCH /gate` sets the channel a player must join before `/start` opens the menu: `{ channelId,
+channelUsername }` to set, both null to clear. **Both or neither** — a username with no id cannot be
+queried, an id with no username is not tappable. `channelId` crosses the wire as a **string**, since
+a Telegram channel id is a signed 64-bit number. Checked only at `/start`.
+
+> **The bot must be an administrator of that channel.** `getChatMember` only answers for an admin
+> bot. Without it the check fails, and the gate lets everyone through rather than locking out
+> players who are already members — a fail-open the API cannot detect for you.
+
+Manager roles write; reader roles may `GET`.
+
+#### The bot's two runtime settings — `/v1/admin/bot-menu/settings`
+
+The two operator settings the bot reads at runtime that are not buttons, and the tree carries a
+copy of them as `settings` so the flow editor needs no second read:
+
+```
+{ miniAppUrl: string | null, withdrawalMode: 'AUTO' | 'MANUAL', chatMenuButtonSet: boolean }
+```
+
+- `miniAppUrl` is what the "🚀 فتح التطبيق" button and the `/app` command open. `null` is "not set
+  yet" — the bot answers "coming soon" — and the server insists on **https**. After a change it
+  calls `setChatMenuButton` best-effort; `chatMenuButtonSet` reports whether that landed, because
+  it can fail on its own while the URL still saved.
+- `withdrawalMode` decides how a cash-out is answered — see Withdrawals below. `MANUAL`: a human
+  approves first. `AUTO`: the platform approves, debits and checks the wallet by itself, and a human
+  still performs the transfer.
+- PATCH semantics: an absent key leaves the value alone; `miniAppUrl: null` clears it. Both fields
+  also live on the tenant row (`TenantView.withdrawalMode` / `miniAppUrl`), which is the same
+  setting seen from the platform side. Roles: `BOT_MENU_MANAGER_ROLES` write (`botSettings.write`
+  on the console), readers `GET`.
+- Two more built-in actions exist: `withdraw` and `miniapp`. `REQUIRED_BUILTIN_ACTIONS` =
+  `deposit`, `withdraw`, `profile`: deleting or hiding the LAST active button carrying one of these
+  is refused with `409 BUTTON_REQUIRED`, and so is deleting a screen that would take one with it.
+
+### Withdrawals — `/v1/admin/withdrawals` (offset paginated)
+
+A player's cash-out. Money going OUT, in two separate movements this API keeps apart on purpose:
+the **debit** (the player's casino balance is taken so it cannot be spent twice) and the **payout**
+(a person sends the money and records that they did). **No payout rail here can send money over an
+API** — Sham Cash is read-only — so even in `AUTO` mode a human performs the transfer and marks
+the row paid.
+
+```
+GET  /v1/admin/withdrawals
+     ?status=REQUESTED,DEBITED        (comma separated; absent = every status)
+     &playerId= &shortId= &createdFrom= &createdTo=   (ISO-8601)
+     &sort=newest|oldest &limit= &offset=
+GET  /v1/admin/withdrawals/:id
+POST /v1/admin/withdrawals/:id/approve                                   -> AdminWithdrawalView
+POST /v1/admin/withdrawals/:id/reject      { reason: string (1..280) }   -> AdminWithdrawalView
+POST /v1/admin/withdrawals/:id/mark-paid   { payoutReference: string (1..128) } -> AdminWithdrawalView
+```
+
+`AdminWithdrawalView`:
+
+```ts
+{ id, shortId, status: WithdrawalStatus, mode: 'AUTO'|'MANUAL', source: string|null,
+  playerId, playerTelegramUserId: string|null, playerTelegramUsername: string|null, playerIchancyLogin: string|null,
+  paymentMethodId, methodCode, methodName, payoutAddress, payoutNetwork: string|null,
+  amount: MoneyView, fee: MoneyView, balanceAtRequest: MoneyView | null,
+  walletCheck: { status: 'ok'|'insufficient'|'unknown'|'not_configured',
+                 availableMinor: string|null, currency: string|null, checkedAt } | null,
+  playerDebitId: string|null, payoutReference: string|null, ledgerPayoutTxId: string|null,
+  decidedByAdminId: string|null, paidByAdminId: string|null, rejectionReason: string|null,
+  failureCode: string|null, failureMessage: string|null,
+  requestedAt, decidedAt: string|null, debitedAt: string|null, paidAt: string|null, closedAt: string|null }
+```
+
+`WithdrawalStatus`: `REQUESTED APPROVED DEBITING DEBITED PAID DEBIT_FAILED NEEDS_RECONCILIATION
+REJECTED CANCELLED`.
+
+The life of a row, and which action acts where:
+
+- `REQUESTED` — the player asked. Under `MANUAL` it waits here for `approve` or `reject`; under
+  `AUTO` the server moves it to `APPROVED` in the same transaction, with `decidedByAdminId: null`.
+- `APPROVED` → `DEBITING` → `DEBITED` — the worker debits the player through the same debit
+  service a manual debit uses (mutex, two attempts, balance-delta verify), records `playerDebitId`,
+  then asks the payout wallet what it holds and stores `walletCheck`. Ichancy refusing (the player
+  spent the money meanwhile) is `DEBIT_FAILED` with `failureCode`; Ichancy neither confirming nor
+  denying is `NEEDS_RECONCILIATION` — the same word, and the same rule, as the debit route: **a
+  human checks Ichancy, nothing retries.**
+- **`DEBITED` is not paid.** The player has been charged and nobody has been paid. This is the
+  state the queue exists for and the only one `mark-paid` accepts: a person sends the money to
+  `payoutAddress`, types the transfer reference, and the server posts the payout to the ledger
+  (`ledgerPayoutTxId`), stamps `paidAt` / `paidByAdminId`, and closes the row as `PAID`.
+- `REJECTED` (a human, with a reason; nothing was taken) and `CANCELLED` (the player, while still
+  `REQUESTED`) are the two closed-without-money endings.
+
+`walletCheck` carries the never-0 rule every balance on this console follows: `availableMinor` is
+null for `unknown` (the chain or Sham Cash did not answer) and `not_configured` (a placeholder
+address, a cash office) — neither is `insufficient`, and neither may render as an empty wallet.
+
+Each action answers `409 WITHDRAWAL_INVALID_STATE` when the row is not in the one state it acts
+on — a colleague may have decided first, and the console renders that as "already handled", not
+as a failure of the click. `404 WITHDRAWAL_NOT_FOUND` for an id that does not exist.
+
+Roles: `WITHDRAWAL_READER_ROLES` = the player reader set (`withdrawals.read`), and
+`WITHDRAWAL_DECIDE_ROLES` = SUPER_ADMIN, FINANCE_ADMIN, REVIEWER (`withdrawals.decide`) — pinned to
+the debit decide set on the backend by a spec, because a cash-out is a money decision.
+
 ### Payment methods and destinations — `/v1/admin`
 
 ```
@@ -354,7 +569,8 @@ GET    /v1/admin/payment-methods?isActive=&rail=
 GET    /v1/admin/payment-methods/:id
 POST   /v1/admin/payment-methods
 PATCH  /v1/admin/payment-methods/:id
-DELETE /v1/admin/payment-methods/:id                    (deactivates — nothing is ever deleted)
+DELETE /v1/admin/payment-methods/:id                    (deactivates — a rail that took money is never deleted)
+DELETE /v1/admin/payment-methods/:id/permanent          (really deletes; refused unless the rail has no history)
 GET    /v1/admin/payment-methods/:id/destinations?includeInactive=true
 POST   /v1/admin/payment-methods/:id/destinations
 PATCH  /v1/admin/payment-destinations/:id
@@ -417,13 +633,26 @@ leaving the console. Readable by anyone who can read the rails.
 ```
 GET    /v1/admin/admins?role=&isActive=&limit=&offset=
 GET    /v1/admin/admins/:id
-POST   /v1/admin/admins        { telegramUserId, displayName, role, username? }
-PATCH  /v1/admin/admins/:id    { displayName?, role?, isActive?, username? }
+POST   /v1/admin/admins        { displayName, role, username, password }
+PATCH  /v1/admin/admins/:id    { displayName?, role?, isActive?, username?, password? }
 DELETE /v1/admin/admins/:id    (deactivates)
 ```
 
-`AdminUserView`: `id, telegramUserId, username, displayName, role, isActive, lastLoginAt, createdAt`.
+`AdminUserView`: `id, telegramUserId, username, hasPassword, displayName, role, isActive,
+lastLoginAt, createdAt`.
 Known errors: `ADMIN_SELF_MODIFICATION`, `ADMIN_LAST_SUPER_ADMIN`, `ADMIN_ALREADY_EXISTS`.
+
+- A staff account **is** a username and a password (2026-09-05). Both are required on create, and
+  `telegramUserId` is **refused outright** — the pipe runs `forbidNonWhitelisted`, so a client
+  still sending it gets a 400 rather than having it ignored.
+- `username`: 3–64 characters, `[A-Za-z0-9._@+-]`, unique per tenant, lower-cased on write. An
+  email is a perfectly ordinary one.
+- `password`: 8–72 characters, never trimmed, stored as a scrypt hash. On PATCH it is
+  **blank-means-unchanged** — omit the field to leave the existing password alone. It is never
+  readable back; `hasPassword` is the only thing the view says about it.
+- `telegramUserId` on the view is `null` for every account created since the change, and non-null
+  only for admins made before it plus each operator's agent principal. It is what still lets those
+  rows work the Telegram bot (`/queue`, `/float`, the approve buttons); it is not a login.
 
 ### Approval limits — `/v1/admin`
 
@@ -514,7 +743,13 @@ GET    /v1/admin/tenants/:id/health      -> { bot, ichancy, counts }
 PATCH  /v1/admin/tenants/:id/ichancy     { ichancyBaseUrl?, ichancyUsername?, ichancyPassword?,
                                            ichancyAgentId? }  -> TenantView
 PATCH  /v1/admin/tenants/:id/bot         { botToken }          -> TenantView
+POST  /v1/admin/tenants/:id/import-players -> PlayerImportSummary   (the "old players", again)
 ```
+
+`POST /:id/import-players` runs the same Ichancy import creation runs — for an operator created
+before it existed, or one whose first run met an outage. `{ scanned, created, existing, error,
+startedAt, finishedAt }`; idempotent, and an Ichancy failure is reported in `error` rather than
+thrown. `PLATFORM_ADMIN`, like every route on this surface.
 
 The six operational routes above were documented only in `docs/TENANT-OPERATIONS.md` §6 until
 2026-08-25, while the console had been calling them for some time. Their behaviour is argued there
@@ -551,8 +786,14 @@ resolved server-side and visible in it, which is what the console's detail panel
 
 `TenantView`: `id, slug, displayName, status, hasWebhookPath, adminChatId, feedChatId, botUsername,
 ichancyBaseUrl, ichancyUsername, ichancyAgentId, currencyCode, dualApprovalThresholdMinor,
-agentFloatLowWatermarkMinor, depositExpiryMinutes, createdAt, updatedAt, counts?: {players,
-deposits}`.
+agentFloatLowWatermarkMinor, depositExpiryMinutes, withdrawalMode: 'AUTO'|'MANUAL',
+miniAppUrl: string | null, createdAt, updatedAt, counts?: {players, deposits}`.
+
+`withdrawalMode` and `miniAppUrl` are the same two settings `/v1/admin/bot-menu/settings` serves
+from inside the operator, seen from the platform side. Both are accepted on create and on update
+(`withdrawalMode?: 'AUTO'|'MANUAL'`, `miniAppUrl?: string | null` — https, or null to clear). The
+console parses them as optional, because a backend older than the withdrawal module answers
+neither, and reads an absent mode as `MANUAL`.
 
 `slug` and `currencyCode` are immutable after creation. Secrets are never returned; the webhook path
 is reported only as `hasWebhookPath`. A new tenant lands SUSPENDED on purpose — nothing can verify
@@ -597,46 +838,204 @@ reads and does not write.
   rather than as an error — a screen has to be able to say _why_ the rail is refusing deposits, and
   it cannot say that from a 4xx. Only the deposit path treats staleness as a refusal.
 
-### Sham Cash session — `/v1/admin/shamcash`
+### Sham Cash — `/v1/admin/shamcash`
 
-The operator's external Sham Cash cashier account, linked by pasting its **browser-session cookies**.
-Sham Cash encrypts every API call with a key its own front-end mints per request, which we cannot
-reproduce — so the balance is read by replaying the operator's session in a headless browser and
-parsing the rendered page, not through their API. This resource stores that session.
+The operator's external Sham Cash cashier account, read through **its HTTP API** with a per-tenant
+key. One credential, on the tenant row: `shamcash_wallet_id` plus a sealed `shamcash_api_key_enc`.
 
 ```
-GET    /v1/admin/shamcash/session   -> { linked, updatedAt }
-POST   /v1/admin/shamcash/session   { accessToken, authToken, forge? }  -> { linked, updatedAt }
-DELETE /v1/admin/shamcash/session   -> { linked, updatedAt }
+GET    /v1/admin/shamcash/status    -> ShamCashStatus
 POST   /v1/admin/shamcash/balance   -> ShamCashReadResult
+POST   /v1/admin/shamcash/test      -> ShamCashTestResult
+POST   /v1/admin/shamcash/api       { walletId, apiKey }  -> ShamCashStatus
+DELETE /v1/admin/shamcash/api       -> ShamCashStatus
 ```
 
-`POST .../balance` replays the session in a headless browser and reads the rendered home page.
-`ShamCashReadResult` is a discriminated union on `status`: `ok` carries `balances[]` (currency,
-available, locked) and `transactions[]`; `not_linked`, `expired` and `unavailable` (with a `detail`)
-carry no balance — an expired session or an outage is **never** returned as a wallet of zeros. POST,
-not GET: it launches a browser and hits a third party, so it is an action with a cost.
+`ShamCashStatus` = `{ apiLinked, walletId }`. **The key is never returned**, by this or any endpoint
+— a console that echoes a secret back turns every screenshot and browser cache into a place it leaks
+from. The wallet id **is** returned in full: it is the path segment in the vendor's URL, not a
+credential, and an operator has to be able to check what was saved.
 
-**Roles: `SUPER_ADMIN` and `FINANCE_ADMIN`** — managing an external cashier account is a money
-action.
+`POST .../balance` calls `GET https://api-shamcash.com/api/v1/wallets/shamcash/{walletId}/balance`
+with an `x-api-key` header. `ShamCashReadResult` is a discriminated union on `status`: `ok` carries
+`balances[]` (currency, available, locked) and `checkedAt`; `not_linked`, `unauthorized` and
+`unavailable` (with a `detail`) carry no balance — **a failure is never a wallet of zeros**, which is
+the most alarming false statement this screen could make. POST, not GET: it hits a third party, so
+it is an action with a cost rather than a read a link-prefetcher should fire.
 
-- The cookies are **sealed** (AES-256-GCM, its own key) the instant they arrive and are **never
-  returned** by any endpoint. `GET` answers only whether a session is linked and when — a leak of the
-  console exposes the status, not the session.
-- `accessToken` and `authToken` are required (they are what say "signed in"); `forge` is the optional
-  anti-forgery cookie. Nothing else is collected — the reader forces the locale itself.
-- A lapsed session reads as "expired, re-link", never as a zero balance. The reader (headless browser
-  + `@core/shamcash` parser) is validated on first run in the deployment, against the live account.
-- **`expired` is decided by Sham Cash, not by us reading the page.** The reader records what the
-  site's own API answered while the page booted; a 401/403 on an `Account/…` call is a lapsed
-  session, stated by them. Rendered text is only the fallback, because the page can sit at the home
-  URL showing an Arabic "unauthorized" toast, or bounce to the marketing landing page, without ever
-  saying "sign in".
-- **A slow page is reported as slow, not as a changed site.** shamcash.sy has been measured taking
-  ~55s to render anything, so the read waits up to `SHAM_CASH_SETTLE_MS` (90s by default) and ends
-  as soon as the balance call answers. A page still blank at the end returns `unavailable` naming
-  the wait — never `expired`, which would send an operator to re-link a session that is fine.
-  Budget accordingly: this call can legitimately take a minute or more.
+`POST .../test` is the live proof that a saved key WORKS, as opposed to merely being saved: it reads
+the balance AND lists the first page of transactions, and reports the two SEPARATELY. They are
+different endpoints and can fail apart — a wallet id right for one path, a permission scoped to one,
+an outage on one — so "the key is fine but lookups are down" and "the key is wrong" stay
+distinguishable, which one combined verdict would hide.
+
+`POST .../api` takes the wallet id and key TOGETHER; a database CHECK refuses a half-set pair,
+because a key with no wallet id has no URL to call and a wallet id with no key is a request that will
+be rejected. The key is sealed (AES-256-GCM) under its own derived key, so rotating another tenant
+secret does not widen to it.
+
+It also SYNCS the rail: the wallet id is written onto the active destinations of the `SHAM_CASH`
+method, so the account whose statement is read and the account a player is told to pay into are
+always the same one. Left unlinked, an operator could read wallet A while collecting into wallet B —
+every deposit landing somewhere verification would never see.
+
+**Roles: `SUPER_ADMIN`, `FINANCE_ADMIN` and `PLATFORM_ADMIN`** — managing an external cashier
+account is a money action; the platform role is there so it can configure a tenant on its behalf.
+
+> **Removed 2026-09-03: the browser session.** Sham Cash used to encrypt every API call with a key
+> its own front-end minted per request, so the only way in was to replay an operator's signed-in
+> browser in headless Chromium and parse the rendered page — `POST/DELETE /session`, sealed cookies,
+> a Syrian egress tunnel, and a page that took up to 54 seconds to paint. The vendor issues API keys
+> now, and the LIVE path is entirely the routes above: the session routes and the columns they wrote
+> to are gone for good, and the cookies they held were destroyed with them.
+>
+> **The reader itself came back on 2026-09-07 as a developer bench**, described below. It is not a
+> way to read Sham Cash — it is a way to ask the two questions the API cannot answer when the site
+> changes underneath us.
+
+### Sham Cash developer bench — `/v1/admin/shamcash/dev` (flagged OFF)
+
+```
+POST /v1/admin/shamcash/dev/browser-check   { accessToken, authToken, forge?, pinCodeHash?, pin? }
+                                            -> ShamCashDevResult
+POST /v1/admin/shamcash/dev/parse           { text }  -> { balances[], transactions[] }
+```
+
+**Both answer 404 unless the API has `SHAM_CASH_DEV_CHECK` set**, which no real deployment does —
+the same answer as a route that does not exist, deliberately. A 403 would tell an unauthenticated
+scanner that an endpoint able to drive a browser at a third-party site is present here, which is
+exactly what the move to the HTTP API removed. The console registers its own page only when
+`VITE_ENABLE_SHAMCASH_DEV` is on; both flags are needed for the screen to be reachable AND useful.
+
+**Roles: `SUPER_ADMIN` and `PLATFORM_ADMIN`.** The body carries a live cashier session, so it takes
+the pair that already owns the operator's money surface — not the reviewer/support/viewer tier that
+can read a deposit queue.
+
+**Nothing is stored.** The five values live for the duration of one request. There is no column to
+write them to and the console offers no "save": the storage that existed was dropped by
+`20260903140000_drop_shamcash_session`.
+
+`browser-check` launches Chromium, replays the session at shamcash.sy and answers with the reader's
+own verdict. **Expect 55-90 seconds** — the site is slow to render and the ceiling is
+`SHAM_CASH_SETTLE_MS`. From a server outside Syria it needs `SHAM_CASH_PROXY_SERVER`, because
+shamcash.sy drops non-Syrian connections after the handshake with no error page.
+
+```ts
+ShamCashDevResult = { status: 'ok', balances[], transactions[], checkedAt }
+                  | { status: 'expired' }
+                  | { status: 'unavailable', detail, debug?: { url, textSnippet, htmlSnippet,
+                                                               storageKeys[], errors[], api[] } }
+```
+
+`expired` is a **200, not a 4xx**: "your cookies are stale" is the answer to the question asked, not
+a failure to answer it. `debug` appears only for the one failure that cannot be diagnosed from a
+message — the page loaded, was not redirected to login, and still did not look like the account
+home — and carries what tells "we were blocked", "it is still loading" and "they redesigned it"
+apart.
+
+`parse` takes page **text**, not HTML: the parser reads `innerText`, so markup would exercise a path
+that does not exist and report nothing for a page that parses perfectly. No browser, no network and
+no session — which is what separates a parsing regression from a credential problem, two things that
+look identical from outside and have completely different fixes.
+
+#### Linking by QR — the way the site's own web client does it
+
+```
+POST   /v1/admin/shamcash/dev/qr   { pin? }   -> { pairingId, qrImage, strategy, pageUrl,
+                                                   expiresAt, pageHtml? }
+GET    /v1/admin/shamcash/dev/qr/:pairingId   -> PairingPoll
+DELETE /v1/admin/shamcash/dev/qr/:pairingId   -> 204
+```
+
+Copying five values out of developer tools is the most error-prone step on the bench: one wrong
+character produces a ninety-second failure indistinguishable from an expired session. This asks
+Sham Cash to do what it already does for its own web login — draw a QR, wait for the phone app to
+approve it, and write the cookies itself.
+
+**Nothing about the pairing protocol is reimplemented.** `POST /qr` opens a real browser on
+shamcash.sy's login page, screenshots the code it drew, and **keeps that browser open**. The page's
+own JavaScript does the polling; when you scan, it signs itself in exactly as it would on a desktop
+and the cookies appear in that context, where they are read out.
+
+```ts
+PairingPoll = { status: 'pending', expiresAt }
+            | { status: 'linked', session: { accessToken, authToken, forge?, pinCodeHash? },
+                pinRequired }
+            | { status: 'expired' }
+            | { status: 'failed', detail }
+```
+
+**The session is handed over exactly once.** A `linked` poll closes the browser and drops the
+pairing, so polling that id again answers `expired`. These are live credentials; an endpoint that
+would replay them on demand is a worse thing to leave running than one that will not.
+
+**The browser is a resource, and the limits are the design.** One pairing at a time — a second
+`POST /qr` closes the first. Each carries a timer that force-closes it after three minutes whether
+or not anybody polls, and `onModuleDestroy` closes whatever is live so `--watch` does not leak a
+Chromium per reload. `DELETE` is the polite path, called when the console page unmounts; it is
+idempotent, because by then the timer may already have done it.
+
+**The `pin` goes in BEFORE the code comes out**, and that ordering is forced by the site. A newly
+linked browser does not meet "enter your PIN" — it meets **Create PIN**, seconds after the scan,
+and Sham Cash writes `shamcash-pin-code-hash` only once one is saved. The poll completes that
+screen with these digits and then waits for the hash, so the session handed back is complete.
+Omitting it still links and still returns the cookies; the answer then says the PIN is outstanding.
+
+Observed on 2026-09-08 before this existed: a linked session with `storageKeys: []`, and the reader
+replaying it met a page that rendered nothing — the hash it needed had never been created.
+**`pinRequired` does not mean it failed.** The PIN screen appears *after* the cookies are written,
+so the session is linked either way. Sham Cash never puts the PIN in a cookie — it is four digits in
+the person's head — so the console fills the other four fields and leaves that one to them.
+
+**`strategy` says which selector found the code**, and it is worth reading. The selector list was
+written without access to shamcash.sy (the site answers Syrian addresses only), so `page` means the
+QR element was not recognised and the image is a screenshot of the whole login page — still
+scannable, and the signal that one selector wants correcting. On that fallback the response also
+carries `pageHtml`, which is what makes the correction a one-line change rather than a hunt.
+
+#### The linked account — read on demand, from a warm browser
+
+```
+GET    /v1/admin/shamcash/account           -> { linked, snapshot: { balances[], transactions[],
+                                                                     checkedAt } | null }
+POST   /v1/admin/shamcash/account/refresh   -> AccountSnapshot   (503 when nothing is linked)
+DELETE /v1/admin/shamcash/account           -> 204
+```
+
+The QR link hands its signed-in browser to the account service **instead of closing it**, and that
+handover is the whole design. A cold read costs 55-90 seconds, almost all of it shamcash.sy booting
+its own single-page app — measured: first visible text at 54.7s. That is paid **once per browser**,
+so a page that is already booted re-reads in seconds.
+
+**The cost of each route is the point:**
+
+| | |
+| --- | --- |
+| `GET /account` | Touches **no browser**. Answers the last snapshot from memory. This is the call every open console makes, and a hundred of them cost nothing. |
+| `POST /refresh` | A real read through the warm page. Concurrent callers share **one** page load — fifty people pressing Refresh is one reload, and all fifty get its result. |
+| `DELETE /account` | Closes the browser and forgets the numbers. |
+
+**A stale answer is a feature.** `GET` returns the last snapshot with the `checkedAt` it was read at,
+whether or not a session is still live — `linked: false` with a snapshot means "the browser closed,
+and these were the numbers when it did". A figure that was true ten minutes ago, labelled as ten
+minutes old, is worth more than an empty screen, and it is what lets the console paint instantly.
+
+**A read that recognised nothing does not overwrite good numbers.** The page may have been
+mid-render, and replacing real balances with an empty list would turn a slow refresh into an account
+that looks emptied — the most alarming false statement this screen could make. An empty *first* read
+is still reported, because that is a real answer.
+
+**One session per tenant, bounded.** A signed-in Chromium is 300-500MB, so each carries an idle
+timer that closes it after 20 minutes with nobody reading, and `onModuleDestroy` closes them all.
+The cached snapshot survives the browser closing.
+
+**`refresh` answers 503, not 404**, when nothing is linked or the session lapsed: the route exists
+and the request was correct; what is unavailable is the thing behind it. The console turns that into
+"link your account again" rather than an error nobody can act on. A lapsed session is closed at that
+moment rather than left to be retried.
+
+Gated by `SHAM_CASH_DEV_CHECK` like the routes above, for the same reason: every one of them can end
+up driving a browser at a third party.
 
 ### Platform defaults — `/v1/admin/platform-defaults` (PLATFORM_ADMIN only)
 
@@ -668,6 +1067,59 @@ appliesToNewOperatorsOnly }`. Minor units are strings; `ichancyAgentId` is the o
   would not fail here — it would fail later, on somebody else's tenant creation.
 - Seeded from this deployment's `.env` the first time anything reads it, so an existing deployment
   keeps exactly the values it already had without anybody running a script.
+
+### Statistics — `/v1/admin/stats`
+
+The aggregates behind the queue. `GET /v1/admin/deposits` is a WORK LIST — cursor paginated, no
+total, and by default only the three statuses that need a human — so it cannot answer "how did this
+month go", and the credited deposits (most of them) never appeared on any screen. These figures are
+summed in the database and arrive as one object.
+
+```
+GET /v1/admin/stats?period=day|week|month|all           -> TenantStats     (every queue-reading role)
+GET /v1/admin/stats/tenants?period=...                  -> PlatformStats   (PLATFORM_ADMIN only)
+```
+
+```ts
+TenantStats = {
+  tenantId, slug, displayName, currency,
+  period:   { key, from, to },                       // ISO-8601, UTC, as the SERVER resolved it
+  players:  { newInPeriod, total },
+  deposits: { opened, credited, rejected, expired, waiting, attention, lifetimeCount },
+  withdrawals: { paid, pending },
+  profit:   { depositFees, withdrawalFees, total, chargingRails, activeRails },
+  byMethod: StatsMethodRow[],                        // credited money per rail, biggest first
+}
+StatsBlock     = { count, total: MoneyView, basis }
+StatsMethodRow = { paymentMethodId, displayName, count, total: MoneyView, fees: MoneyView }
+PlatformStats  = { period, tenants: TenantStats[] }  // ACTIVE operators only
+```
+
+**`basis` is not decoration.** Three timestamps decide whether a deposit is inside the window, so
+the blocks are NOT views of one set and `opened` and `credited` will not add up:
+
+| basis | meaning |
+| --- | --- |
+| `createdAt` | started in the window, wherever it ended up (`opened`, `expired`) |
+| `creditedAt` | money that LANDED in the window — a deposit opened last night and credited this morning belongs to this morning, which is how it reconciles against the Ichancy panel |
+| `decidedAt` | the moment a human refused it (`rejected`) |
+| `paidAt` | the moment a withdrawal was actually sent |
+| `current` | RIGHT NOW, deliberately outside the window — money stuck since last week must not fall out of today's figures (`waiting`, `attention`, `pending`) |
+
+Deposit money is `verifiedAmountMinor ?? claimedAmountMinor` in every block — the same precedence
+the admin card, `/queue` and `/report` use. It is deliberately NOT `creditedAmountMinor`
+(= verified − fee), so `credited.total` stays comparable with `opened.total`; the fee is reported
+separately under `profit`.
+
+**Windows are UTC** and are the same ones the Telegram `/report` message quotes, so the two agree.
+`all` reaches back to the epoch. An absent `period` is `month`, the documented default of both.
+
+**`profit` is fees, and a zero is usually a setting.** `feeFixedMinor + feeBps` on a rail is the
+only revenue this system models, posted to HOUSE_CASH as a FEE transaction. A rail left at 0/0 —
+every rail on a fresh install — collects nothing. `chargingRails` of `activeRails` is what lets a
+screen say "none of your rails charges a fee" instead of showing a zero that reads as a loss.
+`NotificationCategory.PROFIT` in the schema is a different, still-unbuilt idea (GGR) and must not
+be confused with this.
 
 ### Operator finances — `/v1/admin/finance` (PLATFORM_ADMIN only)
 
@@ -718,8 +1170,14 @@ pushes the command menus, provisions the default payment rails and attempts acti
 provisioning = { webhookRegistered, webhookUrl, webhookError,
                  menusPushed, menuScopes[], menuError,
                  activated, activationError,
-                 paymentMethodsCreated, paymentMethodsError, paymentMethodsNeedAccounts }
+                 paymentMethodsCreated, paymentMethodsError, paymentMethodsNeedAccounts,
+                 playersImported, playersImportError }
 ```
+
+`playersImported` / `playersImportError` report the import of the operator's existing Ichancy
+players (the "old players"), which runs only after activation succeeded — an operator that did not
+activate reports `0` and says why. The console reads both with a fallback (`0` / `null`) so a
+backend older than the import still parses.
 
 Each step reports a boolean **and** a nullable error, never one tri-state: "did not run" and "ran
 and failed" send an operator to two different places.
@@ -780,15 +1238,15 @@ constraint, because a destination subscribed to nothing is a row that silently d
 three separate facts, and writes the row only if all three pass. A row existing therefore means the
 bot has proved it can post there. A refusal is a 400 whose `details.reason` is one of:
 
-| `reason`         | What it means, and who fixes it                                        |
-| ---------------- | ---------------------------------------------------------------------- |
-| `INVALID_URL`    | Not a Telegram group/channel reference. A `t.me/+…` invite link cannot be resolved by a bot at all — pick the group from `GET /v1/admin/telegram/chats` instead. |
-| `NOT_FOUND`      | Telegram does not know the chat, or the bot cannot see it              |
-| `PRIVATE_CHAT`   | It resolved, but it is a one-to-one chat                               |
-| `BOT_NOT_MEMBER` | Someone must add the bot to the group                                  |
-| `BOT_NOT_ADMIN`  | A group administrator must promote it                                  |
-| `BOT_CANNOT_POST`| Channel admin with "Post messages" off — turn the permission on        |
-| `DUPLICATE`      | That chat is already an active destination for this operator           |
+| `reason`          | What it means, and who fixes it                                                                                                                                  |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `INVALID_URL`     | Not a Telegram group/channel reference. A `t.me/+…` invite link cannot be resolved by a bot at all — pick the group from `GET /v1/admin/telegram/chats` instead. |
+| `NOT_FOUND`       | Telegram does not know the chat, or the bot cannot see it                                                                                                        |
+| `PRIVATE_CHAT`    | It resolved, but it is a one-to-one chat                                                                                                                         |
+| `BOT_NOT_MEMBER`  | Someone must add the bot to the group                                                                                                                            |
+| `BOT_NOT_ADMIN`   | A group administrator must promote it                                                                                                                            |
+| `BOT_CANNOT_POST` | Channel admin with "Post messages" off — turn the permission on                                                                                                  |
+| `DUPLICATE`       | That chat is already an active destination for this operator                                                                                                     |
 
 They are separate values because they fail separately and are fixed by different people. Collapsing
 them into one error is the failure this endpoint exists to remove.
@@ -871,6 +1329,7 @@ would hand the console markup it cannot lay out. Splitting the service into data
 the prerequisite for that, and it is not part of this change.
 
 ### Health (public)
+
 ### Health (public)
 
 ```

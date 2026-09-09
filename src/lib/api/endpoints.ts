@@ -1,10 +1,42 @@
 import { z } from 'zod';
 
+import {
+  botMenuButtonSchema,
+  botMenuNodeSchema,
+  botMenuTreeSchema,
+  botSettingsSchema,
+  deletedSchema,
+  gateSchema,
+} from '@/types/bot-menu';
+import type {
+  CreateButtonBody,
+  CreateNodeBody,
+  ReorderButtonsBody,
+  UpdateBotSettingsBody,
+  UpdateButtonBody,
+  UpdateGateBody,
+  UpdateNodeBody,
+} from '@/types/bot-menu';
+
+import type { StatsPeriodKey } from '@/types/stats';
+import type {
+  ShamCashBrowserCheckBody,
+  ShamCashParseBody,
+  StartShamCashPairingBody,
+} from '@/types/shamcash-dev';
+
 import type {
   AdminListQuery,
   AdminSession,
-  AgentSignInBody,
+  AdminCredentialsBody,
   ApproveDepositBody,
+  AttachTelegramBody,
+  BlockPlayerBody,
+  ImportPlayersBody,
+  MarkPaidBody,
+  RegisterPlayerBody,
+  RejectWithdrawalBody,
+  WithdrawalListQuery,
   BreakListQuery,
   CreateAdminBody,
   CreatePaymentDestinationBody,
@@ -23,7 +55,7 @@ import type {
   UpdatePaymentDestinationBody,
   UpdatePaymentMethodBody,
   SetExchangeRateBody,
-  SetShamCashSessionBody,
+  SetShamCashApiBody,
   UpdateTenantBody,
   UpdateTenantBotBody,
   UpdateTenantIchancyBody,
@@ -37,6 +69,9 @@ import {
   adminPlayerSchema,
   adminSessionSchema,
   adminUserSchema,
+  adminWithdrawalSchema,
+  playerImportSummarySchema,
+  registerPlayerResultSchema,
   agentFloatSchema,
   approvalLimitSchema,
   depositChainCheckSchema,
@@ -58,9 +93,18 @@ import {
   retryCreditResultSchema,
   reviewOutcomeSchema,
   financeBalancesSchema,
+  shamCashDevResultSchema,
+  shamCashHomeSchema,
+  shamCashPairingPollSchema,
+  shamCashPairingStartedSchema,
+  accountSnapshotSchema,
+  accountStatusSchema,
+  platformStatsSchema,
+  tenantStatsSchema,
   tenantFinanceRowSchema,
   shamCashReadResultSchema,
   shamCashStatusSchema,
+  shamCashTestResultSchema,
   discoveredChatSchema,
   telegramDestinationSchema,
   telegramDestinationCheckSchema,
@@ -94,24 +138,20 @@ const asQuery = (value: Record<string, QueryValue | undefined>): Record<string, 
 // ── Auth ───────────────────────────────────────────────────────────────────────────────────────
 
 export const authApi = {
-  /** Exchanges the one-time code from the Telegram bot for an access token. */
-  exchangeBotCode: (code: string): Promise<AdminSession> =>
-    api.post(adminSessionSchema, '/v1/admin/auth/bot-code', {
-      body: { code },
-      anonymous: true,
-    }),
-
   /**
-   * Signs an operator in with its ICHANCY AGENT account, and answers the same session shape.
+   * The console's only sign-in: a username or email, and a password.
    *
-   * Same shape is the point: the console counts down one expiry and sends one bearer token, and
-   * nothing past this line can tell which door a session came through.
+   * The server tries the caller's own console credential first and the operator's Ichancy agent
+   * account second, and answers the same session shape either way. Same shape is the point: the
+   * console counts down one expiry and sends one bearer token, and nothing past this line can tell
+   * which credential opened it.
    *
-   * A 409 AGENT_OPERATOR_AMBIGUOUS is not a failure to report and stop at — it is the server asking
-   * which operator, with the choices in `error.details.operators`. See agentOperatorChoices.
+   * A 409 `ADMIN_OPERATOR_AMBIGUOUS` (or `AGENT_OPERATOR_AMBIGUOUS`, when the agent account was the
+   * one that matched) is not a failure to report and stop at — it is the server asking WHICH
+   * operator, with the choices in `error.details.operators`. See agentOperatorChoices.
    */
-  signInWithAgent: (body: AgentSignInBody): Promise<AdminSession> =>
-    api.post(adminSessionSchema, '/v1/admin/auth/ichancy', {
+  signIn: (body: AdminCredentialsBody): Promise<AdminSession> =>
+    api.post(adminSessionSchema, '/v1/admin/auth/credentials', {
       body,
       anonymous: true,
     }),
@@ -214,6 +254,42 @@ export const playersApi = {
     api.post(ichancyAccountSchema, `/v1/admin/players/${id}/ichancy-account`),
 
   /**
+   * Registers a player from this console rather than by a Telegram Start.
+   *
+   * Answers three things, not one: the row, the Ichancy link if one was asked for, and the error
+   * that link met if it failed. The row is written inside a transaction and the link happens after
+   * it — an outside call is never made inside one — so a failed link leaves a real player behind
+   * that the dialog must still show.
+   */
+  register: (body: RegisterPlayerBody) =>
+    api.post(registerPlayerResultSchema, '/v1/admin/players', { body }),
+
+  /**
+   * The operator's own lock. A blocked player can do nothing in this tenant's bot; their casino
+   * account is untouched. Answers the updated player, reason and all.
+   */
+  block: (id: string, body: BlockPlayerBody) =>
+    api.post(adminPlayerSchema, `/v1/admin/players/${id}/block`, { body }),
+
+  /** Lifts the lock: ACTIVE when linked, PENDING_ICHANCY otherwise. */
+  unblock: (id: string) => api.post(adminPlayerSchema, `/v1/admin/players/${id}/unblock`),
+
+  /**
+   * Gives an imported or admin-registered row the Telegram id it had none of. Refused when another
+   * player already holds it — a Telegram id is unique within an operator.
+   */
+  attachTelegram: (id: string, body: AttachTelegramBody) =>
+    api.patch(adminPlayerSchema, `/v1/admin/players/${id}/telegram`, { body }),
+
+  /**
+   * Pulls the agent's existing Ichancy accounts into this operator as ICHANCY_IMPORT rows. Safe to
+   * repeat: known rows count as `existing`. An Ichancy failure is REPORTED in the summary rather
+   * than thrown, because the rows written before it stay written.
+   */
+  import: (body: ImportPlayersBody = {}) =>
+    api.post(playerImportSummarySchema, '/v1/admin/players/import', { body }),
+
+  /**
    * Takes funds back OUT of a player's Ichancy account and into the agent float.
    *
    * The opposite of `createIchancyAccount` in every way that matters: NOT idempotent, and NOT safe
@@ -256,6 +332,45 @@ export const playersApi = {
     }),
 };
 
+// ── Withdrawals (player cash-out) ──────────────────────────────────────────────────────────────
+
+/**
+ * The withdrawal queue: money going OUT.
+ *
+ * Offset-paginated, unlike the deposit queue, because that is what the backend serves. The three
+ * actions are gated on `withdrawals.decide` and are NOT interchangeable — approve and reject act on
+ * a REQUESTED row (the human decision MANUAL mode waits for), and mark-paid acts on a DEBITED one
+ * (the player has been charged; a person has sent the money and is recording that they did). Each
+ * answers the updated row.
+ */
+export const withdrawalsApi = {
+  list: (query: WithdrawalListQuery = {}, signal?: AbortSignal) =>
+    api.page(adminWithdrawalSchema, '/v1/admin/withdrawals', {
+      query: asQuery({ ...query }),
+      ...(signal === undefined ? {} : { signal }),
+    }),
+
+  byId: (id: string, signal?: AbortSignal) =>
+    api.get(adminWithdrawalSchema, `/v1/admin/withdrawals/${id}`, {
+      ...(signal === undefined ? {} : { signal }),
+    }),
+
+  /** REQUESTED → APPROVED. The worker then debits the player and checks the payout wallet. */
+  approve: (id: string) => api.post(adminWithdrawalSchema, `/v1/admin/withdrawals/${id}/approve`),
+
+  /** REQUESTED → REJECTED. Nothing was ever taken from the player. */
+  reject: (id: string, body: RejectWithdrawalBody) =>
+    api.post(adminWithdrawalSchema, `/v1/admin/withdrawals/${id}/reject`, { body }),
+
+  /**
+   * DEBITED → PAID. A person has performed the transfer by hand and is recording its reference;
+   * the server posts the payout to the ledger against that record. Not idempotent in intent — a
+   * second call answers 409, because the row is no longer DEBITED.
+   */
+  markPaid: (id: string, body: MarkPaidBody) =>
+    api.post(adminWithdrawalSchema, `/v1/admin/withdrawals/${id}/mark-paid`, { body }),
+};
+
 // ── Payment methods and destinations ───────────────────────────────────────────────────────────
 
 export const paymentMethodsApi = {
@@ -273,8 +388,18 @@ export const paymentMethodsApi = {
   update: (id: string, body: UpdatePaymentMethodBody) =>
     api.patch(paymentMethodSchema, `/v1/admin/payment-methods/${id}`, { body }),
 
-  /** Deactivates. Nothing on the money path is ever really deleted. */
+  /** Deactivates. A rail that has taken money is never really deleted. */
   deactivate: (id: string) => api.delete(paymentMethodSchema, `/v1/admin/payment-methods/${id}`),
+
+  /**
+   * Really deletes — and only for a rail that never took a payment. The backend refuses anything
+   * else, so a caller that skips the `deletable` check gets a message rather than a surprise.
+   *
+   * Returns the method it destroyed, which is the only reason the response has a body: the row is
+   * already gone from the next list, and a toast still needs its name.
+   */
+  deletePermanently: (id: string) =>
+    api.delete(paymentMethodSchema, `/v1/admin/payment-methods/${id}/permanent`),
 
   destinations: (methodId: string, includeInactive = false) =>
     api.get(
@@ -341,16 +466,30 @@ export const walletBalancesApi = {
  */
 export const shamCashApi = {
   getStatus: (signal?: AbortSignal) =>
-    api.get(shamCashStatusSchema, '/v1/admin/shamcash/session', {
+    api.get(shamCashStatusSchema, '/v1/admin/shamcash/status', {
       ...(signal === undefined ? {} : { signal }),
     }),
 
-  setSession: (body: SetShamCashSessionBody) =>
-    api.post(shamCashStatusSchema, '/v1/admin/shamcash/session', { body }),
-
-  clearSession: () => api.delete(shamCashStatusSchema, '/v1/admin/shamcash/session'),
-
   checkBalance: () => api.post(shamCashReadResultSchema, '/v1/admin/shamcash/balance'),
+
+  /**
+   * The HTTP API credentials, which supersede the browser session for reading transactions.
+   *
+   * Same no-read-back rule as the session: the key is sealed on arrival and no endpoint returns it.
+   * `getStatus` reports only that one exists, plus the wallet id — which is not a credential.
+   */
+  setApi: (body: SetShamCashApiBody) =>
+    api.post(shamCashStatusSchema, '/v1/admin/shamcash/api', { body }),
+
+  clearApi: () => api.delete(shamCashStatusSchema, '/v1/admin/shamcash/api'),
+
+  /**
+   * A live proof the saved key works: reads the balance AND lists transactions, reporting each.
+   *
+   * SEPARATE FROM `checkBalance` because they answer different questions — a figure for a screen
+   * versus "is this configuration good", which a figure alone cannot answer.
+   */
+  test: () => api.post(shamCashTestResultSchema, '/v1/admin/shamcash/test'),
 };
 
 export const exchangeRatesApi = {
@@ -451,6 +590,100 @@ export const reconciliationApi = {
   runInvariants: () => api.post(invariantReportSchema, '/v1/admin/reconciliation/invariants/run'),
 };
 
+// ── Sham Cash developer bench ──────────────────────────────────────────────────────────────────
+
+/**
+ * The OLD Sham Cash mechanism, on demand. Both routes answer 404 unless the API has
+ * `SHAM_CASH_DEV_CHECK` set, which no real deployment does.
+ *
+ * `browserCheck` launches a real Chromium and replays the session at shamcash.sy — measured at
+ * 55-90 seconds, so a caller must not treat a slow answer as a hang. `parse` takes page TEXT (what
+ * `innerText` gives, not markup) and runs the parser on it with no browser at all, which is what
+ * separates "the credentials were refused" from "they redesigned the page".
+ *
+ * Neither stores anything: the five values live for one request.
+ */
+export const shamCashDevApi = {
+  browserCheck: (body: ShamCashBrowserCheckBody) =>
+    api.post(shamCashDevResultSchema, '/v1/admin/shamcash/dev/browser-check', { body }),
+
+  parse: (body: ShamCashParseBody) =>
+    api.post(shamCashHomeSchema, '/v1/admin/shamcash/dev/parse', { body }),
+
+  /**
+   * Start a QR login. The API opens a browser on shamcash.sy's login page and KEEPS IT OPEN, so
+   * this creates a resource that `cancelPairing` or the poll's own success closes.
+   */
+  startPairing: (body: StartShamCashPairingBody) =>
+    api.post(shamCashPairingStartedSchema, '/v1/admin/shamcash/dev/qr', { body }),
+
+  /** Has it been scanned? On `linked` the session comes back and the pairing is gone. */
+  pollPairing: (pairingId: string, signal?: AbortSignal) =>
+    api.get(shamCashPairingPollSchema, `/v1/admin/shamcash/dev/qr/${pairingId}`, {
+      ...(signal === undefined ? {} : { signal }),
+    }),
+
+  /** Close the browser now. Idempotent — an unknown id is not an error. */
+  cancelPairing: (pairingId: string) =>
+    api.delete(deletedSchema, `/v1/admin/shamcash/dev/qr/${pairingId}`),
+};
+
+/**
+ * THE LINKED ACCOUNT.
+ *
+ * The API holds the browser the QR link produced, signed in and booted, so these are cheap in a way
+ * the old per-read launcher never was:
+ *
+ *   `status`   touches NO browser. Answers the last snapshot. Every open console calls it for free.
+ *   `refresh`  a real read through the warm page — seconds, and concurrent callers share one load.
+ *   `unlink`   closes the browser and forgets the numbers.
+ *
+ * `refresh` answers 503 when nothing is linked or the session lapsed. That is not a broken route:
+ * it is "the thing behind it is unavailable", which the screen turns into "link your account again".
+ */
+export const shamCashAccountApi = {
+  status: (signal?: AbortSignal) =>
+    api.get(accountStatusSchema, '/v1/admin/shamcash/account', {
+      ...(signal === undefined ? {} : { signal }),
+    }),
+
+  refresh: () => api.post(accountSnapshotSchema, '/v1/admin/shamcash/account/refresh'),
+
+  unlink: () => api.delete(deletedSchema, '/v1/admin/shamcash/account'),
+};
+
+// ── Stats ──────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * The aggregates behind the queue: deposits opened, deposits CREDITED, what was rejected or
+ * expired, what is still waiting, and the fees kept.
+ *
+ * ══ WHY THIS IS NOT A DEPOSIT-QUEUE CALL WITH A BIGGER LIMIT ══════════════════════════════════
+ * `depositsApi.queue` is a work list: cursor paginated, no total, and by default only the three
+ * statuses that need a human. Counting a month through it means paging the whole month into the
+ * browser and still not being able to say how many are behind the cursor. These figures are summed
+ * in the database and arrive as one object per operator.
+ *
+ * ══ TWO CALLS, TWO AUDIENCES ══════════════════════════════════════════════════════════════════
+ * `mine` is whichever operator the session is acting as — the caller's home tenant, or the one a
+ * PLATFORM_ADMIN picked in the switcher. Every role that may read the deposit queue may read it.
+ * `everyTenant` crosses the operator boundary and is PLATFORM_ADMIN only; the endpoint answers 403
+ * to anybody else, which is why its hook takes `enabled` the way the operator list does.
+ */
+export const statsApi = {
+  mine: (period: StatsPeriodKey, signal?: AbortSignal) =>
+    api.get(tenantStatsSchema, '/v1/admin/stats', {
+      query: asQuery({ period }),
+      ...(signal === undefined ? {} : { signal }),
+    }),
+
+  everyTenant: (period: StatsPeriodKey, signal?: AbortSignal) =>
+    api.get(platformStatsSchema, '/v1/admin/stats/tenants', {
+      query: asQuery({ period }),
+      ...(signal === undefined ? {} : { signal }),
+    }),
+};
+
 // ── Platform defaults (PLATFORM_ADMIN) ─────────────────────────────────────────────────────────
 
 /**
@@ -543,7 +776,7 @@ export const tenantsApi = {
   /** Stops delivery without suspending: the operator keeps serving, its bot just goes quiet. */
   removeWebhook: (id: string) => api.delete(tenantWebhookSchema, `/v1/admin/tenants/${id}/webhook`),
 
-  /** Pushes the command menus, so `/console` and `/start` appear in the operator's bot. */
+  /** Pushes the command menus, so `/start` and the rest appear in the operator's bot. */
   setupBot: (id: string) => api.post(tenantBotSetupSchema, `/v1/admin/tenants/${id}/bot-setup`),
 
   /**
@@ -562,6 +795,14 @@ export const tenantsApi = {
   /** Verified with `getMe`, and answers with the webhook cleared: the new bot needs registering. */
   updateBot: (id: string, body: UpdateTenantBotBody) =>
     api.patch(tenantSchema, `/v1/admin/tenants/${id}/bot`, { body }),
+
+  /**
+   * Pulls the operator's existing Ichancy players in, from the platform side — the same import
+   * creation runs, for an operator created before it existed or one whose first run met an outage.
+   * Safe to repeat; known rows count as `existing`.
+   */
+  importPlayers: (id: string) =>
+    api.post(playerImportSummarySchema, `/v1/admin/tenants/${id}/import-players`),
 };
 
 /**
@@ -646,4 +887,61 @@ export const telegramChatsApi = {
 export const reportsApi = {
   publishActivity: (body: PublishReportBody = {}) =>
     api.post(publishReportResultSchema, '/v1/admin/reports/activity/publish', { body }),
+};
+
+/**
+ * The bot's flow editor.
+ *
+ * Its own object rather than a member of `paymentMethodsApi` for the obvious reason, and one less
+ * obvious: the whole tree is a SINGLE GET. The editor draws a graph, and it cannot render a
+ * navigation button's destination without knowing every screen — paginating this would leave the
+ * client assembling a graph from pages and guessing at the edges between them.
+ */
+export const botMenuApi = {
+  tree: (signal?: AbortSignal) =>
+    api.get(botMenuTreeSchema, '/v1/admin/bot-menu', {
+      ...(signal === undefined ? {} : { signal }),
+    }),
+
+  createNode: (body: CreateNodeBody) =>
+    api.post(botMenuNodeSchema, '/v1/admin/bot-menu/nodes', { body }),
+
+  updateNode: (id: string, body: UpdateNodeBody) =>
+    api.patch(botMenuNodeSchema, `/v1/admin/bot-menu/nodes/${id}`, { body }),
+
+  /** Refused for the root screen, and for any screen another button still opens. */
+  deleteNode: (id: string) => api.delete(deletedSchema, `/v1/admin/bot-menu/nodes/${id}`),
+
+  /** One request carrying the screen's whole layout — a drag moves several buttons at once. */
+  reorder: (nodeId: string, body: ReorderButtonsBody) =>
+    api.patch(botMenuNodeSchema, `/v1/admin/bot-menu/nodes/${nodeId}/reorder`, { body }),
+
+  createButton: (body: CreateButtonBody) =>
+    api.post(botMenuButtonSchema, '/v1/admin/bot-menu/buttons', { body }),
+
+  updateButton: (id: string, body: UpdateButtonBody) =>
+    api.patch(botMenuButtonSchema, `/v1/admin/bot-menu/buttons/${id}`, { body }),
+
+  /**
+   * A real delete, unlike a payment method's. Nothing historical references a button — a deposit
+   * records the METHOD it was paid through, never the button somebody tapped — so removing one
+   * destroys no trail.
+   */
+  deleteButton: (id: string) => api.delete(deletedSchema, `/v1/admin/bot-menu/buttons/${id}`),
+
+  updateGate: (body: UpdateGateBody) => api.patch(gateSchema, '/v1/admin/bot-menu/gate', { body }),
+
+  /**
+   * The two runtime settings that are not buttons: the mini-app URL and the withdrawal mode. Also
+   * carried on the tree as `settings`, so the flow editor can show them without a second read; this
+   * is the read a settings card refetches after saving.
+   */
+  settings: (signal?: AbortSignal) =>
+    api.get(botSettingsSchema, '/v1/admin/bot-menu/settings', {
+      ...(signal === undefined ? {} : { signal }),
+    }),
+
+  /** A PATCH: an absent key leaves the value alone, `miniAppUrl: null` clears the button. */
+  updateSettings: (body: UpdateBotSettingsBody) =>
+    api.patch(botSettingsSchema, '/v1/admin/bot-menu/settings', { body }),
 };

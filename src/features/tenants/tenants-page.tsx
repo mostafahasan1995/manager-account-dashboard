@@ -11,10 +11,11 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { useTenants } from '@/lib/api/queries';
 import { useEnumLabel, useT } from '@/lib/i18n/use-translation';
-import type { Tenant } from '@/types';
+import type { Tenant, TenantProvisioning } from '@/types';
 import { TENANT_STATUSES } from '@/types/enums';
 
 import { tenantMessages } from './messages';
+import { TenantCreatedAlert } from './tenant-created-alert';
 import { TenantDetailPanel } from './tenant-detail-panel';
 import { TenantFormDialog } from './tenant-form-dialog';
 import { TenantList } from './tenant-list';
@@ -35,6 +36,11 @@ export function TenantsPage() {
   const navigate = useNavigate();
   const tenantsQuery = useTenants();
   const [editing, setEditing] = useState<Tenant | null>(null);
+  /** The last create's provisioning report — the only place it is ever shown; the row has none. */
+  const [created, setCreated] = useState<{
+    tenant: Tenant;
+    provisioning: TenantProvisioning;
+  } | null>(null);
   const t = useT(tenantMessages);
   const enumLabel = useEnumLabel();
 
@@ -73,6 +79,16 @@ export function TenantsPage() {
       <Alert tone="info" title={t('tenants.crossTenant.title')}>
         {t('tenants.crossTenant.body')}
       </Alert>
+
+      {created === null ? null : (
+        <TenantCreatedAlert
+          tenant={created.tenant}
+          provisioning={created.provisioning}
+          onDismiss={() => {
+            setCreated(null);
+          }}
+        />
+      )}
 
       <div role="group" aria-label={t('tenants.filterByStatus')} className="flex flex-wrap gap-1.5">
         <StatusFilterButton
@@ -177,6 +193,10 @@ export function TenantsPage() {
         }}
         onSaved={(tenant) => {
           setEditing(null);
+          // Only a create carries the report. An edit's bare row must not blank the last one.
+          if (tenant.provisioning !== undefined) {
+            setCreated({ tenant, provisioning: tenant.provisioning });
+          }
           setSearch({ create: undefined, selected: tenant.id });
         }}
       />

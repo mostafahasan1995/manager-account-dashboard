@@ -255,13 +255,32 @@ describe('TenantsPage', () => {
     expect(await screen.findByRole('heading', { name: 'Harbour kiosk' })).toBeInTheDocument();
     const panel = within(screen.getByRole('dialog', { name: /harbour kiosk/i }));
     expect(panel.getByText('Slug harbour-kiosk')).toBeInTheDocument();
-    expect(panel.getByText(mockAdmins[0]!.telegramUserId)).toBeInTheDocument();
+    expect(panel.getByText(mockAdmins[0]!.telegramUserId!)).toBeInTheDocument();
     expect(panel.getByText(mockPlatformDefaults.currencyCode)).toBeInTheDocument();
     expect(panel.getByText('500,000.00 NSP')).toBeInTheDocument();
     expect(panel.getByText('30 minutes')).toBeInTheDocument();
     await waitFor(() => {
       expect(location()).toContain('selected=');
     });
+
+    // What provisioning managed, read out of the create response — including the old players.
+    // The mock cannot activate (no Ichancy), so the import never ran, and the report says so
+    // instead of claiming zero players were found.
+    const title = await screen.findByText(/Harbour kiosk was created/);
+    const report = within(title.closest('[role="status"]')!);
+    expect(report.getByText('Webhook registered with Telegram.')).toBeInTheDocument();
+    expect(report.getByText('4 payment methods provisioned.')).toBeInTheDocument();
+    expect(
+      report.getByText(
+        /Players were not imported: Players were not imported: the operator was not activated/,
+      ),
+    ).toBeInTheDocument();
+    expect(report.getByText(/still points at a placeholder account/)).toBeInTheDocument();
+
+    // The detail panel opened on the new row is modal; the report waits behind it until it closes.
+    await user.click(screen.getByRole('button', { name: 'Close' }));
+    await user.click(await screen.findByRole('button', { name: 'Dismiss' }));
+    expect(screen.queryByText(/Harbour kiosk was created/)).not.toBeInTheDocument();
   });
 
   it('hides the create button from a role that cannot manage tenants', async () => {

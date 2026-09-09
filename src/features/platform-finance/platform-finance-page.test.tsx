@@ -83,14 +83,14 @@ describe('PlatformFinancePage', () => {
     expect(pilot.queryAllByTestId('money')).toHaveLength(0);
   });
 
-  it('shows Sham Cash outages as what they are — expired, not linked — never as 0', async () => {
+  it('shows Sham Cash failures as what they are — no key, key rejected — never as 0', async () => {
     renderPage();
 
     await screen.findByText('tenant-zero');
 
-    // tenant-zero has no Sham Cash session; northern-branch's has lapsed.
+    // tenant-zero has no Sham Cash API key; northern-branch's key is being refused.
     expect(within(rowFor('tenant-zero')).getByText('Not linked')).toBeInTheDocument();
-    expect(within(rowFor('northern-branch')).getByText('Expired')).toBeInTheDocument();
+    expect(within(rowFor('northern-branch')).getByText('Key rejected')).toBeInTheDocument();
     // None of these three is a wallet of zeros.
     expect(within(rowFor('tenant-zero')).queryByText(/^0(\.0+)?\s/)).not.toBeInTheDocument();
   });

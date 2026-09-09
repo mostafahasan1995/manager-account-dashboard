@@ -4,18 +4,31 @@ import { isoDateTime, moneyViewSchema } from './api';
 import {
   creditVerifiedBySchema,
   playerDebitStatusSchema,
+  playerSourceSchema,
   playerStatusSchema,
+  type PlayerSource,
   type PlayerStatus,
 } from './enums';
 
+/**
+ * `AdminPlayerView`.
+ *
+ * ══ WHY `telegramUserId` IS NULLABLE ══════════════════════════════════════════════════════════
+ * It used to be the one thing every player had, because a player used to BE a Telegram account
+ * that pressed Start. Two other doors exist now: a row imported from the operator's Ichancy agent
+ * (`source: ICHANCY_IMPORT`) and a row registered from this console (`source: ADMIN`), and neither
+ * has a Telegram id until somebody attaches one. Every screen that prints the id has to be able to
+ * print an em dash instead, and `playerDisplayName` below no longer ends at "Telegram <id>".
+ */
 export const adminPlayerSchema = z.looseObject({
   id: z.string(),
-  telegramUserId: z.string(),
+  telegramUserId: z.string().nullable(),
   telegramUsername: z.string().nullable(),
   firstName: z.string().nullable(),
   lastName: z.string().nullable(),
   languageCode: z.string().nullable(),
   status: playerStatusSchema,
+  source: playerSourceSchema,
   currencyCode: z.string(),
   ichancyLinked: z.boolean(),
   createdAt: isoDateTime,
@@ -25,8 +38,22 @@ export const adminPlayerSchema = z.looseObject({
   ichancyLogin: z.string().nullable().optional(),
   ichancyRegisteredAt: isoDateTime.nullable().optional(),
   phone: z.string().nullable().optional(),
+  /** All three set together while `status` is BLOCKED, and all three null otherwise. */
+  blockedAt: isoDateTime.nullable(),
+  blockedReason: z.string().nullable(),
+  blockedByAdminId: z.string().nullable(),
 });
 export type AdminPlayer = z.infer<typeof adminPlayerSchema>;
+
+/** The operator's own lock — see `PLAYER_STATUSES`. */
+export function isPlayerBlocked(player: Pick<AdminPlayer, 'status'>): boolean {
+  return player.status === 'BLOCKED';
+}
+
+/** An "old player": one that existed under the Ichancy agent before the bot did. */
+export function isImportedPlayer(player: Pick<AdminPlayer, 'source'>): boolean {
+  return player.source === 'ICHANCY_IMPORT';
+}
 
 export const ichancyAccountSchema = z.looseObject({
   playerId: z.string(),
@@ -43,18 +70,99 @@ export interface PlayerListQuery {
   telegramUserId?: string;
   linked?: boolean;
   search?: string;
+  /** `ICHANCY_IMPORT` is the "old players" view. */
+  source?: PlayerSource;
+  /** `true` narrows to BLOCKED rows; `false` hides them. Absent means no opinion. */
+  blocked?: boolean;
   limit?: number;
   offset?: number;
 }
 
-/** `firstName lastName`, falling back to the @username and then to the Telegram id. */
+/**
+ * `firstName lastName`, then the @username, then the Telegram id, then the Ichancy login.
+ *
+ * The last fallback exists for imported rows: an account pulled in from the Ichancy agent has no
+ * name and no Telegram, and its login is the only handle the operator knows it by. The id-slice at
+ * the very end is for a row with nothing at all, which the backend can produce and a screen must
+ * still be able to name.
+ */
 export function playerDisplayName(player: AdminPlayer): string {
   const name = [player.firstName, player.lastName].filter(Boolean).join(' ').trim();
   if (name.length > 0) return name;
   if (player.telegramUsername != null && player.telegramUsername.length > 0) {
     return `@${player.telegramUsername}`;
   }
-  return `Telegram ${player.telegramUserId}`;
+  if (player.telegramUserId !== null) return `Telegram ${player.telegramUserId}`;
+  if (player.ichancyLogin != null && player.ichancyLogin.length > 0) return player.ichancyLogin;
+  return `Player ${player.id.slice(0, 8)}`;
+}
+
+// ── Registering, blocking and attaching ──────────────────────────────────────────────────────────
+
+/**
+ * `POST /v1/admin/players` — a row registered from this console rather than by a Telegram Start.
+ *
+ * Every field is optional in the STRICT sense: an omitted one must be absent from the JSON, never
+ * sent as `""`. `createIchancyAccount` asks the server to link the new row on the way out, which is
+ * an Ichancy call it reports separately — see `registerPlayerResultSchema`.
+ */
+export interface RegisterPlayerBody {
+  telegramUserId?: string;
+  firstName?: string;
+  lastName?: string;
+  phone?: string;
+  createIchancyAccount?: boolean;
+}
+
+/**
+ * What registering answers. The row is created inside a transaction; the Ichancy link happens AFTER
+ * it (an outside call is never made inside one), so it can fail on its own — and when it does the
+ * player still exists, `ichancy` is null and `ichancyError` says why. A dialog must read all three:
+ * a null `ichancy` with a null error means nobody asked for an account.
+ */
+export const registerPlayerResultSchema = z.looseObject({
+  player: adminPlayerSchema,
+  ichancy: ichancyAccountSchema.nullable(),
+  ichancyError: z.string().nullable(),
+});
+export type RegisterPlayerResult = z.infer<typeof registerPlayerResultSchema>;
+
+/** The backend's own limit on a block reason — the same 1..280 every reason field carries. */
+export const BLOCK_REASON_MAX_LENGTH = 280;
+
+/** `POST /v1/admin/players/:id/block`. Unblocking takes no body. */
+export interface BlockPlayerBody {
+  reason: string;
+}
+
+/**
+ * `PATCH /v1/admin/players/:id/telegram` — gives an imported or admin-registered row the Telegram id
+ * it was missing. A Telegram id is a 64-bit number and travels as a decimal string.
+ */
+export interface AttachTelegramBody {
+  telegramUserId: string;
+}
+
+/**
+ * `POST /v1/admin/players/import` and `POST /v1/admin/tenants/:id/import-players`.
+ *
+ * `error` is a string rather than a thrown failure on purpose: an Ichancy outage halfway through a
+ * page leaves the rows already written in place, and the summary reports how far it got beside what
+ * stopped it. `created` counts new rows; `existing` the ones already known by Ichancy id or login.
+ */
+export const playerImportSummarySchema = z.looseObject({
+  scanned: z.number(),
+  created: z.number(),
+  existing: z.number(),
+  error: z.string().nullable(),
+  startedAt: isoDateTime,
+  finishedAt: isoDateTime,
+});
+export type PlayerImportSummary = z.infer<typeof playerImportSummarySchema>;
+
+/** `POST /v1/admin/players/import`. `limit` caps how many agent rows one run scans. */
+export interface ImportPlayersBody {
+  limit?: number;
 }
 
 // ── Manual adjustments: debits out, credits in ─────────────────────────────────────────────────

@@ -30,9 +30,13 @@ export function PaymentMethodsPage() {
   const query = useMemo<PaymentMethodListQuery>(
     () => ({
       ...(search.rail === undefined ? {} : { rail: search.rail }),
-      ...(search.isActive === undefined ? {} : { isActive: search.isActive }),
+      // No `state` in the URL means the DEFAULT view, and the default is active-only — see
+      // paymentMethodStateFilter in search-schemas.ts for why a retired rail must not be the thing
+      // an operator sees first. 'all' is the one choice that asks for it anyway; only that value
+      // omits the filter.
+      ...(search.state === 'all' ? {} : { isActive: search.state !== 'inactive' }),
     }),
-    [search.rail, search.isActive],
+    [search.rail, search.state],
   );
 
   const methods = usePaymentMethods(query);

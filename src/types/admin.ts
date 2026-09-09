@@ -5,8 +5,11 @@ import { adminRoleSchema, type AdminRole } from './enums';
 
 export const adminUserSchema = z.looseObject({
   id: z.string(),
-  telegramUserId: z.string(),
+  /** Null for a manager added with just a username and password — no Telegram account. */
+  telegramUserId: z.string().nullable(),
   username: z.string().nullable(),
+  /** Whether a console password is set. Never the password or its hash. */
+  hasPassword: z.boolean(),
   displayName: z.string(),
   role: adminRoleSchema,
   isActive: z.boolean(),
@@ -15,10 +18,15 @@ export const adminUserSchema = z.looseObject({
 });
 export type AdminUser = z.infer<typeof adminUserSchema>;
 
-/** The identity returned by the login exchange — shorter than AdminUser on purpose. */
+/**
+ * The identity returned by a sign-in exchange — shorter than AdminUser on purpose.
+ *
+ * `telegramUserId` is null for a manager who signed in with POST /v1/admin/auth/credentials rather
+ * than a Telegram-based door: that account may hold no Telegram id at all.
+ */
 export const adminIdentitySchema = z.looseObject({
   id: z.string(),
-  telegramUserId: z.string(),
+  telegramUserId: z.string().nullable(),
   role: adminRoleSchema,
   displayName: z.string(),
 });
@@ -64,11 +72,17 @@ export interface AdminListQuery {
   offset?: number;
 }
 
+/**
+ * A staff account is a display name, a role, a username and a password (2026-09-05). There is no
+ * `telegramUserId` here on purpose: the server refuses one outright — `forbidNonWhitelisted` — so
+ * a client that still sent it would get a 400 rather than quietly have it ignored.
+ */
 export interface CreateAdminBody {
-  telegramUserId: string;
   displayName: string;
   role: AdminRole;
-  username?: string;
+  /** Unique inside the tenant. A plain name or an email; the server lower-cases it. */
+  username: string;
+  password: string;
 }
 
 export interface UpdateAdminBody {
@@ -76,6 +90,8 @@ export interface UpdateAdminBody {
   role?: AdminRole;
   isActive?: boolean;
   username?: string;
+  /** Sets or replaces the console password. Omitted means "leave it exactly as it is". */
+  password?: string;
 }
 
 export interface SetApprovalLimitBody {
@@ -90,27 +106,28 @@ export function isCurrentLimit(limit: ApprovalLimit): boolean {
   return limit.effectiveTo === null;
 }
 
-// ── Signing in with an Ichancy agent account ───────────────────────────────────────────────────
+// ── Signing in ─────────────────────────────────────────────────────────────────────────────────
 
 /**
- * `POST /v1/admin/auth/ichancy`. The OTHER door into a session, beside the Telegram bot code.
+ * `POST /v1/admin/auth/credentials`. The only door into a session.
  *
- * An operator IS an Ichancy agent: `ichancyUsername` / `ichancyPassword` on its tenant row are the
- * account that registers its players and holds its float. Those are what it signs in with, and the
- * session it gets back is that operator's SUPER_ADMIN. PLATFORM_ADMIN is not reachable this way —
- * the platform runs no agent of its own — so running the platform stays a bot-code login.
+ * `username` is a console login — a plain name or an email; both are ordinary values of the same
+ * field, which is why this carries no separate `email`. Behind these two the server tries the
+ * caller's own console credential first and the operator's Ichancy agent account second, and
+ * answers the same session either way. Which one it was is not the console's business.
  *
- * `operatorSlug` is absent on the FIRST attempt and present on the second: two tenants may be
- * configured against one agent account, and when they are, the server refuses with
- * `AGENT_OPERATOR_AMBIGUOUS` and names them rather than picking one.
+ * `operatorSlug` is absent on the FIRST attempt and present on the second: one credential can open
+ * more than one operator, and when it does the server refuses with `ADMIN_OPERATOR_AMBIGUOUS`
+ * (or `AGENT_OPERATOR_AMBIGUOUS`, when it was the agent account that matched) and names them
+ * rather than picking one.
  */
-export interface AgentSignInBody {
+export interface AdminCredentialsBody {
   username: string;
   password: string;
   operatorSlug?: string;
 }
 
-/** One operator offered by `AGENT_OPERATOR_AMBIGUOUS`. Never carries a secret. */
+/** One operator offered by an `*_OPERATOR_AMBIGUOUS` refusal. Never carries a secret. */
 export const agentOperatorChoiceSchema = z.looseObject({
   slug: z.string(),
   displayName: z.string(),

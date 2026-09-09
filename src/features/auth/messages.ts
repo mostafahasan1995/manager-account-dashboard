@@ -1,30 +1,24 @@
 import { defineMessages } from '@/lib/i18n/messages';
 
 /**
- * Sign-in strings, for both doors into the console.
+ * Sign-in strings. One door: a username or email, and a password.
  *
- * ── WHY THERE ARE TWO SETS ────────────────────────────────────────────────────────────────────
- * An OPERATOR signs in with its Ichancy agent account — the username and password its players are
- * registered under — and lands as that operator's super admin. The PLATFORM signs in with a
- * one-time code from a Telegram bot, because it runs no agent of its own and has nothing else to
- * prove itself with. The two panels are therefore not two spellings of one idea, and the strings
- * are written to say which account a person is being asked for rather than leaving them to guess.
+ * ── WHY THERE IS ONE SET NOW ──────────────────────────────────────────────────────────────────
+ * There used to be two panels — an Ichancy agent account, and a one-time code from the bot's
+ * `/console` command — and the screen made the operator say which they held before it would take
+ * anything. The code door was removed on 2026-09-05 when staff became username+password accounts,
+ * and the server now tries a person's own console credential first and the operator's agent
+ * account second behind the same two fields. So the copy no longer asks which kind of account
+ * somebody has; it asks for a login and a password, which is all a person actually knows.
  *
- * ── WHY THE BOT INSTRUCTION IS CLAUSES AND NOT A SENTENCE ─────────────────────────────────────
- * Two of its parts are not language: `/console` and `/login` are typed into Telegram exactly as
- * written, and "direct chat" is emphasised because sending the command in a group is the mistake
- * that panel exists to prevent. Composing the sentence in the component keeps those parts as
- * elements — a `<code>` that cannot be translated by accident, and a `<strong>` that survives
- * translation.
+ * ── WHY THE REFUSALS ARE STILL THREE STRINGS ──────────────────────────────────────────────────
+ * The backend answers a wrong password, a suspended operator and a deactivated console account as
+ * three distinct codes on purpose, and collapsing them here would throw that away: only the first
+ * is fixed by retyping. The other two name the person who CAN fix them, because the operator
+ * reading the screen cannot, and a screen that only says "refused" sends them round a loop instead.
  *
- * ── WHY THE THREE AGENT REFUSALS ARE THREE STRINGS ────────────────────────────────────────────
- * The backend answers a wrong password, a suspended operator and an operator with no owner as three
- * distinct codes on purpose, and collapsing them here would throw that away: only the first is
- * fixed by retyping. The other two name the person who CAN fix them, because the operator reading
- * the screen cannot, and a screen that only says "refused" sends them round a loop instead.
- *
- * The Arabic is what a cashier says at the desk, not what a manual says. Ichancy, Telegram and the
- * slash commands stay in English because that is how they are typed and how they are spoken.
+ * The Arabic is what a cashier says at the desk, not what a manual says. Ichancy stays in English
+ * because that is how it is written and how it is spoken.
  */
 export const authMessages = defineMessages({
   en: {
@@ -36,55 +30,39 @@ export const authMessages = defineMessages({
     'auth.session.signedOutBody':
       'The API rejected the session. This happens when the token expires or the account is deactivated.',
 
-    // ── The card, and the choice of door ─────────────────────────────────────────────────────
+    // ── The card ─────────────────────────────────────────────────────────────────────────────
     'auth.signIn.title': 'Sign in',
-    'auth.signIn.description':
-      'Two different accounts open this console. Pick the one you actually hold.',
-    'auth.tab.agent': 'Ichancy account',
-    'auth.tab.code': 'Bot code',
+    'auth.signIn.description': 'Use the username and password you were given.',
 
-    // ── The operator's own agent account ─────────────────────────────────────────────────────
-    'auth.agent.intro':
-      'The Ichancy agent account your players are registered under — the same username and password. It opens the console as that operator’s super admin.',
-    'auth.agent.usernameLabel': 'Ichancy username',
-    'auth.agent.passwordLabel': 'Ichancy password',
-    'auth.agent.submit': 'Sign in',
-    'auth.agent.invalid': 'That Ichancy username and password do not open any operator here.',
-    'auth.agent.suspended':
+    // ── The one form ─────────────────────────────────────────────────────────────────────────
+    'auth.credentials.intro':
+      'Your console login — a username or an email — and your password. An operator signing in for the first time can use its Ichancy agent account here too.',
+    'auth.credentials.usernameLabel': 'Username or email',
+    'auth.credentials.passwordLabel': 'Password',
+    'auth.credentials.submit': 'Sign in',
+    'auth.credentials.invalid': 'That username and password do not open anything here.',
+    'auth.credentials.suspended':
       'Those credentials are right, but that operator is suspended. A platform admin has to activate it before anyone can sign in.',
-    'auth.agent.noOwner':
+    'auth.credentials.noOwner':
       'Those credentials are right, but this operator’s console account has been deactivated. A platform admin can re-enable it from the Operators screen.',
 
-    // ── One agent, several operators ─────────────────────────────────────────────────────────
-    'auth.agent.chooseTitle': 'Which operator?',
-    'auth.agent.chooseBody': {
-      one: 'This Ichancy agent runs one operator.',
-      other: 'This Ichancy agent runs {count} operators. Choose the one to sign into.',
+    // ── One credential, several operators ────────────────────────────────────────────────────
+    'auth.credentials.chooseTitle': 'Which operator?',
+    'auth.credentials.chooseBody': {
+      one: 'This login opens one operator.',
+      other: 'This login opens {count} operators. Choose the one to sign into.',
     },
-    'auth.agent.operatorLegend': 'Operator',
-    'auth.agent.chooseSubmit': 'Sign in to {name}',
-    'auth.agent.chooseBack': 'Use a different account',
-
-    // ── The bot-code door ────────────────────────────────────────────────────────────────────
-    'auth.code.who':
-      'Platform admins sign in here — and so does any staff member an operator has added.',
-    'auth.signIn.sendCommand': 'Send',
-    'auth.signIn.toBotIn': 'to the cashier bot in a',
-    'auth.signIn.directChat': 'direct chat',
-    'auth.signIn.notInGroup':
-      '— it refuses in a group, where a code would be a credential handed to everyone in it. The reply is good for five minutes, once.',
-    'auth.signIn.playerCommand': 'is the player command and will not work here.',
-    'auth.signIn.codeLabel': 'One-time code',
-    'auth.signIn.submit': 'Sign in',
-    'auth.signIn.invalidCode':
-      'That code is not valid or has expired. Send /console for a new one.',
+    'auth.credentials.operatorLegend': 'Operator',
+    'auth.credentials.chooseSubmit': 'Sign in to {name}',
+    'auth.credentials.chooseBack': 'Use a different account',
 
     // ── Which backend this build talks to ────────────────────────────────────────────────────
     'auth.demo.title': 'Demo mode',
     'auth.demo.body':
       'This build is running against the built-in mock API — no backend, no database.',
-    'auth.demo.signInWith': 'Sign in with',
-    'auth.demo.roleHint': 'Each code signs in as a different role, so every screen can be seen:',
+    'auth.demo.signInWith': 'Every demo login uses the password {password}.',
+    'auth.demo.roleHint':
+      'Each username signs in as a different role, so every screen can be seen:',
     'auth.demo.agentHint': 'Or sign in as an operator: username {usernames}, password {password}.',
     'auth.demo.agentSuspended':
       '{username} is the suspended operator, so it shows what that refusal looks like.',
@@ -100,54 +78,38 @@ export const authMessages = defineMessages({
       'رفض الخادم الجلسة. يحدث هذا عند انتهاء صلاحية الرمز أو عند إيقاف الحساب.',
 
     'auth.signIn.title': 'تسجيل الدخول',
-    'auth.signIn.description': 'حسابان مختلفان يفتحان هذه اللوحة. اختر الحساب الذي تملكه فعلاً.',
-    'auth.tab.agent': 'حساب Ichancy',
-    'auth.tab.code': 'رمز البوت',
+    'auth.signIn.description': 'استخدم اسم المستخدم وكلمة المرور اللذين أُعطيا لك.',
 
-    'auth.agent.intro':
-      'حساب وكيل Ichancy الذي يُسجَّل تحته لاعبوك — نفس اسم المستخدم وكلمة المرور. يفتح اللوحة بصلاحية المدير الأعلى لهذا المشغّل.',
-    'auth.agent.usernameLabel': 'اسم مستخدم Ichancy',
-    'auth.agent.passwordLabel': 'كلمة مرور Ichancy',
-    'auth.agent.submit': 'تسجيل الدخول',
-    'auth.agent.invalid': 'اسم المستخدم وكلمة المرور هذان لا يفتحان أي مشغّل هنا.',
-    'auth.agent.suspended':
+    'auth.credentials.intro':
+      'اسم الدخول الخاص بك — اسم مستخدم أو بريد إلكتروني — وكلمة المرور. ويستطيع المشغّل الذي يدخل لأول مرة استخدام حساب وكيل Ichancy هنا أيضاً.',
+    'auth.credentials.usernameLabel': 'اسم المستخدم أو البريد الإلكتروني',
+    'auth.credentials.passwordLabel': 'كلمة المرور',
+    'auth.credentials.submit': 'تسجيل الدخول',
+    'auth.credentials.invalid': 'اسم المستخدم وكلمة المرور هذان لا يفتحان شيئاً هنا.',
+    'auth.credentials.suspended':
       'البيانات صحيحة، لكن هذا المشغّل موقوف. على مدير المنصّة تفعيله قبل أن يتمكن أحد من الدخول.',
-    'auth.agent.noOwner':
+    'auth.credentials.noOwner':
       'البيانات صحيحة، لكن حساب اللوحة لهذا المشغّل موقوف. يمكن لمدير المنصّة إعادة تفعيله من شاشة المشغّلين.',
 
-    'auth.agent.chooseTitle': 'أي مشغّل؟',
+    'auth.credentials.chooseTitle': 'أي مشغّل؟',
     // Arabic counts in six categories, and this number is never one — but `one` is required and a
     // sentence that told an operator to choose between one thing would read as a bug either way.
-    'auth.agent.chooseBody': {
-      one: 'يدير حساب وكيل Ichancy هذا مشغّلاً واحداً.',
-      two: 'يدير حساب وكيل Ichancy هذا مشغّلَين. اختر الذي تريد الدخول إليه.',
-      few: 'يدير حساب وكيل Ichancy هذا {count} مشغّلين. اختر الذي تريد الدخول إليه.',
-      many: 'يدير حساب وكيل Ichancy هذا {count} مشغّلاً. اختر الذي تريد الدخول إليه.',
-      other: 'يدير حساب وكيل Ichancy هذا {count} مشغّل. اختر الذي تريد الدخول إليه.',
+    'auth.credentials.chooseBody': {
+      one: 'اسم الدخول هذا يفتح مشغّلاً واحداً.',
+      two: 'اسم الدخول هذا يفتح مشغّلَين. اختر الذي تريد الدخول إليه.',
+      few: 'اسم الدخول هذا يفتح {count} مشغّلين. اختر الذي تريد الدخول إليه.',
+      many: 'اسم الدخول هذا يفتح {count} مشغّلاً. اختر الذي تريد الدخول إليه.',
+      other: 'اسم الدخول هذا يفتح {count} مشغّل. اختر الذي تريد الدخول إليه.',
     },
-    'auth.agent.operatorLegend': 'المشغّل',
-    'auth.agent.chooseSubmit': 'الدخول إلى {name}',
-    'auth.agent.chooseBack': 'استخدام حساب آخر',
-
-    'auth.code.who': 'من هنا يدخل مدراء المنصّة، وكذلك أي موظف أضافه المشغّل.',
-    'auth.signIn.sendCommand': 'أرسل',
-    'auth.signIn.toBotIn': 'إلى بوت الصرّاف في',
-    'auth.signIn.directChat': 'محادثة خاصة',
-    'auth.signIn.notInGroup':
-      '— البوت يرفض إرساله في مجموعة، لأن الرمز هناك يصبح بيد كل من فيها. الرد صالح خمس دقائق ولمرة واحدة.',
-    'auth.signIn.playerCommand': 'هو أمر اللاعبين ولن يعمل هنا.',
-    'auth.signIn.codeLabel': 'رمز دخول لمرة واحدة',
-    'auth.signIn.submit': 'تسجيل الدخول',
-    // The invisible marks around the command are load-bearing: in an Arabic run the leading slash
-    // is a neutral character and would render on the wrong side, as `console/`, which nobody can
-    // type into Telegram.
-    'auth.signIn.invalidCode':
-      'الرمز غير صالح أو انتهت صلاحيته. أرسل ‎/console‎ للحصول على رمز جديد.',
+    'auth.credentials.operatorLegend': 'المشغّل',
+    'auth.credentials.chooseSubmit': 'الدخول إلى {name}',
+    'auth.credentials.chooseBack': 'استخدام حساب آخر',
 
     'auth.demo.title': 'الوضع التجريبي',
     'auth.demo.body': 'هذه النسخة تعمل على واجهة وهمية داخل المتصفح — بلا خادم وبلا قاعدة بيانات.',
-    'auth.demo.signInWith': 'سجّل الدخول بالرمز',
-    'auth.demo.roleHint': 'كل رمز يسجّل الدخول بدور مختلف، حتى يمكن الاطّلاع على كل الشاشات:',
+    'auth.demo.signInWith': 'كل حسابات التجربة تستخدم كلمة المرور {password}.',
+    'auth.demo.roleHint':
+      'كل اسم مستخدم يسجّل الدخول بدور مختلف، حتى يمكن الاطّلاع على كل الشاشات:',
     'auth.demo.agentHint':
       'أو سجّل الدخول كمشغّل: اسم المستخدم {usernames}، وكلمة المرور {password}.',
     'auth.demo.agentSuspended': '{username} هو المشغّل الموقوف، فيُظهر شكل ذلك الرفض.',

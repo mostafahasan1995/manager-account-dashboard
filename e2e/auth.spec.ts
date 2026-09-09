@@ -1,27 +1,45 @@
 import {
   DEMO_AGENT_PASSWORD,
   DEMO_AGENT_USERNAME,
-  DEMO_CODE,
+  DEMO_PASSWORD,
   DEMO_SUSPENDED_AGENT_USERNAME,
+  DEMO_USERNAME,
   expect,
   fillAgentCredentials,
+  fillCredentials,
   test,
 } from './fixtures';
 
-test.describe('signing in as an operator', () => {
-  test('the screen opens on the account an operator actually holds', async ({ page }) => {
+/**
+ * Sign-in, end to end, against the real bundle.
+ *
+ * ONE form as of 2026-09-05: a username or email, and a password. The bot-code door and the
+ * separate Ichancy tab are both gone — the server tries a person's own console credential first
+ * and the operator's agent account second behind the same two fields, so what used to be two
+ * describe blocks about two doors is now one about one form and the answers it can give.
+ */
+
+test.describe('signing in', () => {
+  test('the screen asks for one credential, with no door to choose first', async ({ page }) => {
     await page.goto('/login');
 
-    // Both doors are on offer, and the one most people need is the one already open.
-    await expect(page.getByRole('tab', { name: /ichancy account/i })).toHaveAttribute(
-      'data-state',
-      'active',
-    );
-    await expect(page.getByLabel(/ichancy username/i)).toBeVisible();
-    await expect(page.getByRole('tab', { name: /bot code/i })).toBeVisible();
+    await expect(page.getByLabel(/username or email/i)).toBeVisible();
+    await expect(page.getByLabel(/^password$/i)).toBeVisible();
+    // Nothing to pick between, and no bot command to go and find.
+    await expect(page.getByRole('tab')).toHaveCount(0);
+    await expect(page.getByText('/console')).toHaveCount(0);
   });
 
-  test('an Ichancy agent account signs into its own operator', async ({ page }) => {
+  test('a console username and password sign in', async ({ page }) => {
+    await fillCredentials(page, DEMO_USERNAME, DEMO_PASSWORD);
+
+    await expect(page).not.toHaveURL(/\/login/);
+    await expect(page.getByText(/API healthy/i)).toBeVisible();
+  });
+
+  test('an Ichancy agent account signs into its own operator, through the same form', async ({
+    page,
+  }) => {
     await fillAgentCredentials(page, DEMO_AGENT_USERNAME);
 
     await expect(page).not.toHaveURL(/\/login/);
@@ -29,15 +47,15 @@ test.describe('signing in as an operator', () => {
   });
 
   test('a wrong password says the credentials open nothing, and nothing more', async ({ page }) => {
-    await fillAgentCredentials(page, DEMO_AGENT_USERNAME, 'not-the-password');
+    await fillCredentials(page, DEMO_USERNAME, 'not-the-password');
 
-    await expect(page.getByRole('alert')).toContainText(/do not open any operator/i);
+    await expect(page.getByRole('alert')).toContainText(/do not open anything/i);
     await expect(page).toHaveURL(/\/login/);
   });
 
   test('a suspended operator is told to ask a platform admin, not to retype', async ({ page }) => {
-    // The refusal that matters most on this door: the credentials ARE right, and telling this
-    // person their password is wrong would leave them retyping a correct one indefinitely.
+    // The refusal that matters most: the credentials ARE right, and telling this person their
+    // password is wrong would leave them retyping a correct one indefinitely.
     await fillAgentCredentials(page, DEMO_SUSPENDED_AGENT_USERNAME);
 
     await expect(page.getByRole('alert')).toContainText(/suspended/i);
@@ -46,15 +64,15 @@ test.describe('signing in as an operator', () => {
   });
 
   test('the password is cleared after a refusal but the username is not', async ({ page }) => {
-    await fillAgentCredentials(page, DEMO_AGENT_USERNAME, 'not-the-password');
+    await fillCredentials(page, DEMO_USERNAME, 'not-the-password');
     await expect(page.getByRole('alert')).toBeVisible();
 
-    await expect(page.getByLabel(/ichancy username/i)).toHaveValue(DEMO_AGENT_USERNAME);
-    await expect(page.getByLabel(/ichancy password/i)).toHaveValue('');
+    await expect(page.getByLabel(/username or email/i)).toHaveValue(DEMO_USERNAME);
+    await expect(page.getByLabel(/^password$/i)).toHaveValue('');
   });
 });
 
-test.describe('signing in with a bot code', () => {
+test.describe('where a sign-in lands', () => {
   test('an unauthenticated visitor is sent to the login screen and returned afterwards', async ({
     page,
   }) => {
@@ -63,31 +81,19 @@ test.describe('signing in with a bot code', () => {
     // The destination is remembered, which is what makes a shared queue link survive a sign-in.
     await expect(page).toHaveURL(/redirect/);
 
-    await page.getByRole('tab', { name: /bot code/i }).click();
-    await page.getByLabel(/one-time code/i).fill(DEMO_CODE);
+    await page.getByLabel(/username or email/i).fill(DEMO_USERNAME);
+    await page.getByLabel(/^password$/i).fill(DEMO_PASSWORD);
     await page.getByRole('button', { name: /sign in/i }).click();
 
     await expect(page).toHaveURL(/\/deposits/);
   });
 
-  test('a wrong code is refused without saying whether it was wrong or merely late', async ({
-    page,
-  }) => {
-    await page.goto('/login');
-    await page.getByRole('tab', { name: /bot code/i }).click();
-    await page.getByLabel(/one-time code/i).fill('000000');
-    await page.getByRole('button', { name: /sign in/i }).click();
-
-    await expect(page.getByRole('alert')).toContainText(/not valid or has expired/i);
-    await expect(page).toHaveURL(/\/login/);
-  });
-
-  test('the redirect is honoured through the agent door too', async ({ page }) => {
+  test('the redirect is honoured for an agent credential too', async ({ page }) => {
     await page.goto('/deposits');
     await expect(page).toHaveURL(/redirect/);
 
-    await page.getByLabel(/ichancy username/i).fill(DEMO_AGENT_USERNAME);
-    await page.getByLabel(/ichancy password/i).fill(DEMO_AGENT_PASSWORD);
+    await page.getByLabel(/username or email/i).fill(DEMO_AGENT_USERNAME);
+    await page.getByLabel(/^password$/i).fill(DEMO_AGENT_PASSWORD);
     await page.getByRole('button', { name: /sign in/i }).click();
 
     await expect(page).toHaveURL(/\/deposits/);

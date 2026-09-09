@@ -4,6 +4,7 @@ import type {
   DepositQueueQuery,
   PaymentMethodListQuery,
   PlayerListQuery,
+  WithdrawalListQuery,
 } from '@/types';
 
 /**
@@ -55,6 +56,20 @@ export const playerKeys = {
    */
   balances: () => [...playerKeys.all, 'balance'] as const,
   balance: (id: string) => [...playerKeys.balances(), id] as const,
+};
+
+/**
+ * The withdrawal queue. Its own root beside `depositKeys`, not under it: the two queues are read by
+ * different screens and moved by different actions, and approving a deposit has nothing to say to
+ * a list of cash-outs. What a withdrawal action DOES change outside this prefix — a player's
+ * balance, and the agent float — is named by the mutation itself, see `useWithdrawalMutation`.
+ */
+export const withdrawalKeys = {
+  all: ['withdrawals'] as const,
+  lists: () => [...withdrawalKeys.all, 'list'] as const,
+  list: (query: WithdrawalListQuery) => [...withdrawalKeys.lists(), query] as const,
+  details: () => [...withdrawalKeys.all, 'detail'] as const,
+  detail: (id: string) => [...withdrawalKeys.details(), id] as const,
 };
 
 export const paymentMethodKeys = {
@@ -131,6 +146,39 @@ export const platformFinanceKeys = {
   tenant: (id: string) => [...platformFinanceKeys.all, 'tenant', id] as const,
 };
 
+/**
+ * The window is PART of the key, so switching from "this month" to "today" is a different query
+ * rather than a refetch of the same one. Without it the screen would show last window's figures
+ * under the new window's heading for as long as the request took — which is exactly the moment
+ * somebody screenshots it.
+ */
+/**
+ * The bench is all MUTATIONS — nothing about it is a cacheable read. A check is an act with a cost
+ * (a browser, ~90 seconds, a live session in the body), so it happens when somebody presses the
+ * button and never because a component mounted or a window regained focus.
+ */
+
+/**
+ * A QR pairing, which is the one thing on the bench that IS a read: "has it been scanned yet?",
+ * asked every couple of seconds. Keyed by the pairing id so two attempts never share an answer.
+ */
+export const shamCashPairingKeys = {
+  all: ['shamcash-pairing'] as const,
+  detail: (id: string) => [...shamCashPairingKeys.all, id] as const,
+};
+
+/** The linked Sham Cash account. One key per tenant is unnecessary — the API scopes it already. */
+export const shamCashAccountKeys = {
+  all: ['shamcash-account'] as const,
+  status: () => [...shamCashAccountKeys.all, 'status'] as const,
+};
+
+export const statsKeys = {
+  all: ['stats'] as const,
+  mine: (period: string) => [...statsKeys.all, 'mine', period] as const,
+  tenants: (period: string) => [...statsKeys.all, 'tenants', period] as const,
+};
+
 export const tenantKeys = {
   all: ['tenants'] as const,
   list: () => [...tenantKeys.all, 'list'] as const,
@@ -203,4 +251,28 @@ export const telegramDestinationKeys = {
 export const telegramChatKeys = {
   all: ['telegram-chats'] as const,
   list: () => [...telegramChatKeys.all, 'list'] as const,
+};
+
+/**
+ * The bot's menu tree. ONE key for the whole graph, not one per screen.
+ *
+ * The editor renders edges between screens — a NAVIGATE button names its destination — so a cache
+ * holding one screen without the others cannot draw itself. Every write therefore invalidates the
+ * whole tree, which is also the honest thing: adding a button to screen A changes what screen B's
+ * "opens" dropdown may offer.
+ */
+export const botMenuKeys = {
+  all: ['bot-menu'] as const,
+  tree: () => [...botMenuKeys.all, 'tree'] as const,
+};
+
+/**
+ * The bot's two runtime settings, OUTSIDE `botMenuKeys` even though the tree carries a copy.
+ *
+ * A button edit invalidates the whole tree and must not re-read the settings for it; a settings
+ * save invalidates both, by name, because the tree's copy is then stale. One direction, on purpose.
+ */
+export const botSettingsKeys = {
+  all: ['bot-settings'] as const,
+  current: () => [...botSettingsKeys.all, 'current'] as const,
 };

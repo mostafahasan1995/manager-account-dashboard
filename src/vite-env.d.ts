@@ -11,6 +11,12 @@ interface ImportMetaEnv {
    * it is typed rather than `any`, not so that anybody sets it in a `.env`.
    */
   readonly VITE_ALLOW_MOCKS_IN_BUILD?: string;
+  /**
+   * Registers the Sham Cash developer bench at /dev/shamcash. Unset everywhere but a developer
+   * machine — the screen takes a live cashier session in a form, and with this off the route is
+   * not registered at all. The API has its own flag, SHAM_CASH_DEV_CHECK; both must be on.
+   */
+  readonly VITE_ENABLE_SHAMCASH_DEV?: string;
 }
 
 interface ImportMeta {

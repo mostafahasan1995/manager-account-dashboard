@@ -10,8 +10,8 @@ import { defineMessages } from '@/lib/i18n/messages';
  * `enum.adminRole.*` labels instead. The English halves are word for word the same as the maps, so
  * a change there that is not mirrored here shows up as English text on an Arabic screen.
  *
- * `X-Tenant-Id`, `docs/API-CONTRACT.md`, `/console`, CORS, Telegram and Ichancy stay in English in
- * both halves: they are things you type or grep for, not words you translate.
+ * `X-Tenant-Id`, `docs/API-CONTRACT.md`, CORS, Telegram and Ichancy stay in English in both
+ * halves: they are things you type or grep for, not words you translate.
  */
 export const settingsMessages = defineMessages({
   en: {
@@ -24,10 +24,8 @@ export const settingsMessages = defineMessages({
     'settings.profile.noSession': 'No session is signed in on this tab.',
     'settings.profile.sessionEndsIn': 'Session ends in',
     'settings.profile.noRefreshTitle': 'Admin sessions have no refresh token',
-    'settings.profile.noRefreshBefore':
-      'When the countdown reaches zero this console signs you out and anything unsaved goes with it. Send',
-    'settings.profile.noRefreshAfter':
-      'to the cashier bot on Telegram for a new one-time code, then sign in again.',
+    'settings.profile.noRefreshBody':
+      'When the countdown reaches zero this console signs you out and anything unsaved goes with it. Sign in again with your username and password.',
 
     'settings.role.PLATFORM_ADMIN':
       'Runs the platform: creates, configures and suspends tenants. Sees no tenant data.',
@@ -54,6 +52,12 @@ export const settingsMessages = defineMessages({
     'settings.capability.deposits.sweep': 'Run the deposit maintenance sweep',
     'settings.capability.players.read': 'See players',
     'settings.capability.players.link': 'Create a player Ichancy account',
+    'settings.capability.players.write': 'Register a player and attach a Telegram account',
+    'settings.capability.players.block': 'Block and unblock players',
+    'settings.capability.players.import': 'Import the existing Ichancy players',
+    'settings.capability.withdrawals.read': 'See the withdrawal queue',
+    'settings.capability.withdrawals.decide': 'Approve, reject and pay out withdrawals',
+    'settings.capability.botSettings.write': 'Set the withdrawal mode and the mini app link',
     'settings.capability.paymentMethods.read': 'See payment methods and destinations',
     'settings.capability.paymentMethods.write': 'Change payment methods and destinations',
     'settings.capability.admins.read': 'See staff and their approval limits',
@@ -149,10 +153,8 @@ export const settingsMessages = defineMessages({
     'settings.profile.noSession': 'لا توجد جلسة مسجّلة في هذا التبويب.',
     'settings.profile.sessionEndsIn': 'تنتهي الجلسة بعد',
     'settings.profile.noRefreshTitle': 'جلسات الإدارة بلا تجديد تلقائي',
-    'settings.profile.noRefreshBefore':
-      'عند وصول العدّاد إلى الصفر تخرجك اللوحة ويضيع كل ما لم تحفظه. أرسل',
-    'settings.profile.noRefreshAfter':
-      'إلى بوت الصرّاف على تلغرام للحصول على رمز جديد لمرة واحدة، ثم سجّل الدخول من جديد.',
+    'settings.profile.noRefreshBody':
+      'عند وصول العدّاد إلى الصفر تخرجك اللوحة ويضيع كل ما لم تحفظه. سجّل الدخول من جديد باسم المستخدم وكلمة المرور.',
 
     'settings.role.PLATFORM_ADMIN':
       'يدير المنصّة: ينشئ المشغّلين ويضبطهم ويوقفهم. لا يرى بيانات أي مشغّل.',
@@ -177,6 +179,12 @@ export const settingsMessages = defineMessages({
     'settings.capability.deposits.sweep': 'تشغيل جولة صيانة الإيداعات',
     'settings.capability.players.read': 'الاطّلاع على اللاعبين',
     'settings.capability.players.link': 'إنشاء حساب Ichancy للاعب',
+    'settings.capability.players.write': 'تسجيل لاعب وربط حساب تلغرام به',
+    'settings.capability.players.block': 'حظر اللاعبين ورفع الحظر عنهم',
+    'settings.capability.players.import': 'استيراد لاعبي Ichancy الحاليين',
+    'settings.capability.withdrawals.read': 'الاطّلاع على قائمة السحوبات',
+    'settings.capability.withdrawals.decide': 'الموافقة على السحوبات ورفضها وتسجيل دفعها',
+    'settings.capability.botSettings.write': 'ضبط وضع السحب ورابط التطبيق المصغّر',
     'settings.capability.paymentMethods.read': 'الاطّلاع على طرق الدفع ووجهاتها',
     'settings.capability.paymentMethods.write': 'تعديل طرق الدفع ووجهاتها',
     'settings.capability.admins.read': 'الاطّلاع على الموظفين وحدود موافقتهم',

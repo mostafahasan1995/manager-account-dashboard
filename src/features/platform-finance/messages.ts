@@ -38,7 +38,7 @@ export const financeMessages = defineMessages({
     'finance.notLoadedHint': 'Not read yet — press Refresh to load it.',
     'finance.usdt.noWallets': 'No wallets on this rail',
     'finance.shamCash.notLinked': 'Not linked',
-    'finance.shamCash.expired': 'Expired',
+    'finance.shamCash.unauthorized': 'Key rejected',
     'finance.shamCash.locked': 'locked {amount}',
     'finance.checked': 'Checked',
 
@@ -76,7 +76,7 @@ export const financeMessages = defineMessages({
     'finance.notLoadedHint': 'لم يُقرأ بعد — اضغط «تحديث» لتحميله.',
     'finance.usdt.noWallets': 'لا محافظ على هذه القناة',
     'finance.shamCash.notLinked': 'غير مربوط',
-    'finance.shamCash.expired': 'منتهٍ',
+    'finance.shamCash.unauthorized': 'المفتاح مرفوض',
     'finance.shamCash.locked': 'محجوز {amount}',
     'finance.checked': 'قُرئ',
 

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 
 import { configureApiClient } from '@/lib/api/client';
 import { authApi } from '@/lib/api/endpoints';
-import type { AdminSession, AgentSignInBody } from '@/types/admin';
+import type { AdminCredentialsBody, AdminSession } from '@/types/admin';
 
 import { AuthContext, type AuthState, type SignOutReason } from './auth-context';
 import { can as roleCan, type Capability } from './permissions';
@@ -100,8 +100,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [signOut]);
 
   /**
-   * Everything that has to happen when a session arrives, in one place, because there are now two
-   * doors into one.
+   * Everything that has to happen when a session arrives, in one place.
    *
    * The ref is assigned BEFORE the state, and that ordering is load-bearing rather than tidy: the
    * API client reads the token through `sessionRef`, and the first request a screen fires after
@@ -118,21 +117,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return next;
   }, []);
 
-  const signIn = useCallback(
-    async (code: string): Promise<AdminSession> =>
-      adopt(await authApi.exchangeBotCode(code.trim())),
-    [adopt],
-  );
-
   /**
    * The password is passed through UNTOUCHED while the username is trimmed, and the asymmetry is
    * deliberate: leading and trailing spaces are legal in a password, and a console that quietly ate
    * them would turn one operator into a permanent, unexplainable authentication failure.
    */
-  const signInWithAgent = useCallback(
-    async (credentials: AgentSignInBody): Promise<AdminSession> =>
+  const signIn = useCallback(
+    async (credentials: AdminCredentialsBody): Promise<AdminSession> =>
       adopt(
-        await authApi.signInWithAgent({
+        await authApi.signIn({
           username: credentials.username.trim(),
           password: credentials.password,
           // Spread rather than assigned: an absent operator must be ABSENT from the JSON, not
@@ -170,13 +163,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       expiresInMs: session === null ? 0 : millisecondsUntilExpiry(session, now),
       expiringSoon: session !== null && isExpiringSoon(session, now),
       signIn,
-      signInWithAgent,
       signOut,
       can: (capability: Capability) => roleCan(role, capability),
       tenantId,
       setTenantId,
     };
-  }, [session, signOutReason, now, signIn, signInWithAgent, signOut, tenantId, setTenantId]);
+  }, [session, signOutReason, now, signIn, signOut, tenantId, setTenantId]);
 
   return <AuthContext value={value}>{children}</AuthContext>;
 }

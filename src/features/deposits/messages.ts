@@ -59,11 +59,12 @@ export const depositMessages = defineMessages({
 
     // ── Filters ──────────────────────────────────────────────────────────────────────────────
     'deposits.filters.needsReview': 'Needs review',
+    'deposits.filters.all': 'All deposits',
     'deposits.filters.unclaimedOnly': 'Unclaimed only',
     'deposits.filters.stuck': 'Stuck',
     'deposits.filters.sort': 'Sort',
     'deposits.filters.statusHint':
-      'With nothing picked the queue shows everything still waiting to be reviewed.',
+      'With nothing picked the queue shows everything still waiting to be reviewed. Pick “All deposits” above to include the credited, rejected and expired ones.',
     'deposits.filters.amountFrom': 'Amount from',
     'deposits.filters.amountTo': 'Amount to',
     'deposits.filters.createdFrom': 'Created from',
@@ -331,10 +332,12 @@ export const depositMessages = defineMessages({
     'deposits.claim.other': 'شخص آخر',
 
     'deposits.filters.needsReview': 'يحتاج مراجعة',
+    'deposits.filters.all': 'كل الإيداعات',
     'deposits.filters.unclaimedOnly': 'غير المحجوزة فقط',
     'deposits.filters.stuck': 'عالقة',
     'deposits.filters.sort': 'الترتيب',
-    'deposits.filters.statusHint': 'إن لم تختر شيئاً يعرض الطابور كل ما ينتظر المراجعة.',
+    'deposits.filters.statusHint':
+      'إن لم تختر شيئاً يعرض الطابور كل ما ينتظر المراجعة. اختر «كل الإيداعات» في الأعلى لتشمل المشحونة والمرفوضة والمنتهية.',
     'deposits.filters.amountFrom': 'المبلغ من',
     'deposits.filters.amountTo': 'المبلغ إلى',
     'deposits.filters.createdFrom': 'أُنشئ من',

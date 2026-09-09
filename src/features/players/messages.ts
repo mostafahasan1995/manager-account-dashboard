@@ -192,6 +192,111 @@ export const playerMessages = defineMessages({
     'players.credit.maybeQueuedTitle': 'This may already have been queued',
     'players.credit.maybeQueuedBody':
       'The server did not answer cleanly, so a credit may have been recorded. Check the deposit queue before recording it again.',
+
+    // ── The segmented view above the filters ─────────────────────────────────────────────────
+    'players.segment.label': 'Show',
+    'players.segment.all': 'All',
+    'players.segment.telegram': 'Telegram',
+    // "Old players": the owner's own name for the accounts that predate the bot.
+    'players.segment.imported': 'Old players',
+    'players.segment.blocked': 'Blocked',
+
+    // ── Registering a player from the console ────────────────────────────────────────────────
+    'players.register.action': 'Register player',
+    'players.register.title': 'Register a player',
+    'players.register.description':
+      'Creates the player here, without them pressing Start. Every field is optional, but give at least one thing to find them by later.',
+    'players.register.field.telegramUserId': 'Telegram ID',
+    'players.register.hint.telegramUserId':
+      'The numeric id, digits only — not the @username. Leave it empty and attach one later.',
+    'players.register.hint.phone': 'With the country code, as the player would write it.',
+    'players.register.createIchancy': 'Create the Ichancy account now',
+    'players.register.createIchancyHint':
+      'Calls Ichancy after the player is saved. If that call fails the player still exists, and the account can be created from their row later.',
+    'players.register.submit': 'Register',
+    'players.register.validation.telegramUserId': 'Digits only — the numeric Telegram id.',
+    'players.register.validation.tooLong': 'Keep it to {max} characters.',
+    'players.register.validation.nothing':
+      'Give at least one of a Telegram id, a name or a phone number, or nobody will ever find this player again.',
+    'players.register.successTitle': 'Registered {name}',
+    'players.register.ichancy.created': 'Ichancy account created: login {login} on agent {agent}.',
+    'players.register.ichancy.existing': 'Ichancy already had this player: login {login}.',
+    'players.register.ichancy.notRequested':
+      'No Ichancy account was asked for. Create one from the row when the player needs it.',
+    'players.register.ichancy.failedTitle': 'Registered {name}, but the Ichancy account failed',
+    'players.register.ichancy.failedBody':
+      'The player exists without an account. Ichancy said: {error}. Create the account from their row once Ichancy answers again.',
+    'players.register.failedTitle': 'Could not register the player',
+    'players.register.open': 'Open {name}',
+
+    // ── Importing the agent's existing players ───────────────────────────────────────────────
+    'players.import.action': 'Import from Ichancy',
+    'players.import.hint': 'Safe to repeat: rows already known are counted, not duplicated.',
+    'players.import.doneTitle': 'Import finished',
+    'players.import.summary': 'Scanned {scanned} · created {created} · already known {existing}.',
+    'players.import.stoppedTitle': 'Import stopped early',
+    'players.import.stoppedBody':
+      'Ichancy said: {error}. The rows written before it stopped are kept; run it again once Ichancy answers.',
+    'players.import.failedTitle': 'Could not import players',
+
+    // ── Blocking and unblocking ──────────────────────────────────────────────────────────────
+    'players.block.action': 'Block player',
+    'players.block.forPlayer': 'Block {name}',
+    'players.block.title': 'Block {name}',
+    'players.block.description':
+      "A blocked player can do nothing in this operator's bot — no deposit, no withdrawal, no menu. Their Ichancy account and balance are untouched.",
+    'players.block.reasonLabel': 'Reason',
+    'players.block.reasonPlaceholder': 'Why this player is being locked out.',
+    'players.block.reasonRequired':
+      'Say why. It is shown to whoever unblocks them, and to nobody else.',
+    'players.block.reasonTooLong': 'Keep it to {max} characters; this is {length}.',
+    'players.block.reasonCounter': '{length} of {max}',
+    'players.block.review': 'Review this block',
+    'players.block.confirmTitle': 'Block {name} from the bot?',
+    'players.block.confirmBody':
+      'The bot stops answering them the moment this is confirmed. Unblocking is one click, but they will have seen the refusal.',
+    'players.block.back': 'Back',
+    'players.block.confirmLabel': 'Block {name}',
+    'players.block.sending': 'Blocking…',
+    'players.block.doneTitle': 'Blocked {name}',
+    'players.block.doneBody': 'The bot refuses them from now on.',
+    'players.block.failedTitle': 'Could not block the player',
+    'players.block.failedHint': 'Nothing changed. Fix what the message says and try again.',
+
+    'players.unblock.action': 'Unblock player',
+    'players.unblock.forPlayer': 'Unblock {name}',
+    'players.unblock.confirmTitle': 'Unblock {name}?',
+    'players.unblock.confirmDescription':
+      'They can use the bot again at once — as an active player when they have an Ichancy account, otherwise waiting for one.',
+    'players.unblock.confirmLabel': 'Unblock',
+    'players.unblock.doneTitle': 'Unblocked {name}',
+    'players.unblock.doneBody': 'Their status is now “{status}”.',
+    'players.unblock.failedTitle': 'Could not unblock the player',
+
+    'players.blocked.title': 'Blocked from the bot',
+    'players.blocked.body': 'The bot refuses every message and button from this player.',
+    'players.blocked.reason': 'Reason',
+    'players.blocked.when': 'Blocked',
+    'players.blocked.by': 'By admin',
+    'players.blocked.noReason': 'No reason was recorded.',
+
+    // ── Attaching a Telegram account to a row that has none ──────────────────────────────────
+    'players.attach.action': 'Attach Telegram',
+    'players.attach.forPlayer': 'Attach Telegram to {name}',
+    'players.attach.title': 'Attach a Telegram account to {name}',
+    'players.attach.description':
+      'This row has no Telegram id — it was imported from Ichancy or registered here. Type the numeric id of the account that belongs to this player, and the bot will know them from then on.',
+    'players.attach.field': 'Telegram ID',
+    'players.attach.hint': 'Digits only. Not the @username.',
+    'players.attach.validation': 'Enter the numeric Telegram id — digits only.',
+    'players.attach.submit': 'Attach',
+    'players.attach.doneTitle': 'Attached Telegram {id}',
+    'players.attach.doneBody': 'The bot recognises {name} now.',
+    'players.attach.failedTitle': 'Could not attach the Telegram account',
+
+    'players.field.source': 'Source',
+    'players.source.importedOn': 'Imported from Ichancy — registered there on {date}',
+    'players.telegram.none': 'No Telegram account',
   },
 
   ar: {
@@ -372,6 +477,110 @@ export const playerMessages = defineMessages({
     'players.credit.maybeQueuedTitle': 'قد تكون قد جُدولت فعلاً',
     'players.credit.maybeQueuedBody':
       'لم يردّ الخادم بوضوح، لذا قد يكون الرصيد قد سُجِّل. تحقّق من قائمة الإيداعات قبل تسجيله مجدداً.',
+
+    // ── العرض المقسّم فوق التصفية ─────────────────────────────────────────────────────────────
+    'players.segment.label': 'عرض',
+    'players.segment.all': 'الكل',
+    'players.segment.telegram': 'تلغرام',
+    'players.segment.imported': 'اللاعبون القدامى',
+    'players.segment.blocked': 'المحظورون',
+
+    // ── تسجيل لاعب من اللوحة ─────────────────────────────────────────────────────────────────
+    'players.register.action': 'تسجيل لاعب',
+    'players.register.title': 'تسجيل لاعب جديد',
+    'players.register.description':
+      'ينشئ اللاعب هنا دون أن يضغط Start. كل الحقول اختيارية، لكن أدخل شيئاً واحداً على الأقل يمكن العثور عليه به لاحقاً.',
+    'players.register.field.telegramUserId': 'معرّف تلغرام',
+    'players.register.hint.telegramUserId':
+      'المعرّف الرقمي، أرقام فقط — وليس @username. اتركه فارغاً وأضفه لاحقاً.',
+    'players.register.hint.phone': 'مع رمز الدولة، كما يكتبه اللاعب.',
+    'players.register.createIchancy': 'إنشاء حساب Ichancy الآن',
+    'players.register.createIchancyHint':
+      'يتصل بـ Ichancy بعد حفظ اللاعب. إذا فشل الاتصال يبقى اللاعب موجوداً، ويمكن إنشاء الحساب من صفّه لاحقاً.',
+    'players.register.submit': 'تسجيل',
+    'players.register.validation.telegramUserId': 'أرقام فقط — معرّف تلغرام الرقمي.',
+    'players.register.validation.tooLong': 'اجعله ضمن {max} حرفاً.',
+    'players.register.validation.nothing':
+      'أدخل معرّف تلغرام أو اسماً أو رقم هاتف على الأقل، وإلا فلن يجد أحد هذا اللاعب مجدداً.',
+    'players.register.successTitle': 'تم تسجيل {name}',
+    'players.register.ichancy.created':
+      'تم إنشاء حساب Ichancy: اسم الدخول {login} على الوكيل {agent}.',
+    'players.register.ichancy.existing': 'كان لدى Ichancy هذا اللاعب أصلاً: اسم الدخول {login}.',
+    'players.register.ichancy.notRequested':
+      'لم يُطلب حساب Ichancy. أنشئ واحداً من صف اللاعب عندما يحتاجه.',
+    'players.register.ichancy.failedTitle': 'تم تسجيل {name}، لكن حساب Ichancy فشل',
+    'players.register.ichancy.failedBody':
+      'اللاعب موجود بلا حساب. قال Ichancy: {error}. أنشئ الحساب من صفّه عندما يعود Ichancy للاستجابة.',
+    'players.register.failedTitle': 'تعذّر تسجيل اللاعب',
+    'players.register.open': 'فتح {name}',
+
+    // ── استيراد لاعبي الوكيل الحاليين ─────────────────────────────────────────────────────────
+    'players.import.action': 'استيراد من Ichancy',
+    'players.import.hint': 'التكرار آمن: الصفوف المعروفة تُحسب ولا تُكرَّر.',
+    'players.import.doneTitle': 'انتهى الاستيراد',
+    'players.import.summary': 'تم فحص {scanned} · أُنشئ {created} · معروف مسبقاً {existing}.',
+    'players.import.stoppedTitle': 'توقّف الاستيراد مبكراً',
+    'players.import.stoppedBody':
+      'قال Ichancy: {error}. الصفوف التي كُتبت قبل التوقف محفوظة؛ أعد التشغيل عندما يستجيب Ichancy.',
+    'players.import.failedTitle': 'تعذّر استيراد اللاعبين',
+
+    // ── الحظر ورفع الحظر ──────────────────────────────────────────────────────────────────────
+    'players.block.action': 'حظر اللاعب',
+    'players.block.forPlayer': 'حظر {name}',
+    'players.block.title': 'حظر {name}',
+    'players.block.description':
+      'اللاعب المحظور لا يستطيع فعل أي شيء في بوت هذا المشغّل — لا إيداع ولا سحب ولا قائمة. حسابه ورصيده في Ichancy لا يتأثران.',
+    'players.block.reasonLabel': 'السبب',
+    'players.block.reasonPlaceholder': 'لماذا يُمنع هذا اللاعب.',
+    'players.block.reasonRequired': 'اذكر السبب. يظهر لمن يرفع الحظر عنه، ولا لأحد غيره.',
+    'players.block.reasonTooLong': 'اجعله ضمن {max} حرفاً؛ هذا {length}.',
+    'players.block.reasonCounter': '{length} من {max}',
+    'players.block.review': 'مراجعة الحظر',
+    'players.block.confirmTitle': 'حظر {name} من البوت؟',
+    'players.block.confirmBody':
+      'يتوقف البوت عن الرد عليه فور التأكيد. رفع الحظر بضغطة واحدة، لكنه سيكون قد رأى الرفض.',
+    'players.block.back': 'رجوع',
+    'players.block.confirmLabel': 'حظر {name}',
+    'players.block.sending': '...جارٍ الحظر',
+    'players.block.doneTitle': 'تم حظر {name}',
+    'players.block.doneBody': 'البوت يرفضه من الآن.',
+    'players.block.failedTitle': 'تعذّر حظر اللاعب',
+    'players.block.failedHint': 'لم يتغيّر شيء. صحّح ما تذكره الرسالة ثم أعد المحاولة.',
+
+    'players.unblock.action': 'رفع الحظر',
+    'players.unblock.forPlayer': 'رفع الحظر عن {name}',
+    'players.unblock.confirmTitle': 'رفع الحظر عن {name}؟',
+    'players.unblock.confirmDescription':
+      'يستطيع استخدام البوت فوراً — كلاعب نشط إن كان لديه حساب Ichancy، وإلا فبانتظار واحد.',
+    'players.unblock.confirmLabel': 'رفع الحظر',
+    'players.unblock.doneTitle': 'تم رفع الحظر عن {name}',
+    'players.unblock.doneBody': 'حالته الآن «{status}».',
+    'players.unblock.failedTitle': 'تعذّر رفع الحظر عن اللاعب',
+
+    'players.blocked.title': 'محظور من البوت',
+    'players.blocked.body': 'يرفض البوت كل رسالة وزر من هذا اللاعب.',
+    'players.blocked.reason': 'السبب',
+    'players.blocked.when': 'تاريخ الحظر',
+    'players.blocked.by': 'بواسطة المسؤول',
+    'players.blocked.noReason': 'لم يُسجَّل سبب.',
+
+    // ── ربط حساب تلغرام بصف لا يملك واحداً ────────────────────────────────────────────────────
+    'players.attach.action': 'ربط تلغرام',
+    'players.attach.forPlayer': 'ربط تلغرام بـ {name}',
+    'players.attach.title': 'ربط حساب تلغرام بـ {name}',
+    'players.attach.description':
+      'هذا الصف لا يملك معرّف تلغرام — استُورد من Ichancy أو سُجِّل هنا. اكتب المعرّف الرقمي للحساب الذي يخص هذا اللاعب، وسيعرفه البوت من الآن فصاعداً.',
+    'players.attach.field': 'معرّف تلغرام',
+    'players.attach.hint': 'أرقام فقط. وليس @username.',
+    'players.attach.validation': 'أدخل معرّف تلغرام الرقمي — أرقام فقط.',
+    'players.attach.submit': 'ربط',
+    'players.attach.doneTitle': 'تم ربط تلغرام {id}',
+    'players.attach.doneBody': 'البوت يعرف {name} الآن.',
+    'players.attach.failedTitle': 'تعذّر ربط حساب تلغرام',
+
+    'players.field.source': 'المصدر',
+    'players.source.importedOn': 'مستورد من Ichancy — مسجّل هناك بتاريخ {date}',
+    'players.telegram.none': 'لا يوجد حساب تلغرام',
   },
 });
 

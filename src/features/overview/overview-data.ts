@@ -1,5 +1,10 @@
 import { ATTENTION_DEPOSIT_STATUSES, REVIEWABLE_DEPOSIT_STATUSES } from '@/types/enums';
-import type { BreakListQuery, DepositQueueQuery, ReconciliationBreak } from '@/types';
+import type {
+  BreakListQuery,
+  DepositQueueQuery,
+  ReconciliationBreak,
+  WithdrawalListQuery,
+} from '@/types';
 
 /**
  * The queries and thresholds the overview is assembled from.
@@ -52,6 +57,17 @@ export const OLDEST_WAITING_QUERY: DepositQueueQuery = {
 export const OPEN_BREAKS_QUERY: BreakListQuery = {
   status: ['OPEN', 'INVESTIGATING'],
   limit: COUNT_SAMPLE_LIMIT,
+};
+
+/**
+ * Cash-outs a person owes something to: waiting for a decision, or debited and not yet paid.
+ *
+ * The withdrawal list is offset paginated and sends a real `total`, so this tile is the one on the
+ * row that counts exactly — and it asks for a single row, because the total is all it reads.
+ */
+export const WITHDRAWALS_WAITING_QUERY: WithdrawalListQuery = {
+  status: ['REQUESTED', 'DEBITED'],
+  limit: 1,
 };
 
 /** `20+` when there is another page behind the cursor, the exact number when there is not. */

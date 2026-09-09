@@ -171,7 +171,9 @@ export function Topbar({ onOpenNav }: { onOpenNav: () => void }) {
             <DropdownMenuLabel>
               {admin.displayName}
               <span className="mt-0.5 block font-normal">
-                {t('account.telegram', { id: admin.telegramUserId })}
+                {admin.telegramUserId === null
+                  ? t('account.noTelegram')
+                  : t('account.telegram', { id: admin.telegramUserId })}
               </span>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />

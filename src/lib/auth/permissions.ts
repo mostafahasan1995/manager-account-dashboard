@@ -19,6 +19,12 @@ export const CAPABILITIES = [
   'deposits.sweep',
   'players.read',
   'players.link',
+  'players.write',
+  'players.block',
+  'players.import',
+  'withdrawals.read',
+  'withdrawals.decide',
+  'botSettings.write',
   'paymentMethods.read',
   'paymentMethods.write',
   'admins.read',
@@ -71,6 +77,17 @@ export const ROLE_CAPABILITIES: Record<AdminRole, CapabilityMap> = {
     'deposits.sweep',
     'players.read',
     'players.link',
+    // Registering, attaching a Telegram id, blocking and importing are the operator's own account
+    // administration — PLAYER_CREATE_ROLES / PLAYER_BLOCK_ROLES / PLAYER_IMPORT_ROLES on the
+    // backend, all three the same pair as `players.link`.
+    'players.write',
+    'players.block',
+    'players.import',
+    // A cash-out is decided by the same three roles that decide a deposit or a debit.
+    'withdrawals.read',
+    'withdrawals.decide',
+    // The withdrawal mode and the mini-app URL: settings that move money or open a website.
+    'botSettings.write',
     'paymentMethods.read',
     'paymentMethods.write',
     'admins.read',
@@ -91,6 +108,12 @@ export const ROLE_CAPABILITIES: Record<AdminRole, CapabilityMap> = {
     'deposits.sweep',
     'players.read',
     'players.link',
+    'players.write',
+    'players.block',
+    'players.import',
+    'withdrawals.read',
+    'withdrawals.decide',
+    'botSettings.write',
     'paymentMethods.read',
     'paymentMethods.write',
     // Reads the admin directory and approval limits; only SUPER_ADMIN may change them.
@@ -106,13 +129,23 @@ export const ROLE_CAPABILITIES: Record<AdminRole, CapabilityMap> = {
     'deposits.read',
     'deposits.decide',
     'players.read',
+    // Decides cash-outs as it decides deposits — WITHDRAWAL_DECIDE_ROLES is pinned to the debit
+    // set on the backend — but cannot register, block or import a player.
+    'withdrawals.read',
+    'withdrawals.decide',
     'paymentMethods.read',
     'reconciliation.read',
     // A reviewer sees a card in a group and needs to be able to ask which group that was.
     'telegramDestinations.read',
   ),
 
-  SUPPORT: withCapabilities('deposits.read', 'players.read', 'paymentMethods.read'),
+  // Reads the withdrawal queue as it reads players — the same reader set — and decides nothing.
+  SUPPORT: withCapabilities(
+    'deposits.read',
+    'players.read',
+    'withdrawals.read',
+    'paymentMethods.read',
+  ),
 
   VIEWER: withCapabilities('deposits.read', 'reconciliation.read'),
 };
@@ -164,6 +197,12 @@ export const CAPABILITY_LABELS: Record<Capability, string> = {
   'deposits.sweep': 'Run the deposit maintenance sweep',
   'players.read': 'See players',
   'players.link': 'Create a player Ichancy account',
+  'players.write': 'Register a player and attach a Telegram account',
+  'players.block': 'Block and unblock players',
+  'players.import': 'Import the existing Ichancy players',
+  'withdrawals.read': 'See the withdrawal queue',
+  'withdrawals.decide': 'Approve, reject and pay out withdrawals',
+  'botSettings.write': 'Set the withdrawal mode and the mini app link',
   'paymentMethods.read': 'See payment methods and destinations',
   'paymentMethods.write': 'Change payment methods and destinations',
   'admins.read': 'See staff and their approval limits',

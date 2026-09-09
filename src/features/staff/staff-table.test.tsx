@@ -31,6 +31,7 @@ describe('StaffTable', () => {
 
   it('shows the telegram id with a way to copy it, and role and state as words', async () => {
     const reviewer = admin('lina_review');
+    if (reviewer.telegramUserId === null) throw new Error('fixture must have a Telegram id');
     renderWithProviders(<StaffTable admins={[reviewer]} noOpenLimit={new Set()} />);
 
     expect(await screen.findByText(reviewer.telegramUserId)).toBeInTheDocument();
@@ -67,5 +68,14 @@ describe('StaffTable', () => {
     const table = await screen.findByRole('table');
     const cells = within(table).getAllByRole('cell');
     expect(cells[1]).toHaveTextContent('—');
+  });
+
+  it('shows no Telegram account, with no copy button, for a manager added with just a password', async () => {
+    const maya = admin('maya_console');
+    expect(maya.telegramUserId).toBeNull();
+    renderWithProviders(<StaffTable admins={[maya]} noOpenLimit={new Set()} />);
+
+    expect(await screen.findByLabelText('No Telegram account')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Copy' })).not.toBeInTheDocument();
   });
 });

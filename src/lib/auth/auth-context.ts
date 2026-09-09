@@ -1,6 +1,6 @@
 import { createContext } from 'react';
 
-import type { AdminIdentity, AdminSession, AgentSignInBody } from '@/types/admin';
+import type { AdminCredentialsBody, AdminIdentity, AdminSession } from '@/types/admin';
 import type { AdminRole } from '@/types/enums';
 
 import type { Capability } from './permissions';
@@ -19,16 +19,15 @@ export interface AuthState {
   /** Milliseconds until the access token expires. 0 when there is no session. */
   expiresInMs: number;
   expiringSoon: boolean;
-  /** The Telegram bot code. The only door a PLATFORM_ADMIN can come through. */
-  signIn: (code: string) => Promise<AdminSession>;
   /**
-   * The other door: an operator signing in with its own Ichancy agent account.
+   * The only way in: a username or email, and a password.
    *
-   * Rejects with an ApiError carrying AGENT_OPERATOR_AMBIGUOUS when that agent runs more than one
-   * operator. That is a QUESTION rather than a failure — the login screen answers it by calling
-   * this again with `operatorSlug`, which is why the whole credential travels in one argument.
+   * Rejects with an ApiError carrying `ADMIN_OPERATOR_AMBIGUOUS` (or `AGENT_OPERATOR_AMBIGUOUS`)
+   * when one credential opens more than one operator. That is a QUESTION rather than a failure —
+   * the login screen answers it by calling this again with `operatorSlug`, which is why the whole
+   * credential travels in one argument instead of being held somewhere between two calls.
    */
-  signInWithAgent: (credentials: AgentSignInBody) => Promise<AdminSession>;
+  signIn: (credentials: AdminCredentialsBody) => Promise<AdminSession>;
   signOut: (reason?: SignOutReason) => void;
   can: (capability: Capability) => boolean;
   /** The tenant the console is pointed at, when the tenant header is enabled. */

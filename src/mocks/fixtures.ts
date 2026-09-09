@@ -3,7 +3,11 @@ import type {
   AdminDeposit,
   AdminPlayer,
   AdminUser,
+  AdminWithdrawal,
   ApprovalLimit,
+  BotMenuGate,
+  BotMenuNode,
+  BuiltinAction,
   MoneyView,
   PaymentDestination,
   PaymentMethod,
@@ -54,6 +58,8 @@ export const ADMIN_IDS = {
   viewer: uuid(5, 'aaaaaaaa'),
   platformAdmin: uuid(6, 'aaaaaaaa'),
   deactivated: uuid(7, 'aaaaaaaa'),
+  /** Added with just a username and password — see the 2026-09-05 "Add manager" form change. */
+  noTelegram: uuid(8, 'aaaaaaaa'),
 } as const;
 
 export const PLAYER_IDS = {
@@ -63,6 +69,10 @@ export const PLAYER_IDS = {
   selfExcluded: uuid(4, 'bbbbbbbb'),
   newcomer: uuid(5, 'bbbbbbbb'),
   closed: uuid(6, 'bbbbbbbb'),
+  /** An "old player": imported from the Ichancy agent, no Telegram at all. */
+  imported: uuid(7, 'bbbbbbbb'),
+  /** Locked out of the bot by the operator, with a reason. */
+  blocked: uuid(8, 'bbbbbbbb'),
 } as const;
 
 /**
@@ -151,6 +161,7 @@ export const mockAdmins: AdminUser[] = [
     id: ADMIN_IDS.superAdmin,
     telegramUserId: '700000001',
     username: 'nour_ops',
+    hasPassword: false,
     displayName: 'Nour Haddad',
     role: 'SUPER_ADMIN',
     isActive: true,
@@ -161,6 +172,7 @@ export const mockAdmins: AdminUser[] = [
     id: ADMIN_IDS.financeAdmin,
     telegramUserId: '700000002',
     username: 'sami_finance',
+    hasPassword: false,
     displayName: 'Sami Aziz',
     role: 'FINANCE_ADMIN',
     isActive: true,
@@ -171,6 +183,7 @@ export const mockAdmins: AdminUser[] = [
     id: ADMIN_IDS.reviewer,
     telegramUserId: '700000003',
     username: 'lina_review',
+    hasPassword: false,
     displayName: 'Lina Farah',
     role: 'REVIEWER',
     isActive: true,
@@ -181,6 +194,7 @@ export const mockAdmins: AdminUser[] = [
     id: ADMIN_IDS.support,
     telegramUserId: '700000004',
     username: null,
+    hasPassword: false,
     displayName: 'Omar Support',
     role: 'SUPPORT',
     isActive: true,
@@ -191,6 +205,7 @@ export const mockAdmins: AdminUser[] = [
     id: ADMIN_IDS.viewer,
     telegramUserId: '700000005',
     username: 'audit_bot',
+    hasPassword: false,
     displayName: 'Audit Read-only',
     role: 'VIEWER',
     isActive: true,
@@ -201,6 +216,7 @@ export const mockAdmins: AdminUser[] = [
     id: ADMIN_IDS.platformAdmin,
     telegramUserId: '700000006',
     username: 'platform',
+    hasPassword: false,
     displayName: 'Platform Operations',
     role: 'PLATFORM_ADMIN',
     isActive: true,
@@ -211,11 +227,25 @@ export const mockAdmins: AdminUser[] = [
     id: ADMIN_IDS.deactivated,
     telegramUserId: '700000007',
     username: 'former_staff',
+    hasPassword: false,
     displayName: 'Rami (left)',
     role: 'REVIEWER',
     isActive: false,
     lastLoginAt: minutesAgo(60 * 24 * 70),
     createdAt: minutesAgo(60 * 24 * 300),
+  },
+  {
+    // Added with just a username and password: no Telegram account at all. SUPPORT rather than a
+    // deposit-deciding role, so it does not also need an approval-limit fixture of its own.
+    id: ADMIN_IDS.noTelegram,
+    telegramUserId: null,
+    username: 'maya_console',
+    hasPassword: true,
+    displayName: 'Maya Console',
+    role: 'SUPPORT',
+    isActive: true,
+    lastLoginAt: minutesAgo(60 * 2),
+    createdAt: minutesAgo(60 * 24 * 10),
   },
 ];
 
@@ -257,15 +287,36 @@ export const mockApprovalLimits: ApprovalLimit[] = [
 
 // ── Players ────────────────────────────────────────────────────────────────────────────────────
 
+/** The ordinary case: a row nobody has locked. Spread first, so a fixture can override it. */
+const notBlocked = {
+  blockedAt: null,
+  blockedReason: null,
+  blockedByAdminId: null,
+} as const;
+
+/**
+ * Eight players, and the two at the end are the two new doors into the directory:
+ *
+ *   - `imported` came from the operator's Ichancy agent before the bot existed. It has a login and
+ *     a balance and NO Telegram id — the row every "—" in the Telegram column is rendered for, and
+ *     the one "Attach Telegram" exists for.
+ *   - `blocked` is the operator's own lock, reason and all. Ichancy knows nothing about it.
+ *
+ * `newcomer` is now the row an admin registered from this console (`source: ADMIN`) — it still
+ * has a Telegram id, because registering with one is the ordinary case. APPENDED, not inserted:
+ * tests reach for `mockPlayers[0]` and a pagination test counts the rows.
+ */
 export const mockPlayers: AdminPlayer[] = [
   {
     id: PLAYER_IDS.linkedActive,
+    ...notBlocked,
     telegramUserId: '512340001',
     telegramUsername: 'karim_play',
     firstName: 'Karim',
     lastName: 'Nasser',
     languageCode: 'ar',
     status: 'ACTIVE',
+    source: 'TELEGRAM',
     currencyCode: MOCK_CURRENCY,
     ichancyLinked: true,
     createdAt: minutesAgo(60 * 24 * 40),
@@ -277,12 +328,14 @@ export const mockPlayers: AdminPlayer[] = [
   },
   {
     id: PLAYER_IDS.pendingLink,
+    ...notBlocked,
     telegramUserId: '512340002',
     telegramUsername: null,
     firstName: 'Maya',
     lastName: null,
     languageCode: 'ar',
     status: 'PENDING_ICHANCY',
+    source: 'TELEGRAM',
     currencyCode: MOCK_CURRENCY,
     ichancyLinked: false,
     createdAt: minutesAgo(90),
@@ -294,12 +347,14 @@ export const mockPlayers: AdminPlayer[] = [
   },
   {
     id: PLAYER_IDS.suspended,
+    ...notBlocked,
     telegramUserId: '512340003',
     telegramUsername: 'blocked_user',
     firstName: 'Fadi',
     lastName: 'Rahal',
     languageCode: 'en',
     status: 'SUSPENDED',
+    source: 'TELEGRAM',
     currencyCode: MOCK_CURRENCY,
     ichancyLinked: true,
     createdAt: minutesAgo(60 * 24 * 120),
@@ -311,12 +366,14 @@ export const mockPlayers: AdminPlayer[] = [
   },
   {
     id: PLAYER_IDS.selfExcluded,
+    ...notBlocked,
     telegramUserId: '512340004',
     telegramUsername: 'takingabreak',
     firstName: 'Hala',
     lastName: 'Saad',
     languageCode: 'ar',
     status: 'SELF_EXCLUDED',
+    source: 'TELEGRAM',
     currencyCode: MOCK_CURRENCY,
     ichancyLinked: true,
     createdAt: minutesAgo(60 * 24 * 200),
@@ -328,12 +385,15 @@ export const mockPlayers: AdminPlayer[] = [
   },
   {
     id: PLAYER_IDS.newcomer,
+    ...notBlocked,
     telegramUserId: '512340005',
     telegramUsername: 'first_time',
     firstName: 'Ziad',
     lastName: 'Mansour',
     languageCode: 'ar',
     status: 'ACTIVE',
+    // Registered from this console an hour ago, Telegram id typed in by the admin.
+    source: 'ADMIN',
     currencyCode: MOCK_CURRENCY,
     ichancyLinked: true,
     createdAt: minutesAgo(55),
@@ -345,12 +405,14 @@ export const mockPlayers: AdminPlayer[] = [
   },
   {
     id: PLAYER_IDS.closed,
+    ...notBlocked,
     telegramUserId: '512340006',
     telegramUsername: null,
     firstName: 'Old',
     lastName: 'Account',
     languageCode: null,
     status: 'CLOSED',
+    source: 'TELEGRAM',
     currencyCode: MOCK_CURRENCY,
     ichancyLinked: false,
     createdAt: minutesAgo(60 * 24 * 500),
@@ -359,6 +421,47 @@ export const mockPlayers: AdminPlayer[] = [
     ichancyLogin: null,
     ichancyRegisteredAt: null,
     phone: null,
+  },
+  {
+    id: PLAYER_IDS.imported,
+    ...notBlocked,
+    // The point of the fixture: an account that predates the bot, so nothing Telegram to show.
+    telegramUserId: null,
+    telegramUsername: null,
+    firstName: null,
+    lastName: null,
+    languageCode: null,
+    status: 'ACTIVE',
+    source: 'ICHANCY_IMPORT',
+    currencyCode: MOCK_CURRENCY,
+    ichancyLinked: true,
+    createdAt: minutesAgo(60 * 24 * 30),
+    lastSeenAt: null,
+    ichancyPlayerId: '98120',
+    ichancyLogin: 'samer1987',
+    ichancyRegisteredAt: minutesAgo(60 * 24 * 300),
+    phone: '+963900000120',
+  },
+  {
+    id: PLAYER_IDS.blocked,
+    telegramUserId: '512340008',
+    telegramUsername: 'multi_acct',
+    firstName: 'Bassel',
+    lastName: 'Khoury',
+    languageCode: 'ar',
+    status: 'BLOCKED',
+    source: 'TELEGRAM',
+    currencyCode: MOCK_CURRENCY,
+    ichancyLinked: true,
+    createdAt: minutesAgo(60 * 24 * 80),
+    lastSeenAt: minutesAgo(60 * 24 * 2),
+    ichancyPlayerId: '99008',
+    ichancyLogin: 'tg512340008',
+    ichancyRegisteredAt: minutesAgo(60 * 24 * 80),
+    phone: '+963900000008',
+    blockedAt: minutesAgo(60 * 24 * 2),
+    blockedReason: 'Three accounts sharing one bank receipt.',
+    blockedByAdminId: ADMIN_IDS.financeAdmin,
   },
 ];
 
@@ -374,6 +477,9 @@ export const mockPlayerBalances: Record<string, string> = {
   [PLAYER_IDS.suspended]: '1500000',
   [PLAYER_IDS.selfExcluded]: '875025',
   [PLAYER_IDS.newcomer]: '25000',
+  // An imported account carries whatever it held under the agent before the bot existed.
+  [PLAYER_IDS.imported]: '4200000',
+  [PLAYER_IDS.blocked]: '150000',
 };
 
 /**
@@ -409,6 +515,8 @@ export const mockPaymentMethods: PaymentMethod[] = [
     createdAt: minutesAgo(60 * 24 * 300),
     updatedAt: minutesAgo(60 * 24 * 20),
     requiredProofFields: [],
+    deletable: false,
+    deleteBlockedBy: 'has-history',
   },
   {
     id: METHOD_IDS.wallet,
@@ -430,6 +538,8 @@ export const mockPaymentMethods: PaymentMethod[] = [
     createdAt: minutesAgo(60 * 24 * 200),
     updatedAt: minutesAgo(60 * 24 * 5),
     requiredProofFields: [],
+    deletable: false,
+    deleteBlockedBy: 'has-history',
   },
   {
     id: METHOD_IDS.cash,
@@ -451,6 +561,8 @@ export const mockPaymentMethods: PaymentMethod[] = [
     createdAt: minutesAgo(60 * 24 * 100),
     updatedAt: minutesAgo(60 * 24 * 100),
     requiredProofFields: [],
+    deletable: false,
+    deleteBlockedBy: 'has-history',
   },
   {
     id: METHOD_IDS.retired,
@@ -472,6 +584,8 @@ export const mockPaymentMethods: PaymentMethod[] = [
     createdAt: minutesAgo(60 * 24 * 400),
     updatedAt: minutesAgo(60 * 24 * 60),
     requiredProofFields: [],
+    deletable: false,
+    deleteBlockedBy: 'has-history',
   },
   /*
    * ── THE TWO USDT RAILS, EXACTLY AS A NEW OPERATOR RECEIVES THEM ──────────────────────────────
@@ -507,6 +621,8 @@ export const mockPaymentMethods: PaymentMethod[] = [
     createdAt: minutesAgo(60 * 24 * 30),
     updatedAt: minutesAgo(60 * 24 * 30),
     requiredProofFields: [],
+    deletable: true,
+    deleteBlockedBy: null,
   },
   {
     id: METHOD_IDS.usdtBep20,
@@ -529,6 +645,8 @@ export const mockPaymentMethods: PaymentMethod[] = [
     createdAt: minutesAgo(60 * 24 * 30),
     updatedAt: minutesAgo(60 * 24 * 30),
     requiredProofFields: [],
+    deletable: true,
+    deleteBlockedBy: null,
   },
 ];
 
@@ -1069,6 +1187,292 @@ export const mockDeposits: AdminDeposit[] = [
   },
 ];
 
+// ── Withdrawals (player cash-out) ──────────────────────────────────────────────────────────────
+
+export const WITHDRAWAL_IDS = {
+  /** MANUAL mode, waiting for a human to approve or reject. */
+  requested: uuid(1, '99999999'),
+  /** AUTO mode: the platform approved it; the worker has not debited yet. */
+  approvedAuto: uuid(2, '99999999'),
+  /** Debited, wallet checked and sufficient — a person has to send the USDT and mark it paid. */
+  debited: uuid(3, '99999999'),
+  paid: uuid(4, '99999999'),
+  rejected: uuid(5, '99999999'),
+} as const;
+
+/** Every fixture is one player asking for one method; the rest of the row is timing. */
+const withdrawal = (
+  overrides: Partial<AdminWithdrawal> &
+    Pick<AdminWithdrawal, 'id' | 'shortId' | 'status' | 'mode' | 'amount' | 'requestedAt'>,
+): AdminWithdrawal => ({
+  source: 'telegram',
+  playerId: PLAYER_IDS.linkedActive,
+  playerTelegramUserId: '512340001',
+  playerTelegramUsername: 'karim_play',
+  playerIchancyLogin: 'tg512340001',
+  paymentMethodId: METHOD_IDS.wallet,
+  methodCode: 'MOBILE_WALLET',
+  methodName: 'Mobile wallet',
+  payoutAddress: '0999-123-456',
+  payoutNetwork: null,
+  fee: money(0n),
+  balanceAtRequest: money(320_000n),
+  walletCheck: null,
+  playerDebitId: null,
+  payoutReference: null,
+  ledgerPayoutTxId: null,
+  decidedByAdminId: null,
+  paidByAdminId: null,
+  rejectionReason: null,
+  failureCode: null,
+  failureMessage: null,
+  decidedAt: null,
+  debitedAt: null,
+  paidAt: null,
+  closedAt: null,
+  ...overrides,
+});
+
+/**
+ * Five cash-outs, one per state the queue has to render differently — and the one in the middle
+ * is the reason the queue exists: DEBITED is "the player has been charged and NOBODY has been
+ * paid", which is the state a person must act on and the one a screen must never draw as done.
+ */
+export const mockWithdrawals: AdminWithdrawal[] = [
+  withdrawal({
+    id: WITHDRAWAL_IDS.requested,
+    shortId: 'WD7Q42',
+    status: 'REQUESTED',
+    mode: 'MANUAL',
+    // Under the 3,200.00 Karim holds, so approving it in the demo really debits him.
+    amount: money(1_500_00n),
+    balanceAtRequest: money(320_000n),
+    requestedAt: minutesAgo(7),
+  }),
+  withdrawal({
+    id: WITHDRAWAL_IDS.approvedAuto,
+    shortId: 'WD2MX8',
+    status: 'APPROVED',
+    mode: 'AUTO',
+    playerId: PLAYER_IDS.newcomer,
+    playerTelegramUserId: '512340005',
+    playerTelegramUsername: 'first_time',
+    playerIchancyLogin: 'tg512340005',
+    paymentMethodId: METHOD_IDS.usdtTrc20,
+    methodCode: 'USDT_TRC20',
+    methodName: 'USDT — TRC20 (Tron)',
+    payoutAddress: 'TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE',
+    payoutNetwork: 'TRC20',
+    amount: money(200_00n),
+    balanceAtRequest: money(25_000n),
+    requestedAt: minutesAgo(3),
+    // AUTO: the platform decided, so there is a decision time and no admin behind it.
+    decidedAt: minutesAgo(3),
+  }),
+  withdrawal({
+    id: WITHDRAWAL_IDS.debited,
+    shortId: 'WD9TT1',
+    status: 'DEBITED',
+    mode: 'AUTO',
+    playerId: PLAYER_IDS.imported,
+    playerTelegramUserId: null,
+    playerTelegramUsername: null,
+    playerIchancyLogin: 'samer1987',
+    paymentMethodId: METHOD_IDS.usdtTrc20,
+    methodCode: 'USDT_TRC20',
+    methodName: 'USDT — TRC20 (Tron)',
+    payoutAddress: 'TLa2f6VPqDgRE67v1736s7bJ8Ray5wYjU7',
+    payoutNetwork: 'TRC20',
+    amount: money(12_000_00n),
+    balanceAtRequest: money(4_200_000n),
+    walletCheck: {
+      status: 'ok',
+      // USDT at scale 6: 12,500.000000 — the operator's TRC20 wallet covers it many times over.
+      availableMinor: '12500000000',
+      currency: 'USDT',
+      checkedAt: minutesAgo(24),
+    },
+    playerDebitId: uuid(31, '77777777'),
+    requestedAt: minutesAgo(26),
+    decidedAt: minutesAgo(26),
+    debitedAt: minutesAgo(24),
+  }),
+  withdrawal({
+    id: WITHDRAWAL_IDS.paid,
+    shortId: 'WD4OK5',
+    status: 'PAID',
+    mode: 'MANUAL',
+    paymentMethodId: METHOD_IDS.bank,
+    methodCode: 'BANK_SYR',
+    methodName: 'Bank transfer',
+    payoutAddress: 'SY84 0000 0000 0007 7777',
+    amount: money(80_000_00n),
+    balanceAtRequest: money(400_000n),
+    walletCheck: {
+      status: 'not_configured',
+      availableMinor: null,
+      currency: null,
+      checkedAt: minutesAgo(60 * 5),
+    },
+    playerDebitId: uuid(32, '77777777'),
+    payoutReference: 'TRX-88112',
+    ledgerPayoutTxId: uuid(3, '66666666'),
+    decidedByAdminId: ADMIN_IDS.financeAdmin,
+    paidByAdminId: ADMIN_IDS.financeAdmin,
+    requestedAt: minutesAgo(60 * 6),
+    decidedAt: minutesAgo(60 * 5 + 30),
+    debitedAt: minutesAgo(60 * 5),
+    paidAt: minutesAgo(60 * 4),
+    closedAt: minutesAgo(60 * 4),
+  }),
+  withdrawal({
+    id: WITHDRAWAL_IDS.rejected,
+    shortId: 'WD1NO9',
+    status: 'REJECTED',
+    mode: 'MANUAL',
+    playerId: PLAYER_IDS.suspended,
+    playerTelegramUserId: '512340003',
+    playerTelegramUsername: 'blocked_user',
+    playerIchancyLogin: 'tg512340003',
+    payoutAddress: '0999-000-999',
+    amount: money(10_000_00n),
+    balanceAtRequest: money(1_500_000n),
+    decidedByAdminId: ADMIN_IDS.reviewer,
+    rejectionReason: 'Account under review for a duplicate-proof deposit.',
+    requestedAt: minutesAgo(60 * 24),
+    decidedAt: minutesAgo(60 * 23),
+    closedAt: minutesAgo(60 * 23),
+  }),
+];
+
+// ── The bot's menu ─────────────────────────────────────────────────────────────────────────────
+
+export const BOT_MENU_NODE_IDS = {
+  root: uuid(1, '88888888'),
+  help: uuid(2, '88888888'),
+} as const;
+
+/**
+ * The bot's own action catalogue — `BUILTIN_ACTION_DESCRIPTIONS` on the backend, quoted. An
+ * operator can move, rename, hide or delete the button for one of these; nobody can invent an
+ * eleventh, because an action is a handler.
+ */
+export const mockBuiltinActions: BuiltinAction[] = [
+  { action: 'deposit', description: 'يبدأ طلب شحن الرصيد' },
+  { action: 'withdraw', description: 'يبدأ طلب سحب رصيد اللاعب إلى محفظته' },
+  { action: 'balance', description: 'يعرض رصيد اللاعب في Ichancy' },
+  { action: 'profile', description: 'يعرض حساب اللاعب وبيانات الدخول' },
+  { action: 'deposits', description: 'يعرض آخر إيداعات اللاعب' },
+  { action: 'methods', description: 'يعرض طرق الدفع المتاحة' },
+  { action: 'miniapp', description: 'يفتح التطبيق المصغّر' },
+  { action: 'support', description: 'يفتح محادثة الدعم' },
+  { action: 'terms', description: 'يعرض الشروط' },
+  { action: 'about', description: 'يعرض حالة الخدمة' },
+];
+
+/**
+ * The actions every bot must keep at least one ACTIVE button for — `REQUIRED_BUILTIN_ACTIONS` on
+ * the backend. Deleting or hiding the last one of these is refused (`BUTTON_REQUIRED`).
+ */
+export const REQUIRED_BUILTIN_ACTIONS: readonly string[] = ['deposit', 'withdraw', 'profile'];
+
+const builtin = (
+  id: number,
+  nodeId: string,
+  label: string,
+  action: string,
+  rowIndex: number,
+  sortOrder: number,
+) => ({
+  id: uuid(id, '99990000'),
+  nodeId,
+  label,
+  kind: 'BUILTIN' as const,
+  builtinAction: action,
+  targetNodeId: null,
+  bodyText: null,
+  rowIndex,
+  sortOrder,
+  isActive: true,
+});
+
+/**
+ * The default menu, as `PLAYER_MENU_ROWS` plants it: five rows of two, in the bot's own Arabic,
+ * plus a sixth row opening a help screen so the editor has a NAVIGATE edge and a BACK to draw.
+ */
+export const mockBotMenuNodes: BotMenuNode[] = [
+  {
+    id: BOT_MENU_NODE_IDS.root,
+    key: 'main',
+    name: 'Main menu',
+    promptText: 'اختر ما تريد 👇',
+    isRoot: true,
+    buttons: [
+      builtin(1, BOT_MENU_NODE_IDS.root, '💵 شحن الرصيد', 'deposit', 0, 0),
+      builtin(2, BOT_MENU_NODE_IDS.root, '💸 سحب الرصيد', 'withdraw', 0, 1),
+      builtin(3, BOT_MENU_NODE_IDS.root, '💰 رصيدي', 'balance', 1, 0),
+      builtin(4, BOT_MENU_NODE_IDS.root, '👤 حسابي', 'profile', 1, 1),
+      builtin(5, BOT_MENU_NODE_IDS.root, '📄 إيداعاتي', 'deposits', 2, 0),
+      builtin(6, BOT_MENU_NODE_IDS.root, '🏦 طرق الدفع', 'methods', 2, 1),
+      builtin(7, BOT_MENU_NODE_IDS.root, '🚀 فتح التطبيق', 'miniapp', 3, 0),
+      builtin(8, BOT_MENU_NODE_IDS.root, '💬 الدعم', 'support', 3, 1),
+      builtin(9, BOT_MENU_NODE_IDS.root, '📋 الشروط', 'terms', 4, 0),
+      builtin(10, BOT_MENU_NODE_IDS.root, '🟢 حالة الخدمة', 'about', 4, 1),
+      {
+        id: uuid(11, '99990000'),
+        nodeId: BOT_MENU_NODE_IDS.root,
+        label: 'ℹ️ مساعدة',
+        kind: 'NAVIGATE',
+        builtinAction: null,
+        targetNodeId: BOT_MENU_NODE_IDS.help,
+        bodyText: null,
+        rowIndex: 5,
+        sortOrder: 0,
+        isActive: true,
+      },
+    ],
+  },
+  {
+    id: BOT_MENU_NODE_IDS.help,
+    key: 'help',
+    name: 'Help',
+    promptText: 'كيف يمكننا مساعدتك؟',
+    isRoot: false,
+    buttons: [
+      {
+        id: uuid(12, '99990000'),
+        nodeId: BOT_MENU_NODE_IDS.help,
+        label: '❓ كيف أشحن؟',
+        kind: 'TEXT',
+        builtinAction: null,
+        targetNodeId: null,
+        bodyText: 'اضغط «شحن الرصيد»، اكتب المبلغ، اختر طريقة الدفع وأرسل رقم العملية.',
+        rowIndex: 0,
+        sortOrder: 0,
+        isActive: true,
+      },
+      {
+        id: uuid(13, '99990000'),
+        nodeId: BOT_MENU_NODE_IDS.help,
+        label: '🔙 رجوع',
+        kind: 'BACK',
+        builtinAction: null,
+        targetNodeId: null,
+        bodyText: null,
+        rowIndex: 1,
+        sortOrder: 0,
+        isActive: true,
+      },
+    ],
+  },
+];
+
+/** The channel a player must join before /start opens the menu — set, as every bot now has one. */
+export const mockBotMenuGate: BotMenuGate = {
+  channelId: '-1003456789012',
+  channelUsername: 'ichancy_news',
+};
+
 // ── Reconciliation ─────────────────────────────────────────────────────────────────────────────
 
 const breakMoney = (minor: bigint) => ({
@@ -1357,6 +1761,11 @@ export const mockTenants: Tenant[] = [
     dualApprovalThresholdMinor: '50000000',
     agentFloatLowWatermarkMinor: '100000000',
     depositExpiryMinutes: 30,
+    // A human decides every deposit and every cash-out here, and the mini app has no URL yet — the
+    // owner's stated starting point, so the "coming soon" branch is what the demo bot answers.
+    depositMode: 'MANUAL',
+    withdrawalMode: 'MANUAL',
+    miniAppUrl: null,
     createdAt: minutesAgo(60 * 24 * 400),
     updatedAt: minutesAgo(60 * 24 * 3),
     counts: { players: 1284, deposits: 9417 },
@@ -1377,6 +1786,11 @@ export const mockTenants: Tenant[] = [
     dualApprovalThresholdMinor: '30000000',
     agentFloatLowWatermarkMinor: '50000000',
     depositExpiryMinutes: 45,
+    // The other branch of every setting: evidence-verified deposits, auto-approved cash-outs, and
+    // a mini app that opens.
+    depositMode: 'AUTO',
+    withdrawalMode: 'AUTO',
+    miniAppUrl: 'https://northern-cashier.example.app',
     createdAt: minutesAgo(60 * 24 * 60),
     updatedAt: minutesAgo(60 * 24 * 6),
     counts: { players: 312, deposits: 1188 },
@@ -1397,6 +1811,9 @@ export const mockTenants: Tenant[] = [
     dualApprovalThresholdMinor: '10000000',
     agentFloatLowWatermarkMinor: '20000000',
     depositExpiryMinutes: 30,
+    depositMode: 'MANUAL',
+    withdrawalMode: 'MANUAL',
+    miniAppUrl: null,
     createdAt: minutesAgo(60 * 24 * 2),
     updatedAt: minutesAgo(60 * 24 * 2),
     counts: { players: 0, deposits: 0 },
@@ -1518,7 +1935,7 @@ export const mockTenantFinance = (): TenantFinanceRow[] => [
       checkedAt: minutesAgo(4),
     },
     usdt: mockLoadedUsdt(minutesAgo(4)),
-    shamCash: { status: 'expired' },
+    shamCash: { status: 'unauthorized' },
   },
   {
     tenantId: TENANT_IDS.suspended,
@@ -1665,4 +2082,4 @@ export const mockDiscoveredChats: DiscoveredChat[] = [
   },
 ];
 
-export { MOCK_LOGIN_CODE, MOCK_SESSION_TTL_MINUTES } from './demo';
+export { MOCK_CONSOLE_PASSWORD, MOCK_CONSOLE_USERNAME, MOCK_SESSION_TTL_MINUTES } from './demo';

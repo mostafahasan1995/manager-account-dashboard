@@ -24,16 +24,17 @@ no backend, no database and no Telegram bot. Sign in either way:
 
 ## What it does
 
-| Screen             | For                                                                               |
-| ------------------ | --------------------------------------------------------------------------------- |
-| **Overview**       | What is waiting, what is unclaimed, what is stuck, what the books disagree about  |
-| **Deposits**       | The review queue: claim, read the proof, approve or reject, retry a failed credit |
-| **Players**        | Find an account while the player is on the phone; create it, or debit it back     |
-| **Payment rails**  | Methods and the destination accounts players actually send money to               |
-| **Reconciliation** | Breaks, agent-float sync, rail ageing, ledger invariant checks                    |
-| **Staff**          | Who may decide money, and the versioned approval limits that bound them           |
-| **Tenants**        | Platform administration: create, configure, activate and suspend operators        |
-| **Settings**       | Your access, appearance, the API it is pointed at, and its live health            |
+| Screen             | For                                                                                 |
+| ------------------ | ----------------------------------------------------------------------------------- |
+| **Overview**       | What is waiting, what is unclaimed, what is stuck, what the books disagree about    |
+| **Deposits**       | The review queue: claim, read the proof, approve or reject, retry a failed credit   |
+| **Withdrawals**    | Money going out: approve or reject a cash-out, then record the payout that was sent |
+| **Players**        | Find an account while the player is on the phone; register, block or debit it       |
+| **Payment rails**  | Methods and the destination accounts players actually send money to                 |
+| **Reconciliation** | Breaks, agent-float sync, rail ageing, ledger invariant checks                      |
+| **Staff**          | Who may decide money, and the versioned approval limits that bound them             |
+| **Tenants**        | Platform administration: create, configure, activate and suspend operators          |
+| **Settings**       | Your access, appearance, the API it is pointed at, and its live health              |
 
 ---
 
@@ -140,10 +141,10 @@ absent variable must fail safe rather than assume it.
    > (5173 is `npm run dev`, 4173 is `npm run preview`.) The console's own error message names the
    > origin your browser is using, so you can paste it straight in.
 
-4. Sign in. An **operator** uses its own Ichancy agent username and password — the account its
-   players are registered under — and lands as that operator's super admin. Everyone else, the
-   **platform admin** included, sends `/console` to the tenant's Telegram bot and signs in with the
-   code it replies with. See docs/API-CONTRACT.md section 2.
+4. Sign in with a username (or email) and a password — one form, one door. Staff use the console
+   credential their super admin set for them; an **operator** may instead use its own Ichancy agent
+   username and password — the account its players are registered under — and lands as that
+   operator's super admin. See docs/API-CONTRACT.md section 2a.
 
 ---
 

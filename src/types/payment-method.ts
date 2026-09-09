@@ -29,6 +29,21 @@ export const paymentMethodSchema = z.looseObject({
   referencePattern: z.string().nullable(),
   createdAt: isoDateTime,
   updatedAt: isoDateTime,
+  /**
+   * Whether this rail can be destroyed rather than merely retired.
+   *
+   * ══ WHY THE SERVER DECIDES AND NOT THIS CONSOLE ══════════════════════════════════════════
+   * The answer depends on whether any deposit ever went through the rail, which is a fact this
+   * console has no way to see — the list endpoint returns methods, not their history. Guessing from
+   * what IS visible (a placeholder account number, an inactive flag) would produce a delete button
+   * that looks available and fails on click, which is worse than one that is honestly greyed out.
+   *
+   * `.catch()` for both, so a console deployed against a backend that predates these fields degrades
+   * to "nothing is deletable" — the safe direction — instead of failing to parse the rails screen.
+   */
+  deletable: z.boolean().catch(false),
+  /** Why not. `null` when `deletable` is true, and what the greyed-out tooltip explains otherwise. */
+  deleteBlockedBy: z.enum(['has-history', 'built-in']).nullable().catch(null),
 });
 export type PaymentMethod = z.infer<typeof paymentMethodSchema>;
 

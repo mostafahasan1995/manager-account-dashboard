@@ -96,6 +96,18 @@ export const railMessages = defineMessages({
     'rails.method.deactivatedBody':
       'Players will not be offered this method on their next deposit.',
     'rails.method.deactivateFailed': 'Could not deactivate {name}',
+    'rails.method.deleteAria': 'Delete {name}',
+    'rails.method.deleteTooltip': 'Delete permanently',
+    'rails.method.deleteBlockedHistory':
+      'Cannot be deleted — deposits were made through this method, and the record of where that money was sent has to stay. Deactivate it instead.',
+    'rails.method.deleteBlockedBuiltIn':
+      'Cannot be deleted — recording a credit by hand looks this rail up by name. Deactivate it if you do not use it.',
+    'rails.method.deleteConfirmTitle': 'Delete {name} for good?',
+    'rails.method.deleteConfirmBody':
+      'This method has never taken a payment, so it can be removed completely — along with its accounts. This cannot be undone; you would have to create it again from scratch. To just take it off the menu, cancel and deactivate it instead.',
+    'rails.method.deleteConfirmLabel': 'Delete for good',
+    'rails.method.deleted': '{name} deleted',
+    'rails.method.deleteFailed': 'Could not delete {name}',
     'rails.method.created': '{name} created',
     'rails.method.createdBody': 'Add at least one destination before players can pay into it.',
     'rails.method.saved': '{name} saved',
@@ -263,6 +275,14 @@ export const railMessages = defineMessages({
     'financial.methods.emptyTitle': 'This operator has no payment method',
     'financial.methods.emptyBody':
       'Nothing can be paid in until there is one. Create it on the payment rails screen, then enter the account it pays into here.',
+    'financial.methods.showRetired': {
+      one: 'Show {count} retired method',
+      other: 'Show {count} retired methods',
+    },
+    'financial.methods.hideRetired': 'Hide retired methods',
+    'financial.methods.allRetiredTitle': 'Every method here is retired',
+    'financial.methods.allRetiredBody':
+      'Nothing can be paid in right now. Reopen one on the payment rails screen, or press "Show retired methods" above to check the account on one of these before you do.',
     'financial.card.description':
       'The accounts players are told to pay into when they pick this method.',
     'financial.card.cryptoDescription':
@@ -301,6 +321,39 @@ export const railMessages = defineMessages({
     'financial.declared.saved': 'Recorded balance updated',
     'financial.declared.cleared': 'Recorded balance removed',
     'financial.declared.saveFailed': 'That balance did not save',
+    // ── The HTTP API key ────────────────────────────────────────────────────────────────────
+    'financial.shamcashApi.title': 'Sham Cash API key',
+    'financial.shamcashApi.body':
+      'Lets the bot check a process number against your Sham Cash account, and read your balance, in milliseconds. This is the only way it can verify a Sham Cash transfer.',
+    'financial.shamcashApi.whyTitle': 'Sham Cash deposits need this key',
+    'financial.shamcashApi.whyBody':
+      'Issue it from your Sham Cash dashboard; it stays valid until you revoke it. Until one is saved here, every Sham Cash deposit waits on a person to confirm it by hand.',
+    'financial.shamcashApi.linkedBadge': 'Key saved',
+    'financial.shamcashApi.notLinkedBadge': 'No key',
+    'financial.shamcashApi.walletId': 'Wallet ID',
+    'financial.shamcashApi.walletIdHint':
+      'The id Sham Cash shows in your wallet URL — e.g. 4c326c62cd11f1a72e10bbc9c41e90c8. Not the whole address, and not your phone number.',
+    'financial.shamcashApi.apiKey': 'API key',
+    'financial.shamcashApi.apiKeyHint':
+      'Sent as the x-api-key header. Stored encrypted and never shown again — not here, not anywhere.',
+    'financial.shamcashApi.apiKeyReplaceHint':
+      'A key is already saved and cannot be shown. Enter the new one in full to replace it.',
+    'financial.shamcashApi.walletLabel': 'Wallet {wallet}',
+    'financial.shamcashApi.link': 'Add the key',
+    'financial.shamcashApi.replace': 'Replace the key',
+    'financial.shamcashApi.unlink': 'Remove',
+    'financial.shamcashApi.saved': 'Sham Cash API key saved.',
+    'financial.shamcashApi.cleared': 'Sham Cash API key removed.',
+    'financial.shamcashApi.saveFailed': 'Could not save the Sham Cash API key.',
+
+    'financial.shamcashApi.test': 'Test the key',
+    'financial.shamcashApi.testFailed': 'The test could not run.',
+    'financial.shamcashApi.testNotLinked': 'No key is saved, so there is nothing to test.',
+    'financial.shamcashApi.testRejected': 'Sham Cash rejected this key.',
+    'financial.shamcashApi.testBalance': 'Balance right now',
+    'financial.shamcashApi.testTransactions': 'Latest transactions',
+    'financial.shamcashApi.testNoTransactions': 'Reachable, and the account has no operations yet.',
+
     'financial.shamcash.title': 'Sham Cash account',
     'financial.shamcash.description':
       'Link your Sham Cash account by its browser session, so the balance can be read here.',
@@ -453,6 +506,18 @@ export const railMessages = defineMessages({
     'rails.method.deactivated': 'تم إيقاف {name}',
     'rails.method.deactivatedBody': 'لن تُعرض هذه الطريقة على اللاعبين في إيداعهم القادم.',
     'rails.method.deactivateFailed': 'تعذّر إيقاف {name}',
+    'rails.method.deleteAria': 'حذف {name}',
+    'rails.method.deleteTooltip': 'حذف نهائي',
+    'rails.method.deleteBlockedHistory':
+      'لا يمكن الحذف — تمت إيداعات عبر هذه الطريقة، وسجل وجهة تلك الأموال يجب أن يبقى. أوقفها بدلاً من ذلك.',
+    'rails.method.deleteBlockedBuiltIn':
+      'لا يمكن الحذف — تسجيل رصيد يدوي يستدعي هذه القناة باسمها. أوقفها إن كنت لا تستخدمها.',
+    'rails.method.deleteConfirmTitle': 'حذف {name} نهائياً؟',
+    'rails.method.deleteConfirmBody':
+      'لم تستقبل هذه الطريقة أي دفعة قط، لذا يمكن إزالتها بالكامل مع حساباتها. لا يمكن التراجع عن ذلك؛ ستحتاج إلى إنشائها من جديد. ولإخفائها من القائمة فقط، ألغِ وأوقفها بدلاً من الحذف.',
+    'rails.method.deleteConfirmLabel': 'حذف نهائي',
+    'rails.method.deleted': 'تم حذف {name}',
+    'rails.method.deleteFailed': 'تعذّر حذف {name}',
     'rails.method.created': 'تم إنشاء {name}',
     'rails.method.createdBody': 'أضف وجهة واحدة على الأقل قبل أن يتمكن اللاعبون من الدفع إليها.',
     'rails.method.saved': 'تم حفظ {name}',
@@ -603,6 +668,18 @@ export const railMessages = defineMessages({
     'financial.methods.emptyTitle': 'لا توجد طريقة دفع لدى هذا المشغّل',
     'financial.methods.emptyBody':
       'لا يمكن استقبال أي مبلغ قبل وجود طريقة واحدة على الأقل. أنشئها من شاشة قنوات الدفع، ثم أدخل هنا الحساب الذي تدفع إليه.',
+    'financial.methods.showRetired': {
+      zero: 'إظهار الطرق الموقوفة',
+      one: 'إظهار طريقة موقوفة واحدة',
+      two: 'إظهار طريقتين موقوفتين',
+      few: 'إظهار {count} طرق موقوفة',
+      many: 'إظهار {count} طريقة موقوفة',
+      other: 'إظهار {count} طريقة موقوفة',
+    },
+    'financial.methods.hideRetired': 'إخفاء الطرق الموقوفة',
+    'financial.methods.allRetiredTitle': 'كل طريقة هنا موقوفة',
+    'financial.methods.allRetiredBody':
+      'لا يمكن استقبال أي مبلغ الآن. أعد تفعيل إحداها من شاشة قنوات الدفع، أو اضغط "إظهار الطرق الموقوفة" أعلاه للتحقق من حساب إحداها أولاً.',
     'financial.card.description':
       'الحسابات التي يُطلب من اللاعبين الدفع إليها عند اختيار هذه الطريقة.',
     'financial.card.cryptoDescription':
@@ -637,6 +714,39 @@ export const railMessages = defineMessages({
     'financial.declared.saved': 'حُدّث الرصيد المُسجَّل',
     'financial.declared.cleared': 'أُزيل الرصيد المُسجَّل',
     'financial.declared.saveFailed': 'لم يُحفظ الرصيد',
+    // ── مفتاح واجهة شام كاش ─────────────────────────────────────────────────────────────────
+    'financial.shamcashApi.title': 'مفتاح واجهة شام كاش',
+    'financial.shamcashApi.body':
+      'يتيح للبوت التحقق من رقم العملية في حساب شام كاش وقراءة رصيدك خلال أجزاء من الثانية، وهو السبيل الوحيد للتحقق من تحويلات شام كاش.',
+    'financial.shamcashApi.whyTitle': 'إيداعات شام كاش تحتاج هذا المفتاح',
+    'financial.shamcashApi.whyBody':
+      'أصدره من لوحة شام كاش؛ يبقى صالحاً حتى تلغيه. وقبل حفظه هنا ينتظر كل إيداع شام كاش موظفاً يؤكّده يدوياً.',
+    'financial.shamcashApi.linkedBadge': 'المفتاح محفوظ',
+    'financial.shamcashApi.notLinkedBadge': 'لا يوجد مفتاح',
+    'financial.shamcashApi.walletId': 'رقم المحفظة',
+    'financial.shamcashApi.walletIdHint':
+      'المعرّف الذي يظهر في رابط محفظتك في شام كاش — مثل 4c326c62cd11f1a72e10bbc9c41e90c8. ليس العنوان كاملاً، وليس رقم هاتفك.',
+    'financial.shamcashApi.apiKey': 'المفتاح',
+    'financial.shamcashApi.apiKeyHint':
+      'يُرسل في ترويسة x-api-key. يُخزَّن مشفّراً ولا يُعرض مرة أخرى — لا هنا ولا في أي مكان.',
+    'financial.shamcashApi.apiKeyReplaceHint':
+      'يوجد مفتاح محفوظ ولا يمكن عرضه. أدخل المفتاح الجديد كاملاً لاستبداله.',
+    'financial.shamcashApi.walletLabel': 'المحفظة {wallet}',
+    'financial.shamcashApi.link': 'إضافة المفتاح',
+    'financial.shamcashApi.replace': 'استبدال المفتاح',
+    'financial.shamcashApi.unlink': 'إزالة',
+    'financial.shamcashApi.saved': 'تم حفظ مفتاح واجهة شام كاش.',
+    'financial.shamcashApi.cleared': 'تمت إزالة مفتاح واجهة شام كاش.',
+    'financial.shamcashApi.saveFailed': 'تعذّر حفظ مفتاح واجهة شام كاش.',
+
+    'financial.shamcashApi.test': 'اختبار المفتاح',
+    'financial.shamcashApi.testFailed': 'تعذّر تنفيذ الاختبار.',
+    'financial.shamcashApi.testNotLinked': 'لا يوجد مفتاح محفوظ، فلا شيء لاختباره.',
+    'financial.shamcashApi.testRejected': 'رفض شام كاش هذا المفتاح.',
+    'financial.shamcashApi.testBalance': 'الرصيد الآن',
+    'financial.shamcashApi.testTransactions': 'آخر العمليات',
+    'financial.shamcashApi.testNoTransactions': 'الاتصال ناجح، ولا توجد عمليات في الحساب بعد.',
+
     'financial.shamcash.title': 'حساب شام كاش',
     'financial.shamcash.description': 'اربط حساب شام كاش عبر جلسة المتصفح، ليُقرأ الرصيد هنا.',
     'financial.shamcash.linkedBadge': 'مربوط',

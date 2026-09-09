@@ -9,33 +9,45 @@ import type { AdminRole } from '@/types/enums';
  * `demo.mirrors-fixtures.test.ts` fails if the two ever drift.
  */
 
-/** The code the mock API accepts. Shown on the login screen when mocks are on. */
-export const MOCK_LOGIN_CODE = '123456';
-
 export const MOCK_SESSION_TTL_MINUTES = 60;
 
 /**
- * Demo mode signs in as whichever role the code names.
+ * The password the mock API accepts for every demo console login. Shown on the login screen.
+ *
+ * One password across all of them, because what the demo is showing is not password handling — it
+ * is which ROLE a login lands in. Against a real backend each account's password is its own scrypt
+ * hash on its `admin_users` row and nothing here resembles it.
+ */
+export const MOCK_CONSOLE_PASSWORD = 'demo-pass';
+
+/**
+ * Demo mode signs in as whichever role the USERNAME names.
  *
  * Roles are most of what this console IS — the queue a REVIEWER sees, the staff screen only a
  * SUPER_ADMIN can write to, the operator list only a PLATFORM_ADMIN reaches. A demo that can only
  * ever be one role cannot show any of that, and "trust me, the button disappears" is not a
  * demonstration. Against a real backend none of this exists: the role comes from `admin_users`.
+ *
+ * These were one-time CODES until 2026-09-05, when the bot-code door was removed and signing in
+ * became a username and a password. Same purpose, spelled the way the real login now is.
  */
-export const MOCK_ROLE_CODES: Readonly<Record<string, AdminRole>> = {
-  [MOCK_LOGIN_CODE]: 'SUPER_ADMIN',
-  '111111': 'PLATFORM_ADMIN',
-  '222222': 'FINANCE_ADMIN',
-  '333333': 'REVIEWER',
-  '444444': 'SUPPORT',
-  '555555': 'VIEWER',
+export const MOCK_ROLE_LOGINS: Readonly<Record<string, AdminRole>> = {
+  owner: 'SUPER_ADMIN',
+  platform: 'PLATFORM_ADMIN',
+  finance: 'FINANCE_ADMIN',
+  reviewer: 'REVIEWER',
+  support: 'SUPPORT',
+  viewer: 'VIEWER',
 };
 
-export function mockRoleForCode(code: string): AdminRole | null {
-  return MOCK_ROLE_CODES[code.trim()] ?? null;
+/** The login the demo hint offers first, and what the e2e suite signs in with. */
+export const MOCK_CONSOLE_USERNAME = 'owner';
+
+export function mockRoleForLogin(username: string): AdminRole | null {
+  return MOCK_ROLE_LOGINS[username.trim().toLowerCase()] ?? null;
 }
 
-// ── The other door: an operator's Ichancy agent account ────────────────────────────────────────
+// ── The other credential: an operator's Ichancy agent account ──────────────────────────────────
 
 /**
  * The password the mock API accepts for every operator's agent account.

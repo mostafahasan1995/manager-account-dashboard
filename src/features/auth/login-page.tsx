@@ -1,5 +1,5 @@
 import { useNavigate, useSearch } from '@tanstack/react-router';
-import { Building2, Coins, KeyRound, MessageSquare } from 'lucide-react';
+import { Coins, LogIn } from 'lucide-react';
 import { useEffect, useRef, useState, type SyntheticEvent } from 'react';
 
 import { Alert } from '@/components/ui/alert';
@@ -7,7 +7,6 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { homeRouteFor } from '@/components/layout/nav-items';
 import { config } from '@/config';
 import { errorMessage, isApiError } from '@/lib/api/errors';
@@ -18,8 +17,8 @@ import { useEnumLabel, useT, type Translator } from '@/lib/i18n/use-translation'
 import {
   MOCK_AGENT_PASSWORD,
   MOCK_AGENT_USERNAMES,
-  MOCK_LOGIN_CODE,
-  MOCK_ROLE_CODES,
+  MOCK_CONSOLE_PASSWORD,
+  MOCK_ROLE_LOGINS,
   MOCK_SUSPENDED_AGENT_USERNAME,
 } from '@/mocks/demo';
 import { agentOperatorChoices, type AdminSession, type AgentOperatorChoice } from '@/types/admin';
@@ -27,23 +26,25 @@ import { agentOperatorChoices, type AdminSession, type AgentOperatorChoice } fro
 import { authMessages } from './messages';
 
 /**
- * Sign-in.
+ * Sign-in. One form: a username or email, and a password.
  *
- * ── TWO DOORS, NOT TWO SPELLINGS OF ONE ───────────────────────────────────────────────────────
- * An OPERATOR signs in with its Ichancy agent account — the username and password its own players
- * are registered under — and lands as that operator's super admin. The PLATFORM signs in with a
- * one-time code from the Telegram bot, because it runs no Ichancy agent of its own and has nothing
- * else to prove itself with. Staff of an operator use the code too.
+ * ── WHY ONE FORM AND NOT TWO TABS ─────────────────────────────────────────────────────────────
+ * This screen used to ask WHICH ACCOUNT DO YOU HOLD — an Ichancy agent account, or a one-time code
+ * from the bot's `/console` command — and made the operator answer before it would take a
+ * credential. Both premises are gone. Staff are username+password accounts (2026-09-05), the bot
+ * hands out no console codes at all, and the server itself now tries the caller's own credential
+ * first and the operator's agent account second behind the SAME two fields.
  *
- * They are tabs rather than one form with a "sign in with…" link because the question the screen is
- * really asking is WHICH ACCOUNT DO YOU HOLD, and that has exactly two answers. A single form with
- * a fallback would make one of them look like the recovery path for the other.
+ * So the screen no longer asks a question only the backend can answer. Somebody who was given a
+ * username and a password types them; an owner who has only ever held the Ichancy account types
+ * that; neither has to know which is which, because the answer is the same session either way.
  *
- * ── WHY THE TABS ACTIVATE MANUALLY ────────────────────────────────────────────────────────────
- * `activationMode="manual"`, so arrow keys move between the tabs without switching panels. Each
- * panel is a FORM whose first field takes focus when it mounts; with the default automatic mode,
- * arrowing across the tab list would yank focus into a text field on every keystroke and unmount
- * whatever the operator had already typed on the other side.
+ * ── WHY THE AMBIGUITY PICKER IS NOT AN ERROR PATH ─────────────────────────────────────────────
+ * One credential can legitimately open more than one operator. The server answers 409 with the
+ * choices rather than picking, and this form turns into a radio list WITHOUT clearing the password
+ * or showing a refusal — the credential was accepted, and being asked which operator is not a
+ * failure to recover from. Getting that wrong would throw away a correct password and make somebody
+ * retype it to answer a question they had already earned the right to be asked.
  *
  * ── WHY EACH REFUSAL GETS ITS OWN SENTENCE ────────────────────────────────────────────────────
  * The backend distinguishes a wrong password from a suspended operator from a console account
@@ -51,24 +52,17 @@ import { authMessages } from './messages';
  * failed" would leave an owner with correct credentials retyping them forever, so the other two name
  * the person who can actually fix it.
  *
- * There is deliberately no "this operator has no admin yet" case to handle: an operator's first
- * agent sign-in creates its own super admin row, because an operator is born with no staff and the
- * agent account IS its owner.
- *
- * Everything Latin that is TYPED rather than read — the two slash commands, the code, an Ichancy
- * login, the API URL — carries `dir="ltr"`. In an Arabic sentence the bidi algorithm would otherwise
- * pull the leading slash to the far end of the run and show `console/`, which is not a command
- * anyone can copy.
+ * Everything Latin that is TYPED rather than read — a login, an operator slug, the API URL —
+ * carries `dir="ltr"`, or the bidi algorithm reorders a half-typed value in an Arabic layout and
+ * puts the caret on the wrong end of it.
  */
 
 type AuthTranslator = Translator<(typeof authMessages)['en']>;
-type Door = 'agent' | 'code';
 
 export function LoginPage() {
   const { signOutReason } = useAuth();
   const t = useT(authMessages);
   const appName = useAppName();
-  const [door, setDoor] = useState<Door>('agent');
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-[var(--background)] px-4 py-10">
@@ -102,32 +96,7 @@ export function LoginPage() {
           </CardHeader>
 
           <CardContent>
-            <Tabs
-              value={door}
-              onValueChange={(next) => {
-                setDoor(next as Door);
-              }}
-              activationMode="manual"
-            >
-              <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="agent">
-                  <Building2 className="size-4" />
-                  {t('auth.tab.agent')}
-                </TabsTrigger>
-                <TabsTrigger value="code">
-                  <KeyRound className="size-4" />
-                  {t('auth.tab.code')}
-                </TabsTrigger>
-              </TabsList>
-
-              <TabsContent value="agent">
-                <AgentForm t={t} />
-              </TabsContent>
-
-              <TabsContent value="code">
-                <BotCodeForm t={t} />
-              </TabsContent>
-            </Tabs>
+            <CredentialsForm t={t} />
           </CardContent>
         </Card>
 
@@ -155,18 +124,33 @@ function useLanding(): (session: AdminSession) => Promise<void> {
   };
 }
 
-/** The three refusals this door has that are worth their own sentence, and everything else. */
-function agentErrorMessage(error: unknown, t: AuthTranslator): string {
+/**
+ * The refusals worth their own sentence, and everything else.
+ *
+ * Both spellings of each are handled because the server answers with whichever credential it got
+ * as far as: a mistyped console password ends as ADMIN_CREDENTIALS_INVALID, while a credential that
+ * reached the operator's agent account and failed there keeps the AGENT_ prefix. They mean the same
+ * thing to the person typing, so they read the same on screen.
+ */
+function credentialsErrorMessage(error: unknown, t: AuthTranslator): string {
   if (isApiError(error)) {
-    if (error.code === 'AGENT_CREDENTIALS_INVALID') return t('auth.agent.invalid');
-    if (error.code === 'AGENT_OPERATOR_NOT_ACTIVE') return t('auth.agent.suspended');
-    if (error.code === 'AGENT_OPERATOR_HAS_NO_OWNER') return t('auth.agent.noOwner');
+    if (error.code === 'ADMIN_CREDENTIALS_INVALID' || error.code === 'AGENT_CREDENTIALS_INVALID') {
+      return t('auth.credentials.invalid');
+    }
+    if (error.code === 'ADMIN_OPERATOR_NOT_ACTIVE' || error.code === 'AGENT_OPERATOR_NOT_ACTIVE') {
+      return t('auth.credentials.suspended');
+    }
+    if (error.code === 'AGENT_OPERATOR_HAS_NO_OWNER') return t('auth.credentials.noOwner');
   }
   return errorMessage(error);
 }
 
-function AgentForm({ t }: { t: AuthTranslator }) {
-  const { signInWithAgent } = useAuth();
+/** The codes that mean "which operator?", in either spelling. See the file header. */
+const isAmbiguous = (code: string): boolean =>
+  code === 'ADMIN_OPERATOR_AMBIGUOUS' || code === 'AGENT_OPERATOR_AMBIGUOUS';
+
+function CredentialsForm({ t }: { t: AuthTranslator }) {
+  const { signIn } = useAuth();
   const land = useLanding();
 
   const [username, setUsername] = useState('');
@@ -194,7 +178,7 @@ function AgentForm({ t }: { t: AuthTranslator }) {
     setSubmitting(true);
     setError(null);
     try {
-      const session = await signInWithAgent({
+      const session = await signIn({
         username,
         password,
         // Absent, not undefined: the field is optional in the strict sense on the wire.
@@ -203,12 +187,12 @@ function AgentForm({ t }: { t: AuthTranslator }) {
       await land(session);
     } catch (caught) {
       /*
-       * Not a failure — a question. The credential was accepted and the agent runs more than one
+       * Not a failure — a question. The credential was accepted and it opens more than one
        * operator, so the form turns into a picker rather than throwing the password away and
        * making somebody type it again to answer a question they have already earned the right to
        * be asked.
        */
-      if (isApiError(caught) && caught.code === 'AGENT_OPERATOR_AMBIGUOUS') {
+      if (isApiError(caught) && isAmbiguous(caught.code)) {
         const choices = agentOperatorChoices(caught.details);
         if (choices.length > 0) {
           setOperators(choices);
@@ -249,32 +233,36 @@ function AgentForm({ t }: { t: AuthTranslator }) {
         />
       ) : (
         <>
-          <p className="text-sm text-[var(--muted-foreground)]">{t('auth.agent.intro')}</p>
+          <p className="text-sm text-[var(--muted-foreground)]">{t('auth.credentials.intro')}</p>
 
           <div className="space-y-1.5">
-            <Label htmlFor="agent-username">{t('auth.agent.usernameLabel')}</Label>
+            <Label htmlFor="credentials-username">{t('auth.credentials.usernameLabel')}</Label>
             <Input
-              id="agent-username"
+              id="credentials-username"
               ref={usernameRef}
               value={username}
               onChange={(event) => {
                 setUsername(event.target.value);
               }}
               autoComplete="username"
+              // A login is not a sentence: never capitalise it, never correct it, and let a
+              // password manager fill it.
               autoCapitalize="none"
+              autoCorrect="off"
               spellCheck={false}
               maxLength={256}
-              // An Ichancy login is Latin and typed left to right in either language.
+              // A login is Latin and typed left to right in either language.
               dir="ltr"
               className="font-mono"
               aria-invalid={error !== null}
+              aria-describedby={error === null ? undefined : 'credentials-error'}
             />
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="agent-password">{t('auth.agent.passwordLabel')}</Label>
+            <Label htmlFor="credentials-password">{t('auth.credentials.passwordLabel')}</Label>
             <Input
-              id="agent-password"
+              id="credentials-password"
               ref={passwordRef}
               type="password"
               value={password}
@@ -285,15 +273,15 @@ function AgentForm({ t }: { t: AuthTranslator }) {
               maxLength={256}
               dir="ltr"
               aria-invalid={error !== null}
-              aria-describedby={error === null ? undefined : 'agent-error'}
+              aria-describedby={error === null ? undefined : 'credentials-error'}
             />
           </div>
         </>
       )}
 
       {error === null ? null : (
-        <p id="agent-error" role="alert" className="text-sm text-[var(--danger)]">
-          {agentErrorMessage(error, t)}
+        <p id="credentials-error" role="alert" className="text-sm text-[var(--danger)]">
+          {credentialsErrorMessage(error, t)}
         </p>
       )}
 
@@ -308,10 +296,10 @@ function AgentForm({ t }: { t: AuthTranslator }) {
             : username.trim().length === 0 || password.length === 0
         }
       >
-        <Building2 className="size-4" />
+        <LogIn className="size-4" />
         {chosen === undefined
-          ? t('auth.agent.submit')
-          : t('auth.agent.chooseSubmit', { name: chosen.displayName })}
+          ? t('auth.credentials.submit')
+          : t('auth.credentials.chooseSubmit', { name: chosen.displayName })}
       </Button>
 
       {operators.length > 0 ? (
@@ -325,7 +313,7 @@ function AgentForm({ t }: { t: AuthTranslator }) {
             setPassword('');
           }}
         >
-          {t('auth.agent.chooseBack')}
+          {t('auth.credentials.chooseBack')}
         </Button>
       ) : null}
     </form>
@@ -333,7 +321,7 @@ function AgentForm({ t }: { t: AuthTranslator }) {
 }
 
 /**
- * The picker shown when one Ichancy agent runs several operators.
+ * The picker shown when one credential opens several operators.
  *
  * Radio inputs rather than a select: there are two or three of these, each with a name and a slug
  * worth reading, and which operator's money a session opens is not a choice to bury behind a
@@ -352,10 +340,10 @@ function OperatorChoice({
 }) {
   return (
     <fieldset className="space-y-2">
-      <legend className="sr-only">{t('auth.agent.operatorLegend')}</legend>
+      <legend className="sr-only">{t('auth.credentials.operatorLegend')}</legend>
 
-      <Alert tone="info" title={t('auth.agent.chooseTitle')}>
-        {t('auth.agent.chooseBody', { count: operators.length })}
+      <Alert tone="info" title={t('auth.credentials.chooseTitle')}>
+        {t('auth.credentials.chooseBody', { count: operators.length })}
       </Alert>
 
       <div className="space-y-2">
@@ -387,124 +375,27 @@ function OperatorChoice({
   );
 }
 
-function BotCodeForm({ t }: { t: AuthTranslator }) {
-  const { signIn } = useAuth();
-  const land = useLanding();
-
-  const [code, setCode] = useState('');
-  const [error, setError] = useState<unknown>(null);
-  const [submitting, setSubmitting] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
-
-  const handleSubmit = async (event: SyntheticEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (code.trim().length === 0 || submitting) return;
-
-    setSubmitting(true);
-    setError(null);
-    try {
-      await land(await signIn(code));
-    } catch (caught) {
-      setError(caught);
-      setCode('');
-      inputRef.current?.focus();
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  return (
-    <form onSubmit={(event) => void handleSubmit(event)} className="space-y-4" noValidate>
-      <p className="text-sm text-[var(--muted-foreground)]">
-        {t('auth.code.who')} {t('auth.signIn.sendCommand')}{' '}
-        <code className="font-mono" dir="ltr">
-          /console
-        </code>{' '}
-        {t('auth.signIn.toBotIn')} <strong>{t('auth.signIn.directChat')}</strong>{' '}
-        {t('auth.signIn.notInGroup')}{' '}
-        <code className="font-mono" dir="ltr">
-          /login
-        </code>{' '}
-        {t('auth.signIn.playerCommand')}
-      </p>
-
-      <div className="space-y-1.5">
-        <Label htmlFor="bot-code">{t('auth.signIn.codeLabel')}</Label>
-        <Input
-          id="bot-code"
-          ref={inputRef}
-          value={code}
-          onChange={(event) => {
-            setCode(event.target.value.toUpperCase());
-          }}
-          placeholder="K7QP42XM"
-          autoComplete="one-time-code"
-          // The real code is 8 uppercase letters and digits, not a PIN. `inputMode="numeric"`
-          // would open a number pad that cannot type it, and lower case is upper-cased here
-          // rather than rejected at the server — nobody should lose a 5-minute code to caps.
-          autoCapitalize="characters"
-          spellCheck={false}
-          maxLength={64}
-          // A Latin code is typed left to right in either language; an RTL field would put
-          // the caret on the wrong end of a half-typed one.
-          dir="ltr"
-          className="text-center font-mono text-lg tracking-[0.3em] uppercase"
-          aria-invalid={error !== null}
-          aria-describedby={error === null ? undefined : 'bot-code-error'}
-        />
-      </div>
-
-      {error === null ? null : (
-        <p id="bot-code-error" role="alert" className="text-sm text-[var(--danger)]">
-          {isApiError(error) && error.code === 'BOT_CODE_INVALID'
-            ? t('auth.signIn.invalidCode')
-            : errorMessage(error)}
-        </p>
-      )}
-
-      <Button
-        type="submit"
-        variant="primary"
-        className="w-full"
-        loading={submitting}
-        disabled={code.trim().length === 0}
-      >
-        <MessageSquare className="size-4" />
-        {t('auth.signIn.submit')}
-      </Button>
-    </form>
-  );
-}
-
 function DemoHint({ t }: { t: AuthTranslator }) {
   const enumLabel = useEnumLabel();
 
   return (
     <Alert tone="info" title={t('auth.demo.title')}>
       <p>
-        {t('auth.demo.body')} {t('auth.demo.signInWith')}{' '}
-        <code className="font-mono font-semibold" dir="ltr">
-          {MOCK_LOGIN_CODE}
-        </code>
-        .
+        {t('auth.demo.body')} {t('auth.demo.signInWith', { password: MOCK_CONSOLE_PASSWORD })}
       </p>
       <p className="mt-2">{t('auth.demo.roleHint')}</p>
       {/* Roles are most of what this console is; a demo stuck on one role shows none of it. */}
       <ul className="mt-1 space-y-0.5">
-        {Object.entries(MOCK_ROLE_CODES).map(([code, role]) => (
-          <li key={code} className="flex items-center gap-2">
+        {Object.entries(MOCK_ROLE_LOGINS).map(([username, role]) => (
+          <li key={username} className="flex items-center gap-2">
             <code className="font-mono font-semibold" dir="ltr">
-              {code}
+              {username}
             </code>
             <span>{enumLabel('adminRole', role)}</span>
           </li>
         ))}
       </ul>
-      {/* The other door needs demonstrating too, refusals included — see MOCK_AGENT_PASSWORD. */}
+      {/* The other credential needs demonstrating too, refusals included. */}
       <p className="mt-2">
         {t('auth.demo.agentHint', {
           usernames: MOCK_AGENT_USERNAMES.join(', '),

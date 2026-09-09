@@ -44,6 +44,45 @@ describe('DepositFilters', () => {
     expect(location()).not.toContain('unclaimedOnly');
   });
 
+  /**
+   * THE COMPLAINT THIS CHIP ANSWERS: the queue's default is the three reviewable statuses, so on a
+   * real operator it showed 2 rows out of 48 and every deposit that WORKED was invisible.
+   */
+  it('asks for EVERY status when All deposits is pressed, not an absent filter', async () => {
+    const { user, location } = renderFilters();
+
+    await user.click(await screen.findByRole('button', { name: 'All deposits' }));
+
+    const url = decodeURIComponent(location());
+    // An absent `status` means the reviewable three to the backend, so "all" has to be spelled out.
+    // CREDITED is the one that matters most: it is the successful deposit nobody could see.
+    expect(url).toContain('CREDITED');
+    expect(url).toContain('EXPIRED');
+    expect(url).toContain('REJECTED');
+    expect(url).toContain('SUBMITTED');
+  });
+
+  it('drops "unclaimed only" when All deposits is pressed, because they contradict', async () => {
+    const { user, location } = renderFilters('/deposits?unclaimedOnly=true');
+
+    await user.click(await screen.findByRole('button', { name: 'All deposits' }));
+
+    expect(location()).not.toContain('unclaimedOnly');
+  });
+
+  it('returns to the review queue when All deposits is pressed again', async () => {
+    const { user, location } = renderFilters();
+
+    await user.click(await screen.findByRole('button', { name: 'All deposits' }));
+    await user.click(screen.getByRole('button', { name: 'All deposits' }));
+
+    expect(location()).not.toContain('status');
+    expect(screen.getByRole('button', { name: 'Needs review' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+  });
+
   it('sends the stuck chip to the two statuses where money is stuck', async () => {
     const { user, location } = renderFilters();
 

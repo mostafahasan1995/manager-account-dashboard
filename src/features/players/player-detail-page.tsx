@@ -1,5 +1,5 @@
 import { Link, useParams } from '@tanstack/react-router';
-import { ArrowLeft, Banknote, PlusCircle, UserPlus } from 'lucide-react';
+import { ArrowLeft, Ban, Banknote, LockOpen, PlusCircle, Send, UserPlus } from 'lucide-react';
 import { useState } from 'react';
 
 import {
@@ -17,19 +17,24 @@ import { useAuth } from '@/lib/auth/use-auth';
 import { formatMoney } from '@/lib/money';
 import { useT } from '@/lib/i18n/use-translation';
 import {
+  isPlayerBlocked,
   playerDisplayName,
   type IchancyAccount,
   type ManualCredit,
   type PlayerDebit,
 } from '@/types/player';
 
+import { AttachTelegramDialog } from './attach-telegram-dialog';
+import { BlockPlayerDialog } from './block-player-dialog';
 import { CreditPlayerDialog } from './credit-player-dialog';
 import { DebitOutcomeAlert } from './debit-outcome-alert';
 import { DebitPlayerDialog } from './debit-player-dialog';
 import { LinkIchancyDialog } from './link-ichancy-dialog';
 import { playerMessages } from './messages';
+import { PlayerBlockedAlert } from './player-blocked-alert';
 import { PlayerDeposits } from './player-deposits';
 import { PlayerIdentity } from './player-identity';
+import { UnblockPlayerDialog } from './unblock-player-dialog';
 
 /**
  * One player, opened from the list or from a deposit under review.
@@ -51,6 +56,9 @@ export function PlayerDetailPage() {
   const [debitUnproven, setDebitUnproven] = useState<unknown>(null);
   const [creditOpen, setCreditOpen] = useState(false);
   const [creditResult, setCreditResult] = useState<ManualCredit | null>(null);
+  const [blockOpen, setBlockOpen] = useState(false);
+  const [unblockOpen, setUnblockOpen] = useState(false);
+  const [attachOpen, setAttachOpen] = useState(false);
 
   const backLink = (
     <Button variant="ghost" size="sm" asChild>
@@ -96,6 +104,7 @@ export function PlayerDetailPage() {
 
   const player = query.data;
   const name = playerDisplayName(player);
+  const blocked = isPlayerBlocked(player);
 
   return (
     <div className="space-y-5">
@@ -105,13 +114,60 @@ export function PlayerDetailPage() {
           <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
             <PlayerStatusBadge status={player.status} />
             <span className="inline-flex items-center gap-1">
-              {t('field.telegramId')} <CopyableValue value={player.telegramUserId} />
+              {t('field.telegramId')}{' '}
+              {/* An imported or admin-registered row has none yet — see adminPlayerSchema. */}
+              {player.telegramUserId === null ? (
+                <span aria-label={t('players.telegram.none')}>—</span>
+              ) : (
+                <CopyableValue value={player.telegramUserId} />
+              )}
             </span>
           </span>
         }
         actions={
           <>
             {backLink}
+            {/* Only for a row with no Telegram at all: attaching to one that has an id would be
+                repointing an account, which the backend refuses. */}
+            {player.telegramUserId === null ? (
+              <Can capability="players.write">
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    setAttachOpen(true);
+                  }}
+                >
+                  <Send aria-hidden="true" />
+                  {t('players.attach.action')}
+                </Button>
+              </Can>
+            ) : null}
+            {/* Block or unblock, never both; a closed account has nothing left to lock. */}
+            {blocked ? (
+              <Can capability="players.block">
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    setUnblockOpen(true);
+                  }}
+                >
+                  <LockOpen aria-hidden="true" />
+                  {t('players.unblock.action')}
+                </Button>
+              </Can>
+            ) : player.status === 'CLOSED' ? null : (
+              <Can capability="players.block">
+                <Button
+                  variant="danger"
+                  onClick={() => {
+                    setBlockOpen(true);
+                  }}
+                >
+                  <Ban aria-hidden="true" />
+                  {t('players.block.action')}
+                </Button>
+              </Can>
+            )}
             {/* Credit and debit are the same money decision in opposite directions, so they share the
                 deposit-decide capability. Credit is offered whatever the player's state: it records a
                 manual deposit, and the deposit spine links a new Ichancy account on the way to
@@ -156,6 +212,9 @@ export function PlayerDetailPage() {
           </>
         }
       />
+
+      {/* The block, in words, above everything else on the page — see PlayerBlockedAlert. */}
+      <PlayerBlockedAlert player={player} />
 
       {linkResult === null ? null : (
         <Alert
@@ -241,6 +300,41 @@ export function PlayerDetailPage() {
           setDebitUnproven(error);
         }}
       />
+
+      {/* Each mounted only while open, so a reopened form starts empty. The mutations invalidate
+          the player, so the badge, the alert and the header actions follow the new status. */}
+      {blockOpen ? (
+        <BlockPlayerDialog
+          player={player}
+          open
+          onOpenChange={setBlockOpen}
+          onBlocked={() => {
+            setBlockOpen(false);
+          }}
+        />
+      ) : null}
+
+      {unblockOpen ? (
+        <UnblockPlayerDialog
+          player={player}
+          open
+          onOpenChange={setUnblockOpen}
+          onUnblocked={() => {
+            setUnblockOpen(false);
+          }}
+        />
+      ) : null}
+
+      {attachOpen ? (
+        <AttachTelegramDialog
+          player={player}
+          open
+          onOpenChange={setAttachOpen}
+          onAttached={() => {
+            setAttachOpen(false);
+          }}
+        />
+      ) : null}
     </div>
   );
 }

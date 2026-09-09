@@ -19,6 +19,8 @@ export const commonMessages = defineMessages({
 
     'nav.overview': 'Overview',
     'nav.deposits': 'Deposits',
+    'nav.stats': 'Statistics',
+    'nav.withdrawals': 'Withdrawals',
     'nav.players': 'Players',
     'nav.paymentMethods': 'Payment rails',
     'nav.financial': 'Financial settings',
@@ -36,8 +38,10 @@ export const commonMessages = defineMessages({
     'account.menu': 'Account menu',
     'account.signOut': 'Sign out',
     'account.telegram': 'Telegram {id}',
+    /** Signed in with a console username and password rather than a Telegram account. */
+    'account.noTelegram': 'No Telegram account',
     'account.sessionEnds':
-      'Your session ends then. Send /console to the bot for a new code — there is no refresh.',
+      'Your session ends then. Sign in again with your username and password — there is no refresh.',
 
     'theme.switch': 'Switch theme, currently {preference}',
     'theme.light': 'Light',
@@ -169,6 +173,35 @@ export const commonMessages = defineMessages({
     'enum.playerStatus.SUSPENDED': 'Suspended',
     'enum.playerStatus.SELF_EXCLUDED': 'Self-excluded',
     'enum.playerStatus.CLOSED': 'Closed',
+    'enum.playerStatus.BLOCKED': 'Blocked',
+
+    'enum.playerSource.TELEGRAM': 'Telegram',
+    'enum.playerSource.ICHANCY_IMPORT': 'Imported from Ichancy',
+    'enum.playerSource.ADMIN': 'Registered by an admin',
+
+    'enum.withdrawalStatus.REQUESTED': 'Requested',
+    'enum.withdrawalStatus.APPROVED': 'Approved',
+    'enum.withdrawalStatus.DEBITING': 'Debiting',
+    'enum.withdrawalStatus.DEBITED': 'Ready to pay',
+    'enum.withdrawalStatus.PAID': 'Paid',
+    'enum.withdrawalStatus.DEBIT_FAILED': 'Debit failed',
+    'enum.withdrawalStatus.NEEDS_RECONCILIATION': 'Needs reconciliation',
+    'enum.withdrawalStatus.REJECTED': 'Rejected',
+    'enum.withdrawalStatus.CANCELLED': 'Cancelled',
+
+    'enum.withdrawalMode.AUTO': 'Automatic',
+    'enum.withdrawalMode.MANUAL': 'Manual',
+
+    'enum.depositMode.AUTO': 'Automatic',
+    'enum.depositMode.MANUAL': 'Manual',
+
+    'enum.withdrawalSort.newest': 'Newest first',
+    'enum.withdrawalSort.oldest': 'Oldest first',
+
+    'enum.walletCheckStatus.ok': 'Wallet covers it',
+    'enum.walletCheckStatus.insufficient': 'Wallet short',
+    'enum.walletCheckStatus.unknown': 'Wallet unknown',
+    'enum.walletCheckStatus.not_configured': 'No wallet to check',
 
     'enum.adminRole.PLATFORM_ADMIN': 'Platform admin',
     'enum.adminRole.SUPER_ADMIN': 'Super admin',
@@ -225,7 +258,7 @@ export const commonMessages = defineMessages({
     'countdown.expired': 'expired',
     'session.expiringTitle': 'Your session is about to end',
     'session.expiringBody':
-      'There is no refresh token for admin sessions. Send /console to the bot for a new code before it expires, or you will lose anything you have typed.',
+      'There is no refresh token for admin sessions. Sign in again before it expires, or you will lose anything you have typed.',
   },
 
   ar: {
@@ -234,6 +267,8 @@ export const commonMessages = defineMessages({
 
     'nav.overview': 'نظرة عامة',
     'nav.deposits': 'الإيداعات',
+    'nav.stats': 'الإحصائيات',
+    'nav.withdrawals': 'السحوبات',
     'nav.players': 'اللاعبون',
     'nav.paymentMethods': 'قنوات الدفع',
     'nav.financial': 'الإعدادات المالية',
@@ -251,8 +286,9 @@ export const commonMessages = defineMessages({
     'account.menu': 'قائمة الحساب',
     'account.signOut': 'تسجيل الخروج',
     'account.telegram': 'تلغرام {id}',
+    'account.noTelegram': 'لا يوجد حساب تلغرام',
     'account.sessionEnds':
-      'تنتهي جلستك عندها. أرسل ‎/console‎ إلى البوت للحصول على رمز جديد — لا يوجد تجديد تلقائي.',
+      'تنتهي جلستك عندها. سجّل الدخول من جديد باسم المستخدم وكلمة المرور — لا يوجد تجديد تلقائي.',
 
     'theme.switch': 'تغيير المظهر، الحالي {preference}',
     'theme.light': 'فاتح',
@@ -381,6 +417,35 @@ export const commonMessages = defineMessages({
     'enum.playerStatus.SUSPENDED': 'موقوف',
     'enum.playerStatus.SELF_EXCLUDED': 'استبعاد ذاتي',
     'enum.playerStatus.CLOSED': 'مغلق',
+    'enum.playerStatus.BLOCKED': 'محظور',
+
+    'enum.playerSource.TELEGRAM': 'تلغرام',
+    'enum.playerSource.ICHANCY_IMPORT': 'مستورد من Ichancy',
+    'enum.playerSource.ADMIN': 'سجّله مدير',
+
+    'enum.withdrawalStatus.REQUESTED': 'مطلوب',
+    'enum.withdrawalStatus.APPROVED': 'تمت الموافقة',
+    'enum.withdrawalStatus.DEBITING': 'جارٍ الخصم',
+    'enum.withdrawalStatus.DEBITED': 'جاهز للدفع',
+    'enum.withdrawalStatus.PAID': 'مدفوع',
+    'enum.withdrawalStatus.DEBIT_FAILED': 'فشل الخصم',
+    'enum.withdrawalStatus.NEEDS_RECONCILIATION': 'يحتاج تسوية',
+    'enum.withdrawalStatus.REJECTED': 'مرفوض',
+    'enum.withdrawalStatus.CANCELLED': 'ملغى',
+
+    'enum.withdrawalMode.AUTO': 'تلقائي',
+    'enum.withdrawalMode.MANUAL': 'يدوي',
+
+    'enum.depositMode.AUTO': 'تلقائي',
+    'enum.depositMode.MANUAL': 'يدوي',
+
+    'enum.withdrawalSort.newest': 'الأحدث أولاً',
+    'enum.withdrawalSort.oldest': 'الأقدم أولاً',
+
+    'enum.walletCheckStatus.ok': 'المحفظة تغطي المبلغ',
+    'enum.walletCheckStatus.insufficient': 'المحفظة لا تكفي',
+    'enum.walletCheckStatus.unknown': 'رصيد المحفظة غير معروف',
+    'enum.walletCheckStatus.not_configured': 'لا توجد محفظة للتحقق',
 
     'enum.adminRole.PLATFORM_ADMIN': 'مدير المنصّة',
     'enum.adminRole.SUPER_ADMIN': 'المدير العام',
@@ -437,6 +502,6 @@ export const commonMessages = defineMessages({
     'countdown.expired': 'انتهى',
     'session.expiringTitle': 'جلستك على وشك الانتهاء',
     'session.expiringBody':
-      'لا يوجد تجديد تلقائي لجلسات الإدارة. أرسل ‎/console‎ إلى البوت للحصول على رمز جديد قبل انتهائها، وإلا ستفقد ما كتبته.',
+      'لا يوجد تجديد تلقائي لجلسات الإدارة. سجّل الدخول من جديد قبل انتهائها، وإلا ستفقد ما كتبته.',
   },
 });

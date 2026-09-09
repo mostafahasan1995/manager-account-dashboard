@@ -51,7 +51,6 @@ export const BOT_COMMANDS: readonly BotCommandRow[] = [
   { command: 'about', description: '✅ حالة الخدمة', audience: 'PLAYER' },
   { command: 'terms', description: '📄 الشروط', audience: 'PLAYER' },
   { command: 'paysupport', description: '🆘 مشكلة بالدفع', audience: 'PLAYER' },
-  { command: 'console', description: '🔑 رمز الدخول للوحة التحكم', audience: 'ADMIN' },
   { command: 'queue', description: '📥 الطابور', audience: 'ADMIN' },
   { command: 'report', description: '📊 تقرير النشاط', audience: 'ADMIN' },
   { command: 'float', description: '🏦 رصيد الكاشيرة', audience: 'ADMIN' },
@@ -62,8 +61,14 @@ export const BOT_COMMANDS: readonly BotCommandRow[] = [
 // ── The /start menu ────────────────────────────────────────────────────────────────────────────
 
 /**
- * The eight buttons under the welcome. Built once at module load in the bot and read from no table,
- * so every operator's menu is these same eight in this same order.
+ * The eight buttons of the bot's docked keyboard — the one that sits under the text box rather than
+ * on a message. Built once at module load in the bot and read from no table, so every operator's
+ * menu is these same eight in this same order.
+ *
+ * A HAND-COPY of PLAYER_MENU_ROWS in the API's src/core/telegram/bot-menu.constants.ts, and there is
+ * no test that can catch it drifting: the two repositories never import from one another. Since the
+ * bot moved to a reply keyboard these labels are also its ROUTING KEYS, so a label edited there and
+ * not here leaves this preview quietly describing a menu that no longer exists.
  */
 export const MAIN_MENU_BUTTONS: readonly string[] = [
   '💵 شحن الرصيد',

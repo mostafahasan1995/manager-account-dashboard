@@ -64,7 +64,11 @@ describe('TenantOperations', () => {
           /no webhook is registered for this bot, so every message sent to it is dropped/i,
         ),
       ).toBeInTheDocument();
-      expect(screen.getByText(/nobody can sign in to this operator/i)).toBeInTheDocument();
+      // What a silent bot actually costs, now that signing in does not go through Telegram at all:
+      // players cannot reach it, and staff can still get into the console. Saying "nobody can sign
+      // in" here would send an operator to fix the wrong thing.
+      expect(screen.getByText(/no player can start a deposit/i)).toBeInTheDocument();
+      expect(screen.getByText(/signing in to the console is unaffected/i)).toBeInTheDocument();
       expect(screen.getByText('Telegram holds no webhook for this bot')).toBeInTheDocument();
     });
 
@@ -330,6 +334,7 @@ describe('TenantOperations', () => {
         'Edit credentials',
         'Test connection',
         'Check again',
+        'Import players from Ichancy',
       ]) {
         expect(screen.queryByRole('button', { name: label })).not.toBeInTheDocument();
       }
@@ -337,7 +342,81 @@ describe('TenantOperations', () => {
     });
   });
 
+  describe('importing the old players', () => {
+    it('says it has not run yet, then reports the counts once it has', async () => {
+      const { user } = renderPlain(<TenantOperations tenant={northernTenant} />, platformAdmin);
+
+      expect(await screen.findByText('Old players')).toBeInTheDocument();
+      expect(screen.getByText('Not run in this session.')).toBeInTheDocument();
+      expect(screen.getByText(/Safe to repeat/)).toBeInTheDocument();
+
+      await user.click(screen.getByRole('button', { name: 'Import players from Ichancy' }));
+
+      expect(await screen.findByText('Import finished')).toBeInTheDocument();
+      expect(screen.getByText('3 scanned, 2 created, 1 already known.')).toBeInTheDocument();
+      expect(screen.queryByText('Not run in this session.')).not.toBeInTheDocument();
+      expect(toast.success).toHaveBeenCalledWith(
+        '2 players imported from Ichancy',
+        expect.objectContaining({ description: '3 scanned, 2 created, 1 already known.' }),
+      );
+    });
+
+    it('shows the Ichancy failure the import reports, beside the counts it managed', async () => {
+      const { user } = renderPlain(<TenantOperations tenant={stalledTenant} />, platformAdmin);
+
+      await user.click(await screen.findByRole('button', { name: 'Import players from Ichancy' }));
+
+      expect(await screen.findByText('Ichancy did not finish the import')).toBeInTheDocument();
+      expect(
+        screen.getAllByText(
+          'Ichancy sign-in failed for agent_pilot: the agent did not answer (504 after 15s).',
+        ).length,
+      ).toBeGreaterThan(0);
+      expect(screen.getByText('0 scanned, 0 created, 0 already known.')).toBeInTheDocument();
+      expect(toast.error).toHaveBeenCalledWith(
+        'Ichancy did not finish the import',
+        expect.objectContaining({
+          description:
+            'Ichancy sign-in failed for agent_pilot: the agent did not answer (504 after 15s).',
+        }),
+      );
+    });
+
+    it('reports a refused request as the API worded it', async () => {
+      server.use(
+        http.post(`${config.apiBaseUrl}/v1/admin/tenants/:id/import-players`, () =>
+          failure(409, 'IMPORT_ALREADY_RUNNING', 'An import is already running for this operator.'),
+        ),
+      );
+      const { user } = renderPlain(<TenantOperations tenant={homeTenant} />, platformAdmin);
+
+      await user.click(await screen.findByRole('button', { name: 'Import players from Ichancy' }));
+
+      await waitFor(() => {
+        expect(toast.error).toHaveBeenCalledWith(
+          'Could not import players',
+          expect.objectContaining({
+            description: 'An import is already running for this operator.',
+          }),
+        );
+      });
+      expect(screen.getByText('Not run in this session.')).toBeInTheDocument();
+    });
+  });
+
   describe('in Arabic', () => {
+    it('offers the import in Arabic', async () => {
+      renderPlain(<TenantOperations tenant={northernTenant} />, {
+        ...platformAdmin,
+        locale: 'ar',
+      });
+
+      expect(await screen.findByText('اللاعبون القدامى')).toBeInTheDocument();
+      expect(
+        screen.getByRole('button', { name: 'استيراد اللاعبين من Ichancy' }),
+      ).toBeInTheDocument();
+    });
+
     it('states the silence and counts the backlog with Arabic plurals', async () => {
       renderPlain(<TenantOperations tenant={northernTenant} />, {
         ...platformAdmin,

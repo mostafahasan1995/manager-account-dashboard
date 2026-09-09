@@ -1,8 +1,22 @@
-import { AlertTriangle, Hourglass, Inbox, Scale, UserCheck, type LucideIcon } from 'lucide-react';
+import {
+  AlertTriangle,
+  ArrowUpFromLine,
+  Hourglass,
+  Inbox,
+  Scale,
+  UserCheck,
+  type LucideIcon,
+} from 'lucide-react';
 
 import { Can, ErrorState, StatCard } from '@/components/common';
 import { Card } from '@/components/ui';
-import { OVERVIEW_POLL_MS, flattenPages, useBreaks, useDepositQueue } from '@/lib/api/queries';
+import {
+  OVERVIEW_POLL_MS,
+  flattenPages,
+  useBreaks,
+  useDepositQueue,
+  useWithdrawals,
+} from '@/lib/api/queries';
 import { useT, type TranslatorKey } from '@/lib/i18n/use-translation';
 import { ATTENTION_DEPOSIT_STATUSES, type Tone } from '@/types/enums';
 import type { DepositQueueQuery } from '@/types';
@@ -15,6 +29,7 @@ import {
   STUCK_MONEY_QUERY,
   UNCLAIMED_QUERY,
   WAITING_QUERY,
+  WITHDRAWALS_WAITING_QUERY,
   sampleCountLabel,
 } from './overview-data';
 
@@ -145,6 +160,46 @@ function OpenBreaksTile() {
   );
 }
 
+/**
+ * Cash-outs somebody owes an action to. Live, like the deposit tiles a reviewer races for: a
+ * request arriving is the thing this tile exists to notice, and a DEBITED row is a player who has
+ * been charged and is waiting on a person to pay them.
+ */
+function WithdrawalsWaitingTile() {
+  const t = useT(overviewMessages);
+  const { data, isLoading, error, refetch } = useWithdrawals(WITHDRAWALS_WAITING_QUERY, {
+    poll: OVERVIEW_POLL_MS,
+  });
+  const label = t('overview.tiles.withdrawals');
+
+  if (error !== null) {
+    return (
+      <TileError
+        label={label}
+        error={error}
+        onRetry={() => {
+          void refetch();
+        }}
+      />
+    );
+  }
+
+  const total = data?.meta.total ?? 0;
+
+  return (
+    <StatCard
+      label={label}
+      value={String(total)}
+      hint={t('overview.tiles.withdrawalsHint')}
+      tone={total > 0 ? 'warning' : 'muted'}
+      icon={ArrowUpFromLine}
+      to="/withdrawals"
+      search={{ status: [...(WITHDRAWALS_WAITING_QUERY.status ?? [])] }}
+      loading={isLoading}
+    />
+  );
+}
+
 const DEPOSIT_TILES: TileSpec[] = [
   {
     labelKey: 'overview.tiles.waiting',
@@ -200,6 +255,11 @@ export function QueueTiles() {
           <DepositCountTile {...tile} />
         </div>
       ))}
+      <Can capability="withdrawals.read">
+        <div className="min-w-52 flex-1">
+          <WithdrawalsWaitingTile />
+        </div>
+      </Can>
       <Can capability="reconciliation.read">
         <div className="min-w-52 flex-1">
           <OpenBreaksTile />

@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import type { UserEvent } from '@testing-library/user-event';
 import { HttpResponse, http } from 'msw';
 import { toast } from 'sonner';
@@ -42,6 +42,8 @@ const ADVANCED_LABELS = [
   'Dual approval above',
   'Agent float low watermark',
   'Deposit expiry (minutes)',
+  'Withdrawal mode',
+  'Mini app URL (optional)',
 ];
 
 /**
@@ -138,6 +140,10 @@ describe('TenantFormDialog — create', () => {
     expect(screen.getByText(/the platform default currency/i)).toBeInTheDocument();
     expect(screen.getByText('Left blank: the platform default threshold.')).toBeInTheDocument();
     expect(screen.getByText('Left blank: the platform default watermark.')).toBeInTheDocument();
+    expect(
+      screen.getByText(/Left blank: manual — a person approves every cash-out/),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/no app button destination until one is set/)).toBeInTheDocument();
   });
 
   it('refuses a slug that is not a slug, without calling the API', async () => {
@@ -324,6 +330,8 @@ describe('TenantFormDialog — create', () => {
       'dualApprovalThresholdMinor',
       'agentFloatLowWatermarkMinor',
       'depositExpiryMinutes',
+      'withdrawalMode',
+      'miniAppUrl',
     ]) {
       expect(captured.body()).not.toHaveProperty(field);
     }
@@ -549,5 +557,317 @@ describe('TenantFormDialog — edit', () => {
 
     expect(await screen.findByText('Between 5 and 1440 minutes.')).toBeInTheDocument();
     expect(onSaved).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The two bot settings on both forms, asserted on the wire.
+ *
+ * What matters is the SHAPE of what goes out, not that a save happened: an untouched setting must
+ * be absent, a cleared URL must be `null` and only when the row held one, and a mode that did not
+ * change must not be sent at all — each is a different key on the captured JSON.
+ */
+describe('TenantFormDialog — the withdrawal mode and the mini app URL', () => {
+  const northern = mockTenants[1]!;
+
+  function captureUpdateBody(tenant: typeof tenantZero): { body: () => Record<string, unknown> } {
+    let sent: Record<string, unknown> = {};
+    server.use(
+      http.patch(`${config.apiBaseUrl}/v1/admin/tenants/:id`, async ({ request }) => {
+        sent = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(
+          {
+            success: true,
+            data: { ...tenant, ...sent },
+            error: null,
+            meta: { correlationId: 'test', timestamp: '' },
+          },
+          { status: 200 },
+        );
+      }),
+    );
+    return { body: () => sent };
+  }
+
+  it('on create, sends the mode and the URL only when they were chosen', async () => {
+    const captured = captureCreateBody();
+    const { user } = renderPlain(
+      <TenantFormDialog open tenant={null} onOpenChange={vi.fn()} onSaved={vi.fn()} />,
+      platformAdmin,
+    );
+
+    await openAdvanced(user);
+    await fillCreateForm(user, { 'Mini app URL (optional)': 'https://harbour.example.app' });
+    await user.selectOptions(screen.getByLabelText('Withdrawal mode'), 'AUTO');
+    await user.click(screen.getByRole('button', { name: 'Create tenant' }));
+
+    await waitFor(() => {
+      expect(Object.keys(captured.body())).toHaveLength(6);
+    });
+    expect(captured.body()).toMatchObject({
+      withdrawalMode: 'AUTO',
+      miniAppUrl: 'https://harbour.example.app',
+    });
+  });
+
+  it('on create, offers the server’s default as the blank option and explains what it is', async () => {
+    const { user } = renderPlain(
+      <TenantFormDialog open tenant={null} onOpenChange={vi.fn()} onSaved={vi.fn()} />,
+      platformAdmin,
+    );
+
+    await openAdvanced(user);
+
+    const mode = screen.getByLabelText('Withdrawal mode');
+    expect(mode).toHaveValue('');
+    expect(
+      within(mode).getByRole('option', { name: 'Left to the server (manual)' }),
+    ).toBeInTheDocument();
+    expect(within(mode).getByRole('option', { name: 'Automatic' })).toBeInTheDocument();
+    expect(within(mode).getByRole('option', { name: 'Manual' })).toBeInTheDocument();
+  });
+
+  it('refuses a mini app URL that is not https, on create, without calling the API', async () => {
+    const onSaved = vi.fn();
+    const { user } = renderPlain(
+      <TenantFormDialog open tenant={null} onOpenChange={vi.fn()} onSaved={onSaved} />,
+      platformAdmin,
+    );
+
+    await openAdvanced(user);
+    await fillCreateForm(user, { 'Mini app URL (optional)': 'http://harbour.example.app' });
+    await user.click(screen.getByRole('button', { name: 'Create tenant' }));
+
+    expect(await screen.findByText('Must be an https URL.')).toBeInTheDocument();
+    expect(onSaved).not.toHaveBeenCalled();
+  });
+
+  it('on edit, starts from what the row holds, in words', () => {
+    renderPlain(
+      <TenantFormDialog open tenant={northern} onOpenChange={vi.fn()} onSaved={vi.fn()} />,
+      platformAdmin,
+    );
+
+    expect(screen.getByLabelText('Withdrawal mode')).toHaveValue('AUTO');
+    expect(screen.getByLabelText('Mini app URL (optional)')).toHaveValue(
+      'https://northern-cashier.example.app',
+    );
+    expect(screen.getByText(/a person still sends the money/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Clear the field and save to remove the stored URL/),
+    ).toBeInTheDocument();
+  });
+
+  it('on edit, leaves both settings off the wire when neither changed', async () => {
+    const captured = captureUpdateBody(tenantZero);
+    const onSaved = vi.fn();
+    const { user } = renderPlain(
+      <TenantFormDialog open tenant={tenantZero} onOpenChange={vi.fn()} onSaved={onSaved} />,
+      platformAdmin,
+    );
+
+    // Tenant zero: manual, and no URL. Saving as-is must not invent either key — in particular
+    // not `miniAppUrl: null`, which would be a "clear" of something that was never there.
+    expect(screen.getByLabelText('Withdrawal mode')).toHaveValue('MANUAL');
+    expect(screen.getByLabelText('Mini app URL (optional)')).toHaveValue('');
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    await waitFor(() => {
+      expect(onSaved).toHaveBeenCalled();
+    });
+    expect(captured.body()).not.toHaveProperty('withdrawalMode');
+    expect(captured.body()).not.toHaveProperty('miniAppUrl');
+  });
+
+  it('on edit, sends the mode when it changed and the URL when one was typed', async () => {
+    const captured = captureUpdateBody(tenantZero);
+    const onSaved = vi.fn();
+    const { user } = renderPlain(
+      <TenantFormDialog open tenant={tenantZero} onOpenChange={vi.fn()} onSaved={onSaved} />,
+      platformAdmin,
+    );
+
+    await user.selectOptions(screen.getByLabelText('Withdrawal mode'), 'AUTO');
+    await user.click(screen.getByLabelText('Mini app URL (optional)'));
+    await user.paste('https://main.example.app');
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    await waitFor(() => {
+      expect(onSaved).toHaveBeenCalledWith(
+        expect.objectContaining({ withdrawalMode: 'AUTO', miniAppUrl: 'https://main.example.app' }),
+      );
+    });
+    expect(captured.body()).toMatchObject({
+      withdrawalMode: 'AUTO',
+      miniAppUrl: 'https://main.example.app',
+    });
+  });
+
+  it('on edit, clears a stored URL as an explicit null, never as an empty string', async () => {
+    const captured = captureUpdateBody(northern);
+    const onSaved = vi.fn();
+    const { user } = renderPlain(
+      <TenantFormDialog open tenant={northern} onOpenChange={vi.fn()} onSaved={onSaved} />,
+      platformAdmin,
+    );
+
+    await user.clear(screen.getByLabelText('Mini app URL (optional)'));
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    await waitFor(() => {
+      expect(onSaved).toHaveBeenCalled();
+    });
+    expect(captured.body()).toHaveProperty('miniAppUrl', null);
+    expect(Object.values(captured.body())).not.toContain('');
+    // The mode stayed automatic, so it was not mentioned.
+    expect(captured.body()).not.toHaveProperty('withdrawalMode');
+  });
+
+  it('refuses a mini app URL that is not https, on edit', async () => {
+    const onSaved = vi.fn();
+    const { user } = renderPlain(
+      <TenantFormDialog open tenant={northern} onOpenChange={vi.fn()} onSaved={onSaved} />,
+      platformAdmin,
+    );
+
+    const url = screen.getByLabelText('Mini app URL (optional)');
+    await user.clear(url);
+    await user.click(url);
+    await user.paste('ftp://northern.example.app');
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    expect(await screen.findByText('Must be an https URL.')).toBeInTheDocument();
+    expect(onSaved).not.toHaveBeenCalled();
+  });
+
+  it('names both settings in Arabic on the edit form', () => {
+    renderPlain(
+      <TenantFormDialog open tenant={northern} onOpenChange={vi.fn()} onSaved={vi.fn()} />,
+      { ...platformAdmin, locale: 'ar' as const },
+    );
+
+    const mode = screen.getByLabelText('طريقة السحب');
+    expect(mode).toHaveValue('AUTO');
+    expect(within(mode).getByRole('option', { name: 'تلقائي' })).toBeInTheDocument();
+    expect(screen.getByLabelText('رابط التطبيق المصغّر (اختياري)')).toBeInTheDocument();
+    expect(screen.getByText(/ويبقى إرسال المال عمل شخص/)).toBeInTheDocument();
+  });
+});
+
+/**
+ * The deposit mode's own field, added after the September batch — same wire rules as the
+ * withdrawal mode above (blank on create is absent, unchanged on edit is unmentioned), proven on
+ * its own field rather than assumed from the sibling setting's coverage.
+ */
+describe('TenantFormDialog — the deposit mode', () => {
+  const northern = mockTenants[1]!;
+
+  function captureUpdateBody(tenant: typeof tenantZero): { body: () => Record<string, unknown> } {
+    let sent: Record<string, unknown> = {};
+    server.use(
+      http.patch(`${config.apiBaseUrl}/v1/admin/tenants/:id`, async ({ request }) => {
+        sent = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(
+          {
+            success: true,
+            data: { ...tenant, ...sent },
+            error: null,
+            meta: { correlationId: 'test', timestamp: '' },
+          },
+          { status: 200 },
+        );
+      }),
+    );
+    return { body: () => sent };
+  }
+
+  it('on create, sends it only when it was chosen', async () => {
+    const captured = captureCreateBody();
+    const { user } = renderPlain(
+      <TenantFormDialog open tenant={null} onOpenChange={vi.fn()} onSaved={vi.fn()} />,
+      platformAdmin,
+    );
+
+    await fillCreateForm(user);
+    await openAdvanced(user);
+    await user.selectOptions(screen.getByLabelText('Deposit mode'), 'AUTO');
+    await user.click(screen.getByRole('button', { name: 'Create tenant' }));
+
+    await waitFor(() => {
+      expect(captured.body()).toMatchObject({ depositMode: 'AUTO' });
+    });
+  });
+
+  it('on create, offers the server’s default as the blank option', async () => {
+    const { user } = renderPlain(
+      <TenantFormDialog open tenant={null} onOpenChange={vi.fn()} onSaved={vi.fn()} />,
+      platformAdmin,
+    );
+
+    await openAdvanced(user);
+
+    const mode = screen.getByLabelText('Deposit mode');
+    expect(mode).toHaveValue('');
+    expect(
+      within(mode).getByRole('option', { name: 'Left to the server (manual)' }),
+    ).toBeInTheDocument();
+  });
+
+  it('on edit, starts from what the row holds', () => {
+    renderPlain(
+      <TenantFormDialog open tenant={northern} onOpenChange={vi.fn()} onSaved={vi.fn()} />,
+      platformAdmin,
+    );
+
+    expect(screen.getByLabelText('Deposit mode')).toHaveValue('AUTO');
+    expect(
+      screen.getByText(/checks the player’s claim against Sham Cash or the chain/),
+    ).toBeInTheDocument();
+  });
+
+  it('on edit, leaves it off the wire when it did not change', async () => {
+    const captured = captureUpdateBody(tenantZero);
+    const onSaved = vi.fn();
+    const { user } = renderPlain(
+      <TenantFormDialog open tenant={tenantZero} onOpenChange={vi.fn()} onSaved={onSaved} />,
+      platformAdmin,
+    );
+
+    // Tenant zero: manual. Saving as-is must not invent the key.
+    expect(screen.getByLabelText('Deposit mode')).toHaveValue('MANUAL');
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    await waitFor(() => {
+      expect(onSaved).toHaveBeenCalled();
+    });
+    expect(captured.body()).not.toHaveProperty('depositMode');
+  });
+
+  it('on edit, sends it when it changed', async () => {
+    const captured = captureUpdateBody(tenantZero);
+    const onSaved = vi.fn();
+    const { user } = renderPlain(
+      <TenantFormDialog open tenant={tenantZero} onOpenChange={vi.fn()} onSaved={onSaved} />,
+      platformAdmin,
+    );
+
+    await user.selectOptions(screen.getByLabelText('Deposit mode'), 'AUTO');
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    await waitFor(() => {
+      expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ depositMode: 'AUTO' }));
+    });
+    expect(captured.body()).toMatchObject({ depositMode: 'AUTO' });
+  });
+
+  it('names it in Arabic on the edit form', () => {
+    renderPlain(
+      <TenantFormDialog open tenant={northern} onOpenChange={vi.fn()} onSaved={vi.fn()} />,
+      { ...platformAdmin, locale: 'ar' as const },
+    );
+
+    const mode = screen.getByLabelText('طريقة التحقق من الإيداع');
+    expect(mode).toHaveValue('AUTO');
+    expect(within(mode).getByRole('option', { name: 'تلقائي' })).toBeInTheDocument();
   });
 });

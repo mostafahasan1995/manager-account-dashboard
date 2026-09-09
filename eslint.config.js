@@ -13,6 +13,17 @@ export default tseslint.config(
       'playwright-report',
       'test-results',
       'public/mockServiceWorker.js',
+
+      /*
+       * THE PARKED SHAM CASH SESSION CARD — the same two files as tsconfig.json's "exclude",
+       * for the same reason and with the same rule about naming them one by one.
+       *
+       * Lint needs them ignored as well as tsc: this config is type-aware
+       * (strictTypeChecked + projectService), so a file the tsconfig does not include has no
+       * program to be linted against and every expression in it reads as an unresolved type.
+       */
+      'src/features/payment-methods/shamcash-card.tsx',
+      'src/features/payment-methods/shamcash-card.test.tsx',
     ],
   },
   js.configs.recommended,

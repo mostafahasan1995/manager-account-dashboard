@@ -16,9 +16,9 @@ import { settingsMessages } from './messages';
  * Who this tab is signed in as, and how long that lasts.
  *
  * The expiry is a live countdown rather than a timestamp because the admin path has no refresh
- * token: when it reaches zero the only way back is a fresh `/console` code from the bot. Saying
- * that out loud here is the difference between an operator who plans around it and one who loses
- * a half-written rejection note to a surprise sign-out.
+ * token: when it reaches zero the only way back is signing in again with a username and password.
+ * Saying that out loud here is the difference between an operator who plans around it and one who
+ * loses a half-written rejection note to a surprise sign-out.
  */
 export function SettingsProfile() {
   const { admin, role, session, expiringSoon, signOut } = useAuth();
@@ -47,7 +47,11 @@ export function SettingsProfile() {
           <DetailRow label={t('field.displayName')}>{admin.displayName}</DetailRow>
 
           <DetailRow label={t('field.telegramId')}>
-            <CopyableValue value={admin.telegramUserId} />
+            {admin.telegramUserId === null ? (
+              <span className="text-[var(--muted-foreground)]">{t('account.noTelegram')}</span>
+            ) : (
+              <CopyableValue value={admin.telegramUserId} />
+            )}
           </DetailRow>
 
           <DetailRow label={t('field.role')}>
@@ -71,11 +75,7 @@ export function SettingsProfile() {
           tone={expiringSoon ? 'warning' : 'neutral'}
           title={t('settings.profile.noRefreshTitle')}
         >
-          {/* The command is split out of the sentence rather than interpolated into it: it has to
-              stay a <code> element so it reads as something you type, and it stays left-to-right
-              inside an Arabic paragraph. */}
-          {t('settings.profile.noRefreshBefore')} <code className="font-mono">/console</code>{' '}
-          {t('settings.profile.noRefreshAfter')}
+          {t('settings.profile.noRefreshBody')}
         </Alert>
 
         <Button

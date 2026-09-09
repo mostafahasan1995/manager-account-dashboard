@@ -23,7 +23,10 @@ describe('SettingsProfile', () => {
 
     expect(screen.getByTestId('countdown')).toHaveTextContent(/\d/);
     expect(screen.getByText('Admin sessions have no refresh token')).toBeInTheDocument();
-    expect(screen.getByText('/console')).toBeInTheDocument();
+    expect(screen.getByText(/sign in again with your username and password/i)).toBeInTheDocument();
+    // The old copy told the operator to send /console to the bot. That command is gone; copy that
+    // still names it sends a locked-out admin to a door that no longer exists.
+    expect(screen.queryByText('/console')).not.toBeInTheDocument();
   });
 
   it('offers the telegram id for copying rather than retyping', async () => {

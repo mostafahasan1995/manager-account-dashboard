@@ -3,33 +3,65 @@ import { HttpResponse, http, type HttpHandler } from 'msw';
 import { config } from '@/config';
 import { can } from '@/lib/auth/permissions';
 import { formatMinorToDecimal, minorFromString, parseDecimalToMinor } from '@/lib/money';
+import type { Capability } from '@/lib/auth/permissions';
 import {
   ADMIN_ROLES,
+  BLOCK_REASON_MAX_LENGTH,
   CREDIT_REASON_MAX_LENGTH,
   DEBIT_REASON_MAX_LENGTH,
+  DEPOSIT_MODES,
+  PAYOUT_REFERENCE_MAX_LENGTH,
+  WITHDRAWAL_MODES,
+  WITHDRAWAL_REJECTION_REASON_MAX_LENGTH,
   type AdminDeposit,
   type AdminRole,
+  type AdminWithdrawal,
+  type DepositMode,
   type Tenant,
   type TelegramDestination,
+  type WithdrawalMode,
 } from '@/types';
 
 import {
   agentFloatView,
   approveDeposit,
+  approveWithdrawal,
+  blockPlayer,
+  botSettingsView,
   claimDeposit,
   correctFloat,
   createAdmin,
   createDestination,
+  createMenuButton,
+  createMenuNode,
   createMethod,
+  deleteMenuButton,
+  deleteMenuNode,
+  deleteMethod,
   createTenant,
   db,
   debitPlayer,
+  findMenuButton,
+  findMenuNode,
+  findWithdrawal,
+  importPlayers,
+  importPlayersForTenant,
+  linkIchancyAccount,
   manualCredit,
+  markWithdrawalPaid,
+  menuNodeStillLinkedFrom,
   financeBalancesView,
   refreshTenantFinance,
   findDeposit,
   nextId,
   nowIso,
+  registerPlayer,
+  rejectWithdrawal,
+  reorderMenuButtons,
+  requiredActionLeftWithout,
+  unblockPlayer,
+  updateBotSettings,
+  updateMenuButton,
   platformDefaultsView,
   updatePlatformDefaults,
   usdtRateView,
@@ -47,7 +79,12 @@ import {
   tenantHealth,
   updateTenantIchancy,
 } from './db';
-import { MOCK_AGENT_PASSWORD, MOCK_SESSION_TTL_MINUTES, mockRoleForCode } from './demo';
+import {
+  MOCK_AGENT_PASSWORD,
+  MOCK_CONSOLE_PASSWORD,
+  MOCK_SESSION_TTL_MINUTES,
+  mockRoleForLogin,
+} from './demo';
 import {
   mockBalanceAlwaysFailsFor,
   mockBalanceMinorFor,
@@ -55,7 +92,21 @@ import {
   TENANT_ZERO_ID,
 } from './fixtures';
 import { mockDepositChainCheck } from './deposit-chain-check';
+import {
+  MOCK_PAIRING_EXPIRED,
+  MOCK_PAIRING_ID,
+  MOCK_QR_IMAGE,
+  MOCK_SHAM_PAGE,
+  mockAccountLink,
+  mockAccountRefresh,
+  mockAccountStatus,
+  mockAccountUnlink,
+  mockPairingPolls,
+  mockParseShamCashText,
+} from './shamcash-dev';
+import { platformStatsView, tenantStatsView } from './stats';
 import { mockNetworkForAddress, mockWalletBalance } from './wallet-balance';
+import { STATS_PERIODS, type StatsPeriodKey } from '@/types/stats';
 
 /**
  * The mock backend.
@@ -115,6 +166,24 @@ const callerRole = (request: Request): AdminRole | null => {
     : null;
 };
 
+/**
+ * The 403 a route answers a role that lacks its capability — or null when the caller may proceed.
+ *
+ * `role !== null`, as every guarded route below explains: a token with no role in it is a test
+ * client, not a signed-in operator, and the mock login never issues one. A REAL role that lacks the
+ * capability is refused, which is the rule the backend enforces.
+ */
+const refusedFor = (request: Request, capability: Capability, message: string) => {
+  const role = callerRole(request);
+  return role !== null && !can(role, capability) ? fail(403, 'INSUFFICIENT_ROLE', message) : null;
+};
+
+/** A Telegram user id: a positive 64-bit integer, which crosses the wire as a decimal string. */
+const TELEGRAM_USER_ID_PATTERN = /^[1-9]\d{0,19}$/;
+
+/** A reason or a reference, trimmed, or '' when it was not a string at all. */
+const textField = (value: unknown): string => (typeof value === 'string' ? value.trim() : '');
+
 const requestedTenant = (request: Request): string | null => {
   const header = request.headers.get('x-tenant-id');
   if (header === null || header === TENANT_ZERO_ID) return null;
@@ -136,6 +205,12 @@ const listParam = (request: Request, key: string): string[] => {
 
 const param = (request: Request, key: string): string | null =>
   new URL(request.url).searchParams.get(key);
+
+/** An unknown or absent period is the month — the API's own documented default. */
+const periodParam = (request: Request): StatsPeriodKey => {
+  const raw = param(request, 'period');
+  return STATS_PERIODS.find((key) => key === raw) ?? 'month';
+};
 
 const numberParam = (request: Request, key: string, fallback: number): number => {
   const raw = param(request, key);
@@ -224,9 +299,85 @@ function sortDeposits(rows: AdminDeposit[], sort: string | null): AdminDeposit[]
   }
 }
 
-/** What AGENT_OPERATOR_AMBIGUOUS and AGENT_OPERATOR_NOT_ACTIVE carry in `details`. No secrets. */
+/** What *_OPERATOR_AMBIGUOUS and *_OPERATOR_NOT_ACTIVE carry in `details`. No secrets. */
 const operatorChoices = (rows: readonly Tenant[]): { slug: string; displayName: string }[] =>
   rows.map((tenant) => ({ slug: tenant.slug, displayName: tenant.displayName }));
+
+/**
+ * Signing in with an operator's ICHANCY AGENT account, shared by the two routes that can end here.
+ *
+ * Returns `null` for "these are not agent credentials at all", so the credentials route can answer
+ * with its own ordinary wrong-password sentence rather than one about Ichancy — an account the
+ * person typing may not know exists. Every other outcome is a real answer and comes back as a
+ * response, including the two that only make sense AFTER the password was right.
+ *
+ * The refusal ORDER is mirrored from the real route rather than merely its status codes, because
+ * the order is the security property. Nothing about which operators exist is said until the
+ * password is right; everything said afterwards is about an operator the caller has already proved
+ * they run. A mock that had that backwards would let a console ship a screen which leaks against
+ * the real backend and looks correct against this one.
+ */
+function agentSignIn(
+  rawUsername: string,
+  password: string,
+  operatorSlug?: string,
+): ReturnType<typeof ok> | null {
+  const username = rawUsername.trim().toLowerCase();
+  const matched =
+    username.length > 0 && password === MOCK_AGENT_PASSWORD
+      ? db.tenants.filter((tenant) => tenant.ichancyUsername.toLowerCase() === username)
+      : [];
+
+  const wanted = operatorSlug?.trim().toLowerCase();
+  const chosen =
+    wanted === undefined || wanted.length === 0
+      ? matched
+      : matched.filter((tenant) => tenant.slug.toLowerCase() === wanted);
+
+  if (chosen.length === 0) return null;
+
+  const active = chosen.filter((tenant) => tenant.status === 'ACTIVE');
+
+  if (active.length > 1) {
+    return fail(
+      409,
+      'AGENT_OPERATOR_AMBIGUOUS',
+      'That Ichancy agent runs more than one operator. Choose which one to sign into.',
+      { operators: operatorChoices(active) },
+    );
+  }
+
+  // Destructured rather than indexed: `active` is empty when every operator that agent opens is
+  // suspended, which is a real answer this route has to give rather than an impossible one.
+  const [tenant] = active;
+  if (tenant === undefined) {
+    return fail(
+      403,
+      'AGENT_OPERATOR_NOT_ACTIVE',
+      'That operator is suspended. A platform admin has to activate it before anyone can sign in.',
+      { operators: operatorChoices(chosen) },
+    );
+  }
+
+  // The agent account is the top of ONE operator, so it opens the console as a SUPER_ADMIN.
+  const persona = db.admins.find((admin) => admin.role === 'SUPER_ADMIN');
+  if (persona !== undefined) {
+    setMockAdmin({
+      id: persona.id,
+      telegramUserId: persona.telegramUserId,
+      role: persona.role,
+      displayName: persona.displayName,
+    });
+  }
+
+  return ok({
+    accessToken: `mock:SUPER_ADMIN:${nextId('99999999')}`,
+    expiresAt: new Date(Date.now() + MOCK_SESSION_TTL_MINUTES * 60_000).toISOString(),
+    admin: db.currentAdmin,
+    tenantId: tenant.id,
+    tenantSlug: tenant.slug,
+  });
+}
 
 /**
  * The mock's stand-in for resolving a pasted link through the operator's bot.
@@ -385,18 +536,35 @@ export const handlers: HttpHandler[] = [
   ),
 
   // ── Auth ─────────────────────────────────────────────────────────────────────────────────────
-  http.post(url('/v1/admin/auth/bot-code'), async ({ request }) => {
-    const body = (await request.json()) as { code?: string };
-    const role = mockRoleForCode(body.code ?? '');
-    if (role === null) {
+  /**
+   * The console's only sign-in. Mirrors the real route: a username and a password, with the
+   * operator's Ichancy agent account tried second — which is why an unknown console username falls
+   * through to the agent handler's logic below rather than being refused here.
+   */
+  http.post(url('/v1/admin/auth/credentials'), async ({ request }) => {
+    const body = (await request.json()) as {
+      username?: string;
+      password?: string;
+      operatorSlug?: string;
+    };
+    const username = (body.username ?? '').trim();
+    const role = mockRoleForLogin(username);
+
+    if (role === null || body.password !== MOCK_CONSOLE_PASSWORD) {
+      // Not a console account. The real server tries the agent credential before giving up, and
+      // demo mode has to as well or the operator logins the login screen advertises would 401.
+      // The slug travels with it, or the ambiguity retry would loop forever asking the question.
+      const agentResult = agentSignIn(username, body.password ?? '', body.operatorSlug);
+      if (agentResult !== null) return agentResult;
+
       return fail(
         401,
-        'BOT_CODE_INVALID',
-        'That code is not valid. Send /console to the bot for a new one.',
+        'ADMIN_CREDENTIALS_INVALID',
+        'Those credentials are not valid for any administrator on this platform.',
       );
     }
 
-    // Demo mode only: the code names the role, so every role-gated screen can actually be shown.
+    // Demo mode only: the username names the role, so every role-gated screen can be shown.
     const persona = db.admins.find((admin) => admin.role === role);
     if (persona !== undefined) {
       setMockAdmin({
@@ -418,13 +586,9 @@ export const handlers: HttpHandler[] = [
   }),
 
   /*
-   * The OTHER door: an operator signing in with its Ichancy agent account.
-   *
-   * The refusal ORDER is mirrored from the real route rather than merely its status codes, because
-   * the order is the security property. Nothing about which operators exist is said until the
-   * password is right; everything said afterwards is about an operator the caller has already
-   * proved they run. A mock that had that backwards would let a console ship a screen which leaks
-   * against the real backend and looks correct against this one.
+   * The agent credential on its own route, kept because the backend keeps it: a published contract
+   * the Flutter console still posts to. The web console does not use it — its single sign-in form
+   * posts to /credentials, which falls through to the same logic.
    */
   http.post(url('/v1/admin/auth/ichancy'), async ({ request }) => {
     const body = (await request.json()) as {
@@ -433,68 +597,14 @@ export const handlers: HttpHandler[] = [
       operatorSlug?: string;
     };
 
-    const username = (body.username ?? '').trim().toLowerCase();
-    const matched =
-      username.length > 0 && body.password === MOCK_AGENT_PASSWORD
-        ? db.tenants.filter((tenant) => tenant.ichancyUsername.toLowerCase() === username)
-        : [];
-
-    const wanted = body.operatorSlug?.trim().toLowerCase();
-    const chosen =
-      wanted === undefined || wanted.length === 0
-        ? matched
-        : matched.filter((tenant) => tenant.slug.toLowerCase() === wanted);
-
-    if (chosen.length === 0) {
-      return fail(
+    return (
+      agentSignIn(body.username ?? '', body.password ?? '', body.operatorSlug) ??
+      fail(
         401,
         'AGENT_CREDENTIALS_INVALID',
         'Those Ichancy credentials are not valid for any operator on this platform.',
-      );
-    }
-
-    const active = chosen.filter((tenant) => tenant.status === 'ACTIVE');
-
-    if (active.length > 1) {
-      return fail(
-        409,
-        'AGENT_OPERATOR_AMBIGUOUS',
-        'That Ichancy agent runs more than one operator. Choose which one to sign into.',
-        { operators: operatorChoices(active) },
-      );
-    }
-
-    // Destructured rather than indexed: `active` is empty when every operator that agent opens is
-    // suspended, which is a real answer this route has to give rather than an impossible one.
-    const [tenant] = active;
-    if (tenant === undefined) {
-      return fail(
-        403,
-        'AGENT_OPERATOR_NOT_ACTIVE',
-        'That operator is suspended. A platform admin has to activate it before anyone can sign in.',
-        { operators: operatorChoices(chosen) },
-      );
-    }
-
-    // The agent account is the top of ONE operator, so it opens the console as a SUPER_ADMIN —
-    // never as the PLATFORM_ADMIN, which runs no agent of its own and stays a bot-code login.
-    const persona = db.admins.find((admin) => admin.role === 'SUPER_ADMIN');
-    if (persona !== undefined) {
-      setMockAdmin({
-        id: persona.id,
-        telegramUserId: persona.telegramUserId,
-        role: persona.role,
-        displayName: persona.displayName,
-      });
-    }
-
-    return ok({
-      accessToken: `mock:SUPER_ADMIN:${nextId('99999999')}`,
-      expiresAt: new Date(Date.now() + MOCK_SESSION_TTL_MINUTES * 60_000).toISOString(),
-      admin: db.currentAdmin,
-      tenantId: tenant.id,
-      tenantSlug: tenant.slug,
-    });
+      )
+    );
   }),
 
   // ── The rate that prices a crypto deposit ────────────────────────────────────────────────────
@@ -506,7 +616,7 @@ export const handlers: HttpHandler[] = [
    * is touched, not whether the write is allowed.
    */
   // ── Sham Cash session (external cashier account, linked by pasting cookies) ────────────────────
-  http.get(url('/v1/admin/shamcash/session'), ({ request }) => {
+  http.get(url('/v1/admin/shamcash/status'), ({ request }) => {
     const role = callerRole(request);
     if (role !== null && !can(role, 'paymentMethods.read')) {
       return fail(403, 'INSUFFICIENT_ROLE', 'Your role cannot read the payment configuration.');
@@ -514,28 +624,70 @@ export const handlers: HttpHandler[] = [
     return ok(db.shamCashSession);
   }),
 
-  http.post(url('/v1/admin/shamcash/session'), async ({ request }) => {
+  // ── Sham Cash HTTP API key (supersedes the session for reading transactions) ─────────────────
+  http.post(url('/v1/admin/shamcash/api'), async ({ request }) => {
     const role = callerRole(request);
     if (role !== null && !can(role, 'paymentMethods.write')) {
       return fail(403, 'INSUFFICIENT_ROLE', 'Your role cannot change the payment configuration.');
     }
-    const body = (await request.json()) as { accessToken?: string; authToken?: string };
-    if (!body.accessToken || !body.authToken) {
-      return fail(400, 'VALIDATION_FAILED', 'accessToken and authToken are required.');
+    const body = (await request.json()) as { walletId?: string; apiKey?: string };
+    if (!body.walletId || !body.apiKey) {
+      return fail(400, 'VALIDATION_FAILED', 'walletId and apiKey are required.');
     }
-    // The cookies are never stored in the mock — only the fact that a session now exists, which is
-    // all the real backend ever returns.
-    db.shamCashSession = { linked: true, updatedAt: nowIso() };
+    // The KEY is never stored in the mock, exactly as the real backend never returns it. Only that
+    // one exists, and the wallet id — which is not a credential.
+    db.shamCashSession = { apiLinked: true, walletId: body.walletId };
     return ok(db.shamCashSession);
   }),
 
-  http.delete(url('/v1/admin/shamcash/session'), ({ request }) => {
+  http.delete(url('/v1/admin/shamcash/api'), ({ request }) => {
     const role = callerRole(request);
     if (role !== null && !can(role, 'paymentMethods.write')) {
       return fail(403, 'INSUFFICIENT_ROLE', 'Your role cannot change the payment configuration.');
     }
-    db.shamCashSession = { linked: false, updatedAt: null };
+    db.shamCashSession = { apiLinked: false, walletId: null };
     return ok(db.shamCashSession);
+  }),
+
+  http.post(url('/v1/admin/shamcash/test'), ({ request }) => {
+    const role = callerRole(request);
+    if (role !== null && !can(role, 'paymentMethods.write')) {
+      return fail(403, 'INSUFFICIENT_ROLE', 'Your role cannot read the payment configuration.');
+    }
+    if (!db.shamCashSession.apiLinked) return ok({ status: 'not_linked' });
+
+    // Both halves reported separately, exactly as the real endpoint does — they are different
+    // endpoints upstream and can fail apart.
+    return ok({
+      status: 'ok',
+      balance: {
+        status: 'ok',
+        balances: [{ currency: 'SYP', available: '250000', locked: '0' }],
+        checkedAt: nowIso(),
+      },
+      transactions: {
+        status: 'ok',
+        total: 2,
+        sample: [
+          {
+            id: '425762101',
+            type: 'credit',
+            amount: 1200,
+            currency: 'SYP',
+            counterparty: 'علاء ابراهيم محمد',
+            occurredAt: '2026-09-02T22:42:18',
+          },
+          {
+            id: '425762517',
+            type: 'debit',
+            amount: 1100,
+            currency: 'SYP',
+            counterparty: 'شركة الفتح',
+            occurredAt: '2026-09-02T22:42:33',
+          },
+        ],
+      },
+    });
   }),
 
   http.post(url('/v1/admin/shamcash/balance'), ({ request }) => {
@@ -543,36 +695,17 @@ export const handlers: HttpHandler[] = [
     if (role !== null && !can(role, 'paymentMethods.write')) {
       return fail(403, 'INSUFFICIENT_ROLE', 'Your role cannot read the payment configuration.');
     }
-    if (!db.shamCashSession.linked) {
+    if (!db.shamCashSession.apiLinked) {
       return ok({ status: 'not_linked' });
     }
-    // A plausible read: the account holds SYP, and the last two transfers are the +/-10 test moves.
+    // A plausible read: the account holds SYP. Transactions are no longer part of this response —
+    // the balance endpoint returns balances, and lookups have their own endpoint.
     return ok({
       status: 'ok',
       balances: [
         { currency: 'SYP', available: '250,000', locked: '10,000' },
         { currency: 'USD', available: '0', locked: '0' },
         { currency: 'EUR', available: '0', locked: '0' },
-      ],
-      transactions: [
-        {
-          transactionId: '100000001',
-          date: '2026-08-26 - 16:10:31',
-          amount: '10',
-          currency: 'SYP',
-          direction: 'out',
-          username: 'Counterparty One',
-          maskedCard: '**** **** **** 0000',
-        },
-        {
-          transactionId: '100000002',
-          date: '2026-08-26 - 16:08:45',
-          amount: '10',
-          currency: 'SYP',
-          direction: 'in',
-          username: 'Counterparty Two',
-          maskedCard: '**** **** **** 1111',
-        },
       ],
       checkedAt: nowIso(),
     });
@@ -683,6 +816,159 @@ export const handlers: HttpHandler[] = [
     }
     const row = refreshTenantFinance(String(params.tenantId));
     return row === null ? fail(404, 'TENANT_NOT_FOUND', 'Tenant not found.') : ok(row);
+  }),
+
+  // ── Sham Cash developer bench ────────────────────────────────────────────────────────────────
+
+  /*
+   * The bench, faked well enough to drive the screen and no further.
+   *
+   * WHAT IT DOES NOT DO: launch a browser, or pretend to take a minute. The real check replays a
+   * session at shamcash.sy and is measured at 55-90 seconds; a mock that slept would make every
+   * component test wait for it and prove nothing.
+   *
+   * WHAT IT DOES REPRODUCE is the SHAPE of the three answers, because that is what the screen is
+   * built around — a valid session, a lapsed one, and a page that loaded but was not recognised.
+   * The trigger is the accessToken, so a test asks for the case it means by name.
+   */
+  http.post(url('/v1/admin/shamcash/dev/browser-check'), async ({ request }) => {
+    const body = (await request.json()) as { accessToken?: string };
+
+    if (body.accessToken === 'expired') return ok({ status: 'expired' });
+
+    if (body.accessToken === 'blank') {
+      return ok({
+        status: 'unavailable',
+        detail: 'The page loaded but did not look like the account home screen.',
+        debug: {
+          url: 'https://shamcash.sy/en/application/home',
+          textSnippet: MOCK_SHAM_PAGE,
+          htmlSnippet: '<div id="__next"></div>',
+          storageKeys: ['shamcash-pin-code-hash'],
+          errors: [],
+          api: [{ path: '/v4/api/Account/balance', status: 200 }],
+        },
+      });
+    }
+
+    return ok({
+      status: 'ok',
+      balances: [
+        { currency: 'SYP', available: '250,000', locked: '10,000' },
+        { currency: 'USD', available: '0', locked: '0' },
+      ],
+      transactions: [
+        {
+          transactionId: '884512309',
+          date: '2026-08-26 - 16:10:31',
+          amount: '10',
+          currency: 'SYP',
+          direction: 'in',
+          username: 'Test Sender',
+          maskedCard: '**** **** **** 0824',
+        },
+      ],
+      checkedAt: '2026-09-07T09:00:00.000Z',
+    });
+  }),
+
+  /*
+   * The parser half. It really does read the text it is given — the point of this endpoint is that
+   * it is deterministic and offline, and a mock that ignored the input would make the one test that
+   * matters ("does an unrecognised page report nothing?") impossible to write.
+   */
+  http.post(url('/v1/admin/shamcash/dev/parse'), async ({ request }) => {
+    const body = (await request.json()) as { text?: string };
+    return ok(mockParseShamCashText(body.text ?? ''));
+  }),
+
+  /*
+   * The QR pairing, faked as a STATE MACHINE rather than a fixed answer.
+   *
+   * The screen's whole behaviour is a sequence — show a code, poll while it is pending, react once
+   * when it links — and a mock that answered 'linked' immediately would test none of it. So the
+   * first poll of a pairing answers pending and the second answers linked, which is the shortest
+   * sequence that exercises the real path.
+   *
+   * MOCK_PAIRING_EXPIRED is the id a test asks for when it wants the unhappy branch.
+   */
+  http.post(url('/v1/admin/shamcash/dev/qr'), () => {
+    mockPairingPolls.clear();
+    return ok({
+      pairingId: MOCK_PAIRING_ID,
+      qrImage: MOCK_QR_IMAGE,
+      strategy: 'canvas',
+      pageUrl: 'https://shamcash.sy/en/auth/login',
+      expiresAt: new Date(Date.now() + 180_000).toISOString(),
+    });
+  }),
+
+  http.get(url('/v1/admin/shamcash/dev/qr/:pairingId'), ({ params }) => {
+    const id = String(params.pairingId);
+    if (id === MOCK_PAIRING_EXPIRED) return ok({ status: 'expired' });
+
+    const seen = (mockPairingPolls.get(id) ?? 0) + 1;
+    mockPairingPolls.set(id, seen);
+
+    if (seen < 2) {
+      return ok({ status: 'pending', expiresAt: new Date(Date.now() + 180_000).toISOString() });
+    }
+
+    mockAccountLink();
+    return ok({
+      status: 'linked',
+      session: {
+        accessToken: 'linked-access-token',
+        authToken: 'linked-auth-token',
+        forge: 'linked-forge',
+        pinCodeHash: 'linked-pin-hash',
+      },
+      pinRequired: false,
+    });
+  }),
+
+  http.delete(url('/v1/admin/shamcash/dev/qr/:pairingId'), () => ok({ deleted: true })),
+
+  /*
+   * The linked account. Stateful across a session so the screen can be driven end to end: it
+   * starts unlinked, a successful QR poll links it, and Refresh produces numbers.
+   */
+  http.get(url('/v1/admin/shamcash/account'), () => ok(mockAccountStatus())),
+
+  http.post(url('/v1/admin/shamcash/account/refresh'), () => {
+    const snapshot = mockAccountRefresh();
+    return snapshot === null
+      ? fail(503, 'SHAMCASH_NOT_LINKED', 'No Sham Cash session is linked.')
+      : ok(snapshot);
+  }),
+
+  http.delete(url('/v1/admin/shamcash/account'), () => {
+    mockAccountUnlink();
+    return ok({ deleted: true });
+  }),
+
+  // ── Stats ────────────────────────────────────────────────────────────────────────────────────
+
+  /*
+   * The aggregates, derived from the SAME rows the deposit list below serves — see mocks/stats.ts
+   * for why they are computed rather than fixtured. Any role that may read the queue may read them,
+   * so there is no role check here; the cross-operator route below has one.
+   *
+   * An unknown `period` falls back to the month, which is what the API's own default does. Failing
+   * it would make a stale link a broken screen rather than the default view.
+   */
+  http.get(url('/v1/admin/stats'), ({ request }) => ok(tenantStatsView(periodParam(request)))),
+
+  /*
+   * Every operator, PLATFORM_ADMIN only — the same rule, and the same `role !== null` escape hatch
+   * for test clients, that `/v1/admin/finance/balances` above explains at length.
+   */
+  http.get(url('/v1/admin/stats/tenants'), ({ request }) => {
+    const role = callerRole(request);
+    if (role !== null && role !== 'PLATFORM_ADMIN') {
+      return fail(403, 'INSUFFICIENT_ROLE', 'This endpoint is for platform administrators.');
+    }
+    return ok(platformStatsView(periodParam(request)));
   }),
 
   // ── Deposits ─────────────────────────────────────────────────────────────────────────────────
@@ -881,6 +1167,8 @@ export const handlers: HttpHandler[] = [
     const search = param(request, 'search');
     const telegramUserId = param(request, 'telegramUserId');
     const linked = boolParam(request, 'linked');
+    const source = param(request, 'source');
+    const blocked = boolParam(request, 'blocked');
 
     let rows = [...db.players];
     if (status !== null) rows = rows.filter((row) => row.status === status);
@@ -888,10 +1176,22 @@ export const handlers: HttpHandler[] = [
       rows = rows.filter((row) => row.telegramUserId === telegramUserId);
     }
     if (linked !== undefined) rows = rows.filter((row) => row.ichancyLinked === linked);
+    if (source !== null) rows = rows.filter((row) => row.source === source);
+    // `blocked=false` HIDES the blocked rows, which is a different filter from no opinion.
+    if (blocked !== undefined) rows = rows.filter((row) => (row.status === 'BLOCKED') === blocked);
     if (search !== null) {
       const needle = search.toLowerCase();
+      // The Ichancy login too: an imported row has no name and no Telegram, and its login is the
+      // only handle the operator knows it by.
       rows = rows.filter((row) =>
-        [row.firstName, row.lastName, row.telegramUsername, row.telegramUserId, row.phone]
+        [
+          row.firstName,
+          row.lastName,
+          row.telegramUsername,
+          row.telegramUserId,
+          row.phone,
+          row.ichancyLogin,
+        ]
           .filter((value): value is string => typeof value === 'string')
           .some((value) => value.toLowerCase().includes(needle)),
       );
@@ -946,23 +1246,167 @@ export const handlers: HttpHandler[] = [
   http.post(url('/v1/admin/players/:id/ichancy-account'), ({ params }) => {
     const player = db.players.find((row) => row.id === String(params.id));
     if (player === undefined) return fail(404, 'PLAYER_NOT_FOUND', 'Player not found.');
+    return ok(linkIchancyAccount(player));
+  }),
 
-    const alreadyLinked = player.ichancyLinked;
-    if (!alreadyLinked) {
-      player.ichancyLinked = true;
-      player.ichancyPlayerId = String(90_000 + db.players.indexOf(player));
-      player.ichancyLogin = `tg${player.telegramUserId}`;
-      player.ichancyRegisteredAt = nowIso();
-      player.status = 'ACTIVE';
+  /**
+   * Registering a player from the console.
+   *
+   * Two refusals the dialog is built against: a Telegram id that is not a number (400 naming the
+   * field) and one another player already holds (409). The Ichancy link, when asked for, happens
+   * AFTER the row exists and is reported beside it — a failed link is `ichancy: null` plus an
+   * `ichancyError`, never a failed registration.
+   */
+  http.post(url('/v1/admin/players'), async ({ request }) => {
+    const refused = refusedFor(request, 'players.write', 'Your role cannot register a player.');
+    if (refused !== null) return refused;
+
+    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+    const telegramUserId = textField(body.telegramUserId);
+    if (telegramUserId.length > 0 && !TELEGRAM_USER_ID_PATTERN.test(telegramUserId)) {
+      return fail(400, 'VALIDATION_FAILED', 'The request payload is invalid.', {
+        fields: ['telegramUserId must be a positive integer as a string'],
+      });
+    }
+    if (
+      telegramUserId.length > 0 &&
+      db.players.some((row) => row.telegramUserId === telegramUserId)
+    ) {
+      return fail(
+        409,
+        'PLAYER_TELEGRAM_ID_TAKEN',
+        'Another player in this operator already holds that Telegram id.',
+      );
     }
 
-    return ok({
-      playerId: player.id,
-      ichancyPlayerId: player.ichancyPlayerId ?? '0',
-      ichancyLogin: player.ichancyLogin ?? '',
-      created: !alreadyLinked,
-      agentId: '10045',
+    const player = registerPlayer({
+      telegramUserId: telegramUserId.length > 0 ? telegramUserId : null,
+      firstName: textField(body.firstName) || null,
+      lastName: textField(body.lastName) || null,
+      phone: textField(body.phone) || null,
     });
+
+    if (body.createIchancyAccount !== true) {
+      return ok({ player, ichancy: null, ichancyError: null }, {}, 201);
+    }
+
+    // The one registration whose link fails, so the dialog's "created, but not linked" arm exists
+    // in the demo and not only in a test that remembers to fake it: a phone ending in 000.
+    if (player.phone?.endsWith('000') === true) {
+      return ok(
+        {
+          player,
+          ichancy: null,
+          ichancyError:
+            'Ichancy did not answer within 15s; the player was created without an account.',
+        },
+        {},
+        201,
+      );
+    }
+
+    return ok({ player, ichancy: linkIchancyAccount(player), ichancyError: null }, {}, 201);
+  }),
+
+  http.post(url('/v1/admin/players/:id/block'), async ({ params, request }) => {
+    const refused = refusedFor(request, 'players.block', 'Your role cannot block a player.');
+    if (refused !== null) return refused;
+
+    const player = db.players.find((row) => row.id === String(params.id));
+    if (player === undefined) return fail(404, 'PLAYER_NOT_FOUND', 'Player not found.');
+
+    const body = (await request.json().catch(() => ({}))) as { reason?: unknown };
+    const reason = textField(body.reason);
+    if (reason.length === 0 || reason.length > BLOCK_REASON_MAX_LENGTH) {
+      return fail(400, 'VALIDATION_FAILED', 'The request payload is invalid.', {
+        fields: [`reason must be between 1 and ${BLOCK_REASON_MAX_LENGTH} characters`],
+      });
+    }
+
+    if (player.status === 'BLOCKED') {
+      return fail(409, 'PLAYER_ALREADY_BLOCKED', 'This player is already blocked.');
+    }
+    // A closed account is gone; there is nothing left to lock.
+    if (player.status === 'CLOSED') {
+      return fail(409, 'PLAYER_NOT_ACTIVE', 'A closed player cannot be blocked.');
+    }
+
+    blockPlayer(player, reason);
+    return ok(player);
+  }),
+
+  http.post(url('/v1/admin/players/:id/unblock'), ({ params, request }) => {
+    const refused = refusedFor(request, 'players.block', 'Your role cannot unblock a player.');
+    if (refused !== null) return refused;
+
+    const player = db.players.find((row) => row.id === String(params.id));
+    if (player === undefined) return fail(404, 'PLAYER_NOT_FOUND', 'Player not found.');
+    if (player.status !== 'BLOCKED') {
+      return fail(409, 'PLAYER_NOT_BLOCKED', 'This player is not blocked.');
+    }
+
+    unblockPlayer(player);
+    return ok(player);
+  }),
+
+  /**
+   * Attaching a Telegram id to a row that has none. Refused for a row that already has one — that
+   * would be REPOINTING an account, which is a different and more dangerous act — and for an id
+   * another player holds.
+   */
+  http.patch(url('/v1/admin/players/:id/telegram'), async ({ params, request }) => {
+    const refused = refusedFor(
+      request,
+      'players.write',
+      'Your role cannot attach a Telegram account.',
+    );
+    if (refused !== null) return refused;
+
+    const player = db.players.find((row) => row.id === String(params.id));
+    if (player === undefined) return fail(404, 'PLAYER_NOT_FOUND', 'Player not found.');
+
+    const body = (await request.json().catch(() => ({}))) as { telegramUserId?: unknown };
+    const telegramUserId = textField(body.telegramUserId);
+    if (!TELEGRAM_USER_ID_PATTERN.test(telegramUserId)) {
+      return fail(400, 'VALIDATION_FAILED', 'The request payload is invalid.', {
+        fields: ['telegramUserId must be a positive integer as a string'],
+      });
+    }
+    if (player.telegramUserId !== null) {
+      return fail(
+        409,
+        'PLAYER_HAS_TELEGRAM',
+        'This player already has a Telegram account; attaching is only for rows without one.',
+      );
+    }
+    if (db.players.some((row) => row.telegramUserId === telegramUserId)) {
+      return fail(
+        409,
+        'PLAYER_TELEGRAM_ID_TAKEN',
+        'Another player in this operator already holds that Telegram id.',
+      );
+    }
+
+    player.telegramUserId = telegramUserId;
+    return ok(player);
+  }),
+
+  /**
+   * Pulling the agent's existing players in. Idempotent by construction: a second run finds every
+   * row `existing`, which is what makes the button safe to press twice.
+   */
+  http.post(url('/v1/admin/players/import'), async ({ request }) => {
+    const refused = refusedFor(request, 'players.import', 'Your role cannot import players.');
+    if (refused !== null) return refused;
+
+    const body = (await request.json().catch(() => ({}))) as { limit?: unknown };
+    const limit = typeof body.limit === 'number' && Number.isFinite(body.limit) ? body.limit : 2000;
+    if (limit < 1) {
+      return fail(400, 'VALIDATION_FAILED', 'The request payload is invalid.', {
+        fields: ['limit must be at least 1'],
+      });
+    }
+    return ok(importPlayers(limit));
   }),
 
   /**
@@ -1072,6 +1516,138 @@ export const handlers: HttpHandler[] = [
     return ok(manualCredit(player, BigInt(amountMinor)), {}, 202);
   }),
 
+  // ── Withdrawals (player cash-out) ────────────────────────────────────────────────────────────
+
+  /*
+   * The queue, offset-paginated. No status means EVERY status — unlike the deposit queue, whose
+   * backend defaults to the reviewable set, the withdrawal backend narrows only when asked. The
+   * console's own screen decides its default in the URL, where it is visible.
+   */
+  http.get(url('/v1/admin/withdrawals'), ({ request }) => {
+    const refused = refusedFor(request, 'withdrawals.read', 'Your role cannot read withdrawals.');
+    if (refused !== null) return refused;
+
+    const statuses = listParam(request, 'status');
+    const playerId = param(request, 'playerId');
+    const shortId = param(request, 'shortId');
+    const createdFrom = param(request, 'createdFrom');
+    const createdTo = param(request, 'createdTo');
+    const sort = param(request, 'sort');
+
+    let rows = [...db.withdrawals];
+    if (statuses.length > 0) rows = rows.filter((row) => statuses.includes(row.status));
+    if (playerId !== null) rows = rows.filter((row) => row.playerId === playerId);
+    if (shortId !== null) {
+      rows = rows.filter((row) => row.shortId.toUpperCase().includes(shortId.toUpperCase()));
+    }
+    if (createdFrom !== null) {
+      rows = rows.filter((row) => Date.parse(row.requestedAt) >= Date.parse(createdFrom));
+    }
+    if (createdTo !== null) {
+      rows = rows.filter((row) => Date.parse(row.requestedAt) <= Date.parse(createdTo));
+    }
+
+    const byRequested = (a: AdminWithdrawal, b: AdminWithdrawal) =>
+      Date.parse(b.requestedAt) - Date.parse(a.requestedAt);
+    rows.sort(sort === 'oldest' ? (a, b) => -byRequested(a, b) : byRequested);
+
+    const page = offsetPage(forTenant(request, rows), request);
+    return ok(page.data, page.meta);
+  }),
+
+  http.get(url('/v1/admin/withdrawals/:id'), ({ params, request }) => {
+    const refused = refusedFor(request, 'withdrawals.read', 'Your role cannot read withdrawals.');
+    if (refused !== null) return refused;
+
+    const withdrawal = findWithdrawal(String(params.id));
+    return withdrawal === undefined
+      ? fail(404, 'WITHDRAWAL_NOT_FOUND', 'Withdrawal not found.')
+      : ok(withdrawal);
+  }),
+
+  /*
+   * The three decisions. Each is refused with 409 WITHDRAWAL_INVALID_STATE when the row is not in
+   * the one state it acts on — a colleague may have decided first, and the console must render
+   * that as "already handled" rather than as a failure of the click.
+   */
+  http.post(url('/v1/admin/withdrawals/:id/approve'), ({ params, request }) => {
+    const refused = refusedFor(
+      request,
+      'withdrawals.decide',
+      'Your role cannot decide a withdrawal.',
+    );
+    if (refused !== null) return refused;
+
+    const withdrawal = findWithdrawal(String(params.id));
+    if (withdrawal === undefined) return fail(404, 'WITHDRAWAL_NOT_FOUND', 'Withdrawal not found.');
+    if (withdrawal.status !== 'REQUESTED') {
+      return fail(
+        409,
+        'WITHDRAWAL_INVALID_STATE',
+        `Only a REQUESTED withdrawal can be approved; this one is ${withdrawal.status}.`,
+      );
+    }
+    return ok(approveWithdrawal(withdrawal));
+  }),
+
+  http.post(url('/v1/admin/withdrawals/:id/reject'), async ({ params, request }) => {
+    const refused = refusedFor(
+      request,
+      'withdrawals.decide',
+      'Your role cannot decide a withdrawal.',
+    );
+    if (refused !== null) return refused;
+
+    const withdrawal = findWithdrawal(String(params.id));
+    if (withdrawal === undefined) return fail(404, 'WITHDRAWAL_NOT_FOUND', 'Withdrawal not found.');
+
+    const body = (await request.json().catch(() => ({}))) as { reason?: unknown };
+    const reason = textField(body.reason);
+    if (reason.length === 0 || reason.length > WITHDRAWAL_REJECTION_REASON_MAX_LENGTH) {
+      return fail(400, 'VALIDATION_FAILED', 'The request payload is invalid.', {
+        fields: [
+          `reason must be between 1 and ${WITHDRAWAL_REJECTION_REASON_MAX_LENGTH} characters`,
+        ],
+      });
+    }
+    if (withdrawal.status !== 'REQUESTED') {
+      return fail(
+        409,
+        'WITHDRAWAL_INVALID_STATE',
+        `Only a REQUESTED withdrawal can be rejected; this one is ${withdrawal.status}.`,
+      );
+    }
+    return ok(rejectWithdrawal(withdrawal, reason));
+  }),
+
+  http.post(url('/v1/admin/withdrawals/:id/mark-paid'), async ({ params, request }) => {
+    const refused = refusedFor(
+      request,
+      'withdrawals.decide',
+      'Your role cannot decide a withdrawal.',
+    );
+    if (refused !== null) return refused;
+
+    const withdrawal = findWithdrawal(String(params.id));
+    if (withdrawal === undefined) return fail(404, 'WITHDRAWAL_NOT_FOUND', 'Withdrawal not found.');
+
+    const body = (await request.json().catch(() => ({}))) as { payoutReference?: unknown };
+    const payoutReference = textField(body.payoutReference);
+    if (payoutReference.length === 0 || payoutReference.length > PAYOUT_REFERENCE_MAX_LENGTH) {
+      return fail(400, 'VALIDATION_FAILED', 'The request payload is invalid.', {
+        fields: [`payoutReference must be between 1 and ${PAYOUT_REFERENCE_MAX_LENGTH} characters`],
+      });
+    }
+    if (withdrawal.status !== 'DEBITED') {
+      return fail(
+        409,
+        'WITHDRAWAL_INVALID_STATE',
+        `Only a DEBITED withdrawal can be marked paid; this one is ${withdrawal.status}.`,
+      );
+    }
+    return ok(markWithdrawalPaid(withdrawal, payoutReference));
+  }),
+
   // ── Payment methods ──────────────────────────────────────────────────────────────────────────
   http.get(url('/v1/admin/payment-methods'), ({ request }) => {
     const isActive = boolParam(request, 'isActive');
@@ -1127,6 +1703,29 @@ export const handlers: HttpHandler[] = [
     method.isActive = false;
     method.updatedAt = nowIso();
     return ok(method);
+  }),
+
+  /*
+   * Registered AFTER the retire route above, and that ordering is load-bearing in MSW: a `:id`
+   * pattern would happily swallow `<id>/permanent` if it were declared first, and the demo would
+   * quietly deactivate where it was asked to delete — the exact confusion this endpoint exists to
+   * avoid. Distinct suffix, distinct handler, checked in the order written.
+   */
+  http.delete(url('/v1/admin/payment-methods/:id/permanent'), ({ params }) => {
+    const method = db.methods.find((row) => row.id === String(params.id));
+    if (method === undefined) {
+      return fail(404, 'PAYMENT_METHOD_NOT_FOUND', 'That payment method does not exist.');
+    }
+    const deleted = deleteMethod(method.id);
+    if (deleted === null) {
+      return fail(
+        409,
+        'PAYMENT_METHOD_HAS_HISTORY',
+        'Deposits were made through this method, and the record of where that money was sent has ' +
+          'to stay. Deactivate it instead.',
+      );
+    }
+    return ok(deleted);
   }),
 
   http.post(url('/v1/admin/payment-methods/:id/destinations'), async ({ params, request }) => {
@@ -1269,8 +1868,31 @@ export const handlers: HttpHandler[] = [
 
   http.post(url('/v1/admin/admins'), async ({ request }) => {
     const body = (await request.json()) as Record<string, unknown>;
-    if (db.admins.some((row) => row.telegramUserId === String(body.telegramUserId))) {
-      return fail(409, 'ADMIN_ALREADY_EXISTS', 'That Telegram account is already an admin.');
+
+    // A staff account IS a username and a password; the server's DTO requires both.
+    const username = (typeof body.username === 'string' ? body.username : '').trim().toLowerCase();
+    const password = typeof body.password === 'string' ? body.password : '';
+    if (username.length < 3 || !/^[A-Za-z0-9._@+-]+$/.test(username)) {
+      return fail(422, 'VALIDATION_FAILED', 'Validation failed.', {
+        fields: [
+          'username may contain letters, digits and . _ @ + - only, and is 3 to 64 characters',
+        ],
+      });
+    }
+    if (password.length < 8) {
+      return fail(422, 'VALIDATION_FAILED', 'Validation failed.', {
+        fields: ['password must be at least 8 characters'],
+      });
+    }
+
+    // Compared lower-cased on both sides: `@@unique([tenantId, username])` is case-sensitive in
+    // Postgres, which is exactly why the server folds case before it writes.
+    if (db.admins.some((row) => row.username?.toLowerCase() === username)) {
+      return fail(
+        409,
+        'ADMIN_ALREADY_EXISTS',
+        'That username is already taken by another administrator in this operator.',
+      );
     }
     return ok(createAdmin(body), {}, 201);
   }),
@@ -1281,7 +1903,10 @@ export const handlers: HttpHandler[] = [
     if (admin.id === db.currentAdmin.id) {
       return fail(422, 'ADMIN_SELF_MODIFICATION', 'You cannot change your own admin record.');
     }
-    Object.assign(admin, await request.json());
+    const { password, ...rest } = (await request.json()) as { password?: unknown };
+    Object.assign(admin, rest);
+    // `password` is never stored or returned — only whether one is set. Omitted means "unchanged".
+    if (typeof password === 'string' && password.length > 0) admin.hasPassword = true;
     return ok(admin);
   }),
 
@@ -1504,6 +2129,18 @@ export const handlers: HttpHandler[] = [
     replaceTenantBot(tenant, botToken);
     return ok(tenant);
   }),
+
+  /** The platform pulling an operator's existing players in. PLATFORM_ADMIN, like every tenant route. */
+  http.post(url('/v1/admin/tenants/:id/import-players'), ({ params, request }) => {
+    const role = callerRole(request);
+    if (role !== null && role !== 'PLATFORM_ADMIN') {
+      return fail(403, 'INSUFFICIENT_ROLE', 'This endpoint is for platform administrators.');
+    }
+    const tenant = db.tenants.find((row) => row.id === String(params.id));
+    return tenant === undefined
+      ? fail(404, 'TENANT_NOT_FOUND', 'Tenant not found.')
+      : ok(importPlayersForTenant(tenant));
+  }),
   // ---- Telegram destinations -----------------------------------------------------------------
   //
   // The mock resolves a URL the way the server does — it refuses what the server refuses, and for
@@ -1653,5 +2290,310 @@ export const handlers: HttpHandler[] = [
       delivered: subscribed.length - failed,
       failed,
     });
+  }),
+
+  // ── The bot's menu ───────────────────────────────────────────────────────────────────────────
+  //
+  // Reader roles GET; the manager roles write — the same split the rails follow, because the
+  // flow editor sits behind `paymentMethods.write` on the console side. The refusals are the
+  // contract: the root screen cannot go, a screen still opened by a button cannot go, and the
+  // last active button for a REQUIRED action can be neither deleted nor hidden.
+
+  http.get(url('/v1/admin/bot-menu'), ({ request }) => {
+    const refused = refusedFor(
+      request,
+      'paymentMethods.read',
+      'Your role cannot read the bot menu.',
+    );
+    if (refused !== null) return refused;
+    return ok({ ...db.botMenu, settings: botSettingsView() });
+  }),
+
+  http.get(url('/v1/admin/bot-menu/settings'), ({ request }) => {
+    const refused = refusedFor(
+      request,
+      'paymentMethods.read',
+      'Your role cannot read the bot menu.',
+    );
+    if (refused !== null) return refused;
+    return ok(botSettingsView());
+  }),
+
+  /*
+   * The runtime settings. `miniAppUrl` must be https or null — a bot that opened an http page
+   * would be refused by Telegram anyway, and the server says so before saving. PATCH semantics: an
+   * absent key leaves the value alone.
+   */
+  http.patch(url('/v1/admin/bot-menu/settings'), async ({ request }) => {
+    const refused = refusedFor(
+      request,
+      'botSettings.write',
+      'Your role cannot change the bot settings.',
+    );
+    if (refused !== null) return refused;
+
+    const body = (await request.json().catch(() => ({}))) as {
+      miniAppUrl?: unknown;
+      depositMode?: unknown;
+      withdrawalMode?: unknown;
+    };
+    const fields: string[] = [];
+    const patch: {
+      miniAppUrl?: string | null;
+      depositMode?: DepositMode;
+      withdrawalMode?: WithdrawalMode;
+    } = {};
+
+    if ('miniAppUrl' in body) {
+      if (body.miniAppUrl === null) {
+        patch.miniAppUrl = null;
+      } else if (typeof body.miniAppUrl === 'string' && /^https:\/\/\S+$/.test(body.miniAppUrl)) {
+        patch.miniAppUrl = body.miniAppUrl;
+      } else {
+        fields.push('miniAppUrl must be an https URL, or null to clear it');
+      }
+    }
+    if ('depositMode' in body) {
+      const mode = DEPOSIT_MODES.find((entry) => entry === body.depositMode);
+      if (mode === undefined) fields.push('depositMode must be AUTO or MANUAL');
+      else patch.depositMode = mode;
+    }
+    if ('withdrawalMode' in body) {
+      const mode = WITHDRAWAL_MODES.find((entry) => entry === body.withdrawalMode);
+      if (mode === undefined) fields.push('withdrawalMode must be AUTO or MANUAL');
+      else patch.withdrawalMode = mode;
+    }
+    if (fields.length > 0) {
+      return fail(400, 'VALIDATION_FAILED', 'The request payload is invalid.', { fields });
+    }
+    return ok(updateBotSettings(patch));
+  }),
+
+  http.post(url('/v1/admin/bot-menu/nodes'), async ({ request }) => {
+    const refused = refusedFor(
+      request,
+      'paymentMethods.write',
+      'Your role cannot edit the bot menu.',
+    );
+    if (refused !== null) return refused;
+
+    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+    if (typeof body.key === 'string' && db.botMenu.nodes.some((node) => node.key === body.key)) {
+      return fail(409, 'DUPLICATE_RESOURCE', 'A screen with that key already exists.', {
+        fields: ['key'],
+      });
+    }
+    return ok(createMenuNode(body), {}, 201);
+  }),
+
+  http.patch(url('/v1/admin/bot-menu/nodes/:id'), async ({ params, request }) => {
+    const refused = refusedFor(
+      request,
+      'paymentMethods.write',
+      'Your role cannot edit the bot menu.',
+    );
+    if (refused !== null) return refused;
+
+    const node = findMenuNode(String(params.id));
+    if (node === undefined) return fail(404, 'BOT_MENU_NODE_NOT_FOUND', 'Screen not found.');
+
+    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+    if (typeof body.name === 'string' && body.name.trim().length > 0) node.name = body.name.trim();
+    if ('promptText' in body) {
+      node.promptText =
+        typeof body.promptText === 'string' && body.promptText.length > 0 ? body.promptText : null;
+    }
+    return ok(node);
+  }),
+
+  http.delete(url('/v1/admin/bot-menu/nodes/:id'), ({ params, request }) => {
+    const refused = refusedFor(
+      request,
+      'paymentMethods.write',
+      'Your role cannot edit the bot menu.',
+    );
+    if (refused !== null) return refused;
+
+    const node = findMenuNode(String(params.id));
+    if (node === undefined) return fail(404, 'BOT_MENU_NODE_NOT_FOUND', 'Screen not found.');
+    if (node.isRoot) {
+      return fail(
+        409,
+        'BOT_MENU_ROOT_PROTECTED',
+        'The root screen is what /start draws; it cannot be deleted.',
+      );
+    }
+    const linkedFrom = menuNodeStillLinkedFrom(node.id);
+    if (linkedFrom !== null) {
+      return fail(
+        409,
+        'BOT_MENU_NODE_IN_USE',
+        `A button on "${linkedFrom.name}" still opens this screen. Repoint or remove it first.`,
+      );
+    }
+    const required = requiredActionLeftWithout(node.buttons.map((button) => button.id));
+    if (required !== null) {
+      return fail(409, 'BUTTON_REQUIRED', `Every bot must keep a button for "${required}".`);
+    }
+    deleteMenuNode(node);
+    return ok({ deleted: true });
+  }),
+
+  http.patch(url('/v1/admin/bot-menu/nodes/:id/reorder'), async ({ params, request }) => {
+    const refused = refusedFor(
+      request,
+      'paymentMethods.write',
+      'Your role cannot edit the bot menu.',
+    );
+    if (refused !== null) return refused;
+
+    const node = findMenuNode(String(params.id));
+    if (node === undefined) return fail(404, 'BOT_MENU_NODE_NOT_FOUND', 'Screen not found.');
+
+    const body = (await request.json().catch(() => ({}))) as { positions?: unknown };
+    if (!Array.isArray(body.positions)) {
+      return fail(400, 'VALIDATION_FAILED', 'The request payload is invalid.', {
+        fields: ['positions must be an array'],
+      });
+    }
+    reorderMenuButtons(
+      node,
+      body.positions as { id: string; rowIndex: number; sortOrder: number }[],
+    );
+    return ok(node);
+  }),
+
+  http.post(url('/v1/admin/bot-menu/buttons'), async ({ request }) => {
+    const refused = refusedFor(
+      request,
+      'paymentMethods.write',
+      'Your role cannot edit the bot menu.',
+    );
+    if (refused !== null) return refused;
+
+    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+    const node = findMenuNode(typeof body.nodeId === 'string' ? body.nodeId : '');
+    if (node === undefined) return fail(404, 'BOT_MENU_NODE_NOT_FOUND', 'Screen not found.');
+
+    const label = textField(body.label);
+    if (label.length === 0) {
+      return fail(400, 'VALIDATION_FAILED', 'The request payload is invalid.', {
+        fields: ['label should not be empty'],
+      });
+    }
+    // The label IS the routing key: two of them on one screen are indistinguishable to the bot.
+    if (node.buttons.some((button) => button.label === label)) {
+      return fail(
+        409,
+        'DUPLICATE_RESOURCE',
+        'A button with that label is already on this screen.',
+        {
+          fields: ['label'],
+        },
+      );
+    }
+    if (
+      body.kind === 'BUILTIN' &&
+      !db.botMenu.builtinActions.some((entry) => entry.action === body.builtinAction)
+    ) {
+      return fail(400, 'VALIDATION_FAILED', 'The request payload is invalid.', {
+        fields: ['builtinAction must be one of the bot actions'],
+      });
+    }
+    return ok(createMenuButton(node, { ...body, label }), {}, 201);
+  }),
+
+  http.patch(url('/v1/admin/bot-menu/buttons/:id'), async ({ params, request }) => {
+    const refused = refusedFor(
+      request,
+      'paymentMethods.write',
+      'Your role cannot edit the bot menu.',
+    );
+    if (refused !== null) return refused;
+
+    const found = findMenuButton(String(params.id));
+    if (found === undefined) return fail(404, 'BOT_MENU_BUTTON_NOT_FOUND', 'Button not found.');
+
+    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+    if (
+      typeof body.label === 'string' &&
+      found.node.buttons.some(
+        (button) => button.id !== found.button.id && button.label === body.label,
+      )
+    ) {
+      return fail(
+        409,
+        'DUPLICATE_RESOURCE',
+        'A button with that label is already on this screen.',
+        {
+          fields: ['label'],
+        },
+      );
+    }
+    // Hiding is the same loss as deleting, for the bot: a hidden button is not routable.
+    if (body.isActive === false) {
+      const required = requiredActionLeftWithout([found.button.id]);
+      if (required !== null) {
+        return fail(
+          409,
+          'BUTTON_REQUIRED',
+          `Every bot must keep an active button for "${required}".`,
+        );
+      }
+    }
+    updateMenuButton(found.button, body);
+    return ok(found.button);
+  }),
+
+  http.delete(url('/v1/admin/bot-menu/buttons/:id'), ({ params, request }) => {
+    const refused = refusedFor(
+      request,
+      'paymentMethods.write',
+      'Your role cannot edit the bot menu.',
+    );
+    if (refused !== null) return refused;
+
+    const found = findMenuButton(String(params.id));
+    if (found === undefined) return fail(404, 'BOT_MENU_BUTTON_NOT_FOUND', 'Button not found.');
+    const required = requiredActionLeftWithout([found.button.id]);
+    if (required !== null) {
+      return fail(409, 'BUTTON_REQUIRED', `Every bot must keep a button for "${required}".`);
+    }
+    deleteMenuButton(found.node, found.button);
+    return ok({ deleted: true });
+  }),
+
+  /** Both or neither. Half a gate has either nothing tappable to show or no way to check. */
+  http.patch(url('/v1/admin/bot-menu/gate'), async ({ request }) => {
+    const refused = refusedFor(
+      request,
+      'paymentMethods.write',
+      'Your role cannot edit the bot menu.',
+    );
+    if (refused !== null) return refused;
+
+    const body = (await request.json().catch(() => ({}))) as {
+      channelId?: unknown;
+      channelUsername?: unknown;
+    };
+    const channelId = textField(body.channelId);
+    const channelUsername = textField(body.channelUsername).replace(/^@/, '');
+
+    if ((channelId.length === 0) !== (channelUsername.length === 0)) {
+      return fail(400, 'VALIDATION_FAILED', 'The request payload is invalid.', {
+        fields: ['channelId and channelUsername must be set together, or cleared together'],
+      });
+    }
+    if (channelId.length > 0 && !/^-?\d{1,20}$/.test(channelId)) {
+      return fail(400, 'VALIDATION_FAILED', 'The request payload is invalid.', {
+        fields: ['channelId must be a Telegram channel id, as a string'],
+      });
+    }
+
+    db.botMenu.gate =
+      channelId.length === 0
+        ? { channelId: null, channelUsername: null }
+        : { channelId, channelUsername };
+    return ok(db.botMenu.gate);
   }),
 ];

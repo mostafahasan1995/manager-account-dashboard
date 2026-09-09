@@ -1,4 +1,5 @@
 import {
+  keepPreviousData,
   type QueryClient,
   useInfiniteQuery,
   useMutation,
@@ -9,12 +10,35 @@ import {
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 
 import { isCurrentLimit } from '@/types';
+import type { StatsPeriodKey } from '@/types/stats';
+import type {
+  ShamCashBrowserCheckBody,
+  ShamCashParseBody,
+  StartShamCashPairingBody,
+} from '@/types/shamcash-dev';
+import type {
+  CreateButtonBody,
+  CreateNodeBody,
+  ReorderButtonsBody,
+  UpdateBotSettingsBody,
+  UpdateButtonBody,
+  UpdateGateBody,
+  UpdateNodeBody,
+} from '@/types/bot-menu';
+
 import type {
   AdminDeposit,
   AdminListQuery,
   ApprovalLimit,
   ApproveDepositBody,
+  AttachTelegramBody,
+  BlockPlayerBody,
   BreakListQuery,
+  ImportPlayersBody,
+  MarkPaidBody,
+  RegisterPlayerBody,
+  RejectWithdrawalBody,
+  WithdrawalListQuery,
   CreateAdminBody,
   CreatePaymentDestinationBody,
   SetDeclaredBalanceBody,
@@ -36,7 +60,7 @@ import type {
   UpdateTenantIchancyBody,
   UpdatePlatformDefaultsBody,
   SetExchangeRateBody,
-  SetShamCashSessionBody,
+  SetShamCashApiBody,
   CreateTelegramDestinationBody,
   UpdateTelegramDestinationBody,
   PublishReportBody,
@@ -51,6 +75,9 @@ import {
   paymentMethodsApi,
   platformFinanceApi,
   playersApi,
+  shamCashAccountApi,
+  shamCashDevApi,
+  statsApi,
   reconciliationApi,
   tenantsApi,
   exchangeRatesApi,
@@ -60,6 +87,8 @@ import {
   telegramChatsApi,
   telegramDestinationsApi,
   reportsApi,
+  botMenuApi,
+  withdrawalsApi,
 } from './endpoints';
 import { createLimiter } from '@/lib/concurrency';
 import { isAbortError } from '@/lib/utils';
@@ -79,9 +108,15 @@ import {
   shamCashKeys,
   platformDefaultsKeys,
   platformFinanceKeys,
+  shamCashAccountKeys,
+  shamCashPairingKeys,
+  statsKeys,
   walletBalanceKeys,
   telegramChatKeys,
   telegramDestinationKeys,
+  botMenuKeys,
+  botSettingsKeys,
+  withdrawalKeys,
 } from './query-keys';
 
 /**
@@ -558,6 +593,52 @@ export function useCreditPlayer() {
 }
 
 /**
+ * Every write to a player row invalidates the whole player namespace, balances included.
+ *
+ * None of these moves money — registering, blocking, attaching a Telegram id and importing all
+ * change WHO a player is, not what they hold — so none of them touches the float. The balance
+ * prefix is still inside `playerKeys.all`, which is fine: a blocked player's cell re-reading itself
+ * once is cheaper than a rule that says "except balances" and is wrong the first time it matters.
+ */
+function usePlayerMutation<TVariables, TData>(
+  mutationFn: (variables: TVariables) => Promise<TData>,
+) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn,
+    retry: false,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: playerKeys.all });
+    },
+  });
+}
+
+/**
+ * Registering from the console. `retry: false` matters here more than for most: a create that timed
+ * out may still have written the row, and a second attempt would come back `PLAYER_ALREADY_EXISTS`
+ * — an error about the console's own retry, shown to an operator as though they typed it twice.
+ */
+export const useRegisterPlayer = () =>
+  usePlayerMutation((body: RegisterPlayerBody) => playersApi.register(body));
+
+export const useBlockPlayer = () =>
+  usePlayerMutation((input: { playerId: string; body: BlockPlayerBody }) =>
+    playersApi.block(input.playerId, input.body),
+  );
+
+export const useUnblockPlayer = () =>
+  usePlayerMutation((playerId: string) => playersApi.unblock(playerId));
+
+export const useAttachPlayerTelegram = () =>
+  usePlayerMutation((input: { playerId: string; body: AttachTelegramBody }) =>
+    playersApi.attachTelegram(input.playerId, input.body),
+  );
+
+/** The tenant-scoped import — the operator pulling in its own "old players". */
+export const useImportPlayers = () =>
+  usePlayerMutation((body: ImportPlayersBody = {}) => playersApi.import(body));
+
+/**
  * How long a balance is worth showing before it is worth paying for again.
  *
  * Sixty seconds. Long enough that paging back and forth, opening a dialog, or re-rendering the
@@ -612,6 +693,82 @@ export function useRefreshPlayerBalances(): () => void {
   }, [queryClient]);
 }
 
+// ── Withdrawals (player cash-out) ──────────────────────────────────────────────────────────────
+
+/**
+ * The withdrawal queue. Polls at the deposit queue's rate, for the deposit queue's reason: two
+ * people can be looking at the same REQUESTED row, and a decision taken by a colleague has to
+ * appear without anybody pressing anything. `placeholderData` keeps the previous page on screen
+ * while the next one loads, as the player directory does — this is an offset list, not a cursor one.
+ */
+export function useWithdrawals(query: WithdrawalListQuery, options?: { poll?: number | false }) {
+  return useQuery({
+    queryKey: withdrawalKeys.list(query),
+    queryFn: ({ signal }) => withdrawalsApi.list(query, signal),
+    placeholderData: (previous) => previous,
+    refetchInterval: options?.poll ?? QUEUE_POLL_MS,
+    refetchOnWindowFocus: true,
+  });
+}
+
+export function useWithdrawal(id: string | undefined) {
+  return useQuery({
+    queryKey: withdrawalKeys.detail(id ?? ''),
+    queryFn: ({ signal }) => withdrawalsApi.byId(id ?? '', signal),
+    enabled: id !== undefined && id.length > 0,
+  });
+}
+
+/**
+ * The three withdrawal actions share one invalidation shape, with one switch.
+ *
+ * Every one of them re-reads the queue AND the on-screen player balances: approving debits the
+ * player (in AUTO mode, and once the worker runs, in MANUAL too), and even a rejection means the
+ * balance the player was told was held is free again. `playerKeys.balances()` rather than
+ * `playerKeys.all` — the player ROW did not change, and the directory need not refetch itself.
+ *
+ * `movesFloat` follows the deposit hook's rule exactly: approve (the debit hands chips back to the
+ * agent float — the pill goes UP, as a manual debit does) and mark-paid (the payout is posted to
+ * the ledger) go through `refreshAgentFloat`, because the movement lands seconds AFTER the
+ * response; reject moves nothing and says so. `retry: false` because two of these are money.
+ */
+function useWithdrawalMutation<TVariables, TData>(
+  mutationFn: (variables: TVariables) => Promise<TData>,
+  { movesFloat }: { movesFloat: boolean },
+) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn,
+    retry: false,
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: withdrawalKeys.all }),
+        queryClient.invalidateQueries({ queryKey: playerKeys.balances() }),
+        movesFloat ? refreshAgentFloat(queryClient) : Promise.resolve(),
+      ]);
+    },
+  });
+}
+
+/** REQUESTED → APPROVED, and the worker's debit behind it is what moves the float. */
+export const useApproveWithdrawal = () =>
+  useWithdrawalMutation((id: string) => withdrawalsApi.approve(id), { movesFloat: true });
+
+/** REQUESTED → REJECTED. Nothing was taken, so nothing about the float changes. */
+export const useRejectWithdrawal = () =>
+  useWithdrawalMutation(
+    (input: { id: string; body: RejectWithdrawalBody }) =>
+      withdrawalsApi.reject(input.id, input.body),
+    { movesFloat: false },
+  );
+
+/** DEBITED → PAID: the payout is posted to the ledger, which the pill reads. */
+export const useMarkWithdrawalPaid = () =>
+  useWithdrawalMutation(
+    (input: { id: string; body: MarkPaidBody }) => withdrawalsApi.markPaid(input.id, input.body),
+    { movesFloat: true },
+  );
+
 // ── Payment methods ────────────────────────────────────────────────────────────────────────────
 
 export function usePaymentMethods(query: PaymentMethodListQuery = {}) {
@@ -651,6 +808,14 @@ export const useUpdatePaymentMethod = () =>
 
 export const useDeactivatePaymentMethod = () =>
   usePaymentMutation((id: string) => paymentMethodsApi.deactivate(id));
+
+/**
+ * Destroy a rail outright. Shares `usePaymentMutation`, so the row is gone from the table as soon
+ * as the invalidated list comes back — no local filtering, and nothing to get out of step if the
+ * backend refused after all.
+ */
+export const useDeletePaymentMethod = () =>
+  usePaymentMutation((id: string) => paymentMethodsApi.deletePermanently(id));
 
 export const useCreateDestination = () =>
   usePaymentMutation((input: { methodId: string; body: CreatePaymentDestinationBody }) =>
@@ -759,36 +924,12 @@ export function useShamCashStatus(options: { enabled?: boolean } = {}) {
   });
 }
 
-/** Link a Sham Cash session by pasting its cookies. */
-export function useSetShamCashSession() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (body: SetShamCashSessionBody) => shamCashApi.setSession(body),
-    retry: false,
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: shamCashKeys.all });
-    },
-  });
-}
-
 /** Read the live balance by replaying the session in a headless browser. A POST because it
  *  launches a browser and hits a third party — an action, not a cheap read. */
 export function useCheckShamCashBalance() {
   return useMutation({
     mutationFn: () => shamCashApi.checkBalance(),
     retry: false,
-  });
-}
-
-/** Unlink it — clears the sealed session on the backend. */
-export function useClearShamCashSession() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: () => shamCashApi.clearSession(),
-    retry: false,
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: shamCashKeys.all });
-    },
   });
 }
 
@@ -1104,6 +1245,28 @@ export const useUpdateTenantBot = () =>
     tenantsApi.updateBot(input.id, input.body),
   );
 
+/**
+ * The platform pulling an operator's existing Ichancy players in.
+ *
+ * Invalidates the tenant caches (the `counts.players` on the row moved) AND the player namespace:
+ * a platform admin who has that operator selected in the switcher is looking at the very directory
+ * this just added rows to. `retry: false` because a run that timed out may still be writing rows,
+ * and the summary of a second run would count them as `existing` — honest, but not what was asked.
+ */
+export function useImportTenantPlayers() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (tenantId: string) => tenantsApi.importPlayers(tenantId),
+    retry: false,
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: tenantKeys.all }),
+        queryClient.invalidateQueries({ queryKey: playerKeys.all }),
+      ]);
+    },
+  });
+}
+
 // ── Platform finance overview (PLATFORM_ADMIN) ─────────────────────────────────────────────────
 
 /**
@@ -1177,6 +1340,195 @@ export function useRefreshAllTenantFinance() {
     onSettled: async () => {
       await queryClient.invalidateQueries({ queryKey: platformFinanceKeys.overview() });
     },
+  });
+}
+
+// ── Sham Cash developer bench ──────────────────────────────────────────────────────────────────
+
+/**
+ * Both halves of the bench, as mutations.
+ *
+ * ── WHY NOT QUERIES ───────────────────────────────────────────────────────────────────────────
+ * A query refetches: on mount, on focus, on reconnect. Every one of those would be another
+ * Chromium launched against a third-party site with somebody's live session in it, at a minute a
+ * go, for a screen nobody asked to refresh. A check is a deliberate act, so it is a mutation and
+ * fires only when the button is pressed.
+ *
+ * `retry: false` on both. A browser check that failed took ninety seconds to say so; retrying it
+ * twice more in silence turns a clear answer into four and a half minutes of nothing.
+ */
+export function useShamCashBrowserCheck() {
+  return useMutation({
+    mutationFn: (body: ShamCashBrowserCheckBody) => shamCashDevApi.browserCheck(body),
+    retry: false,
+  });
+}
+
+export function useShamCashParse() {
+  return useMutation({
+    mutationFn: (body: ShamCashParseBody) => shamCashDevApi.parse(body),
+    retry: false,
+  });
+}
+
+/**
+ * How often the console asks whether the QR has been scanned.
+ *
+ * Two seconds. The person is looking at their phone, so the delay between tapping approve and the
+ * screen reacting is what this number IS — and each poll is a cheap read of a page the API already
+ * has open, not a new browser.
+ */
+export const PAIRING_POLL_MS = 2_000;
+
+/** Start a QR login. Creates a live browser on the API side; see `useShamCashPairing`. */
+export function useStartShamCashPairing() {
+  return useMutation({
+    mutationFn: (body: StartShamCashPairingBody) => shamCashDevApi.startPairing(body),
+    retry: false,
+  });
+}
+
+/**
+ * Watch one pairing until it links, expires or fails.
+ *
+ * ── WHY IT STOPS POLLING ITSELF ───────────────────────────────────────────────────────────────
+ * `refetchInterval` returns false once the answer is terminal. Without that the console would keep
+ * asking about an id the API has already dropped, and every one of those answers `expired` — a
+ * screen that quietly turns a successful link into an expiry a moment later.
+ *
+ * `gcTime: 0` because the answer carries a live session: it should not sit in a query cache after
+ * the component that asked for it has gone.
+ */
+export function useShamCashPairing(pairingId: string | null) {
+  return useQuery({
+    queryKey: shamCashPairingKeys.detail(pairingId ?? ''),
+    // `enabled` below keeps this from running while the id is null; the fallback is for the
+    // type, not for a case that happens. A non-null assertion is banned in this codebase, and an
+    // empty string here would be a request that 400s rather than one that silently asks about the
+    // wrong pairing.
+    queryFn: ({ signal }) => shamCashDevApi.pollPairing(pairingId ?? '', signal),
+    enabled: pairingId !== null,
+    refetchInterval: (query) =>
+      query.state.data === undefined || query.state.data.status === 'pending'
+        ? PAIRING_POLL_MS
+        : false,
+    retry: false,
+    gcTime: 0,
+  });
+}
+
+/**
+ * The linked account, as the console first sees it.
+ *
+ * ── WHY IT DOES NOT POLL ──────────────────────────────────────────────────────────────────────
+ * It was going to, every 5-10 seconds. It does not, and the reason is what the endpoint costs on
+ * the OTHER side: a refresh drives a real browser at shamcash.sy. A timer would drive it forever
+ * whether or not anybody was reading, for an account balance that changes when a person does
+ * something — not on a clock.
+ *
+ * So this reads the API's CACHED snapshot, which touches no browser at all, and the person presses
+ * Refresh when they want the numbers re-read. The last figures stay on screen throughout, with the
+ * time they were read, which is the honest version of "keep showing old info until I refresh".
+ */
+export function useShamCashAccount() {
+  return useQuery({
+    queryKey: shamCashAccountKeys.status(),
+    queryFn: ({ signal }) => shamCashAccountApi.status(signal),
+    // Cheap enough to re-read when the tab regains focus, which is when somebody has come back to
+    // look — and still no browser touched.
+    staleTime: 10_000,
+  });
+}
+
+/**
+ * Read the account again, now.
+ *
+ * On success the status query is SEEDED rather than invalidated: the answer in hand is the newest
+ * there is, and re-fetching to learn what we were just told is a round trip for nothing.
+ */
+export function useRefreshShamCashAccount() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => shamCashAccountApi.refresh(),
+    retry: false,
+    onSuccess: (snapshot) => {
+      queryClient.setQueryData(shamCashAccountKeys.status(), { linked: true, snapshot });
+    },
+    onError: () => {
+      // A refusal usually means the session lapsed, and the API has already closed it. Re-read the
+      // status so the screen offers to link again instead of showing a Refresh that cannot work.
+      void queryClient.invalidateQueries({ queryKey: shamCashAccountKeys.all });
+    },
+  });
+}
+
+export function useUnlinkShamCashAccount() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => shamCashAccountApi.unlink(),
+    retry: false,
+    onSettled: async () => {
+      await queryClient.invalidateQueries({ queryKey: shamCashAccountKeys.all });
+    },
+  });
+}
+
+export function useCancelShamCashPairing() {
+  return useMutation({
+    mutationFn: (pairingId: string) => shamCashDevApi.cancelPairing(pairingId),
+    retry: false,
+  });
+}
+
+// ── Stats ──────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * THIS operator's figures for one window.
+ *
+ * ── WHY IT DOES NOT POLL, WHEN THE QUEUE NEXT DOOR DOES ───────────────────────────────────────
+ * The deposit queue polls because a colleague claiming a row while you read it is the normal case,
+ * and a stale queue makes two people work the same deposit. A month's totals do not change under
+ * you in a way that changes what you DO — and a figure that ticks while somebody is reading it off
+ * to a colleague on the phone is worse than one that is a minute old. It refetches on focus like
+ * everything else, and the screen has a visible Refresh.
+ *
+ * `placeholderData: keepPreviousData` is what makes the period switcher feel like a switch rather
+ * than a reload: the previous window's tiles stay on screen, dimmed by the caller, until the new
+ * ones arrive. The window is part of the query key, so this is genuinely the previous window's data
+ * and never the new window's heading over the old window's numbers.
+ */
+export function useTenantStats(period: StatsPeriodKey) {
+  return useQuery({
+    queryKey: statsKeys.mine(period),
+    queryFn: ({ signal }) => statsApi.mine(period, signal),
+    placeholderData: keepPreviousData,
+    staleTime: STATS_STALE_MS,
+  });
+}
+
+/**
+ * Long enough that flipping between windows and back does not re-ask, short enough that a figure
+ * quoted off the screen is not materially old. The queue's own freshness rules are stricter and
+ * live with the queue.
+ */
+export const STATS_STALE_MS = 30_000;
+
+/**
+ * EVERY operator's figures, side by side.
+ *
+ * `PLATFORM_ADMIN` only — the endpoint answers 403 to anybody else — so callers pass `enabled`,
+ * exactly as the operator list, the platform defaults and the finance overview do. `retry: false`
+ * for the same reason those do: a failed read is a table saying so with a retry button, not three
+ * silent attempts.
+ */
+export function usePlatformStats(period: StatsPeriodKey, options: { enabled?: boolean } = {}) {
+  return useQuery({
+    queryKey: statsKeys.tenants(period),
+    queryFn: ({ signal }) => statsApi.everyTenant(period, signal),
+    enabled: options.enabled ?? true,
+    placeholderData: keepPreviousData,
+    staleTime: STATS_STALE_MS,
+    retry: false,
   });
 }
 
@@ -1365,3 +1717,128 @@ export function flattenPages<T>(pages: readonly { data: T[] }[] | undefined): T[
 }
 
 export type { AdminDeposit };
+
+// ── The bot's flow editor ─────────────────────────────────────────────────────────────────────
+
+/**
+ * Every write invalidates the WHOLE tree, never a single screen.
+ *
+ * Adding a button to screen A changes what screen B's "opens" dropdown may offer, and deleting a
+ * screen changes which buttons are now dangling. A finer-grained invalidation would leave one of
+ * those two views describing a menu that no longer exists — and the operator would only find out
+ * when a player did.
+ */
+function useBotMenuMutation<TInput, TResult>(fn: (input: TInput) => Promise<TResult>) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: fn,
+    onSuccess: async () => {
+      await client.invalidateQueries({ queryKey: botMenuKeys.all });
+    },
+  });
+}
+
+export const useBotMenuTree = () =>
+  useQuery({
+    queryKey: botMenuKeys.tree(),
+    queryFn: ({ signal }) => botMenuApi.tree(signal),
+  });
+
+export const useCreateMenuNode = () =>
+  useBotMenuMutation((body: CreateNodeBody) => botMenuApi.createNode(body));
+
+export const useUpdateMenuNode = () =>
+  useBotMenuMutation((input: { id: string; body: UpdateNodeBody }) =>
+    botMenuApi.updateNode(input.id, input.body),
+  );
+
+export const useDeleteMenuNode = () =>
+  useBotMenuMutation((id: string) => botMenuApi.deleteNode(id));
+
+export const useCreateMenuButton = () =>
+  useBotMenuMutation((body: CreateButtonBody) => botMenuApi.createButton(body));
+
+export const useUpdateMenuButton = () =>
+  useBotMenuMutation((input: { id: string; body: UpdateButtonBody }) =>
+    botMenuApi.updateButton(input.id, input.body),
+  );
+
+export const useDeleteMenuButton = () =>
+  useBotMenuMutation((id: string) => botMenuApi.deleteButton(id));
+
+export const useReorderMenuButtons = () =>
+  useBotMenuMutation((input: { nodeId: string; body: ReorderButtonsBody }) =>
+    botMenuApi.reorder(input.nodeId, input.body),
+  );
+
+export const useUpdateMenuGate = () =>
+  useBotMenuMutation((body: UpdateGateBody) => botMenuApi.updateGate(body));
+
+/**
+ * The bot's two runtime settings. Never polled: they change when a person on this screen changes
+ * them, and coming back to the tab refetches — the same reasoning as the USDT rate.
+ */
+export const useBotSettings = (options: { enabled?: boolean } = {}) =>
+  useQuery({
+    queryKey: botSettingsKeys.current(),
+    queryFn: ({ signal }) => botMenuApi.settings(signal),
+    enabled: options.enabled ?? true,
+  });
+
+/**
+ * Saving them invalidates BOTH keys, by name: the tree carries a copy of the settings, and a flow
+ * editor reading the stale copy would show a mini-app button pointing where it no longer does.
+ */
+export function useUpdateBotSettings() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: UpdateBotSettingsBody) => botMenuApi.updateSettings(body),
+    retry: false,
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: botSettingsKeys.all }),
+        queryClient.invalidateQueries({ queryKey: botMenuKeys.all }),
+      ]);
+    },
+  });
+}
+
+/**
+ * Link the Sham Cash HTTP API — the mechanism that supersedes the browser session for reading
+ * transactions. The key is sealed on the backend and no endpoint returns it.
+ */
+export function useSetShamCashApi() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: SetShamCashApiBody) => shamCashApi.setApi(body),
+    retry: false,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: shamCashKeys.all });
+    },
+  });
+}
+
+/** Unlink it — clears the sealed key and the wallet id together. */
+export function useClearShamCashApi() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => shamCashApi.clearApi(),
+    retry: false,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: shamCashKeys.all });
+    },
+  });
+}
+
+/**
+ * Test the saved Sham Cash key against the live API.
+ *
+ * A MUTATION, not a query: it hits a third party, so it must fire when an operator asks and never
+ * on a render, a refocus or a cache miss.
+ */
+export function useTestShamCashApi() {
+  return useMutation({
+    mutationFn: () => shamCashApi.test(),
+    retry: false,
+  });
+}

@@ -23,9 +23,13 @@ import { PlayerDetailPage } from '@/features/players/player-detail-page';
 import { PlayersPage } from '@/features/players/players-page';
 import { ReconciliationPage } from '@/features/reconciliation/reconciliation-page';
 import { SettingsPage } from '@/features/settings/settings-page';
+import { ShamCashAccountPage } from '@/features/shamcash-dev/shamcash-account-page';
+import { StatsPage } from '@/features/stats/stats-page';
 import { StaffDetailPage } from '@/features/staff/staff-detail-page';
 import { StaffPage } from '@/features/staff/staff-page';
 import { TenantsPage } from '@/features/tenants/tenants-page';
+import { WithdrawalsPage } from '@/features/withdrawals/withdrawals-page';
+import { config } from '@/config';
 import type { AuthState } from '@/lib/auth/auth-context';
 import type { Capability } from '@/lib/auth/permissions';
 import { useAuth } from '@/lib/auth/use-auth';
@@ -37,7 +41,9 @@ import {
   playerSearchSchema,
   reconciliationSearchSchema,
   staffSearchSchema,
+  statsSearchSchema,
   tenantSearchSchema,
+  withdrawalSearchSchema,
 } from './search-schemas';
 
 /**
@@ -130,6 +136,35 @@ const depositsRoute = createRoute({
   validateSearch: depositSearchSchema,
   beforeLoad: guard('deposits.read'),
   component: DepositsPage,
+});
+
+/**
+ * The numbers behind the queue: every deposit, not just the ones needing a decision.
+ *
+ * Guarded on `deposits.read`, the same capability as the queue itself, because that is exactly
+ * what it reports on: everyone who can already page through every row one at a time may read their
+ * totals. The cross-operator table inside asks for `platformFinance.read` separately and simply
+ * does not mount without it, so no request goes out that the backend would answer with a 403.
+ */
+const statsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/stats',
+  validateSearch: statsSearchSchema,
+  beforeLoad: guard('deposits.read'),
+  component: StatsPage,
+});
+
+/**
+ * The withdrawal queue: money going OUT. Guarded on READ, exactly as the deposit queue is — support
+ * answers "where is my money" off this screen without being able to move any; the decide controls
+ * inside ask for `withdrawals.decide` one by one.
+ */
+const withdrawalsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/withdrawals',
+  validateSearch: withdrawalSearchSchema,
+  beforeLoad: guard('withdrawals.read'),
+  component: WithdrawalsPage,
 });
 
 const playersRoute = createRoute({
@@ -237,6 +272,29 @@ const botConfigRoute = createRoute({
   component: BotConfigPage,
 });
 
+/**
+ * THE SHAM CASH DEVELOPER BENCH. Registered only when `VITE_ENABLE_SHAMCASH_DEV` is on.
+ *
+ * ── WHY THE FLAG REMOVES THE ROUTE RATHER THAN HIDING THE LINK ────────────────────────────────
+ * A hidden link is still a reachable URL. This screen takes a live Sham Cash cashier session in a
+ * form, so on a console where the feature is off it must not exist at all — an operator who types
+ * /dev/shamcash gets the not-found page, exactly as they would for any other address.
+ *
+ * ── WHY IT IS GUARDED ON `tenants.manage` ────────────────────────────────────────────────────
+ * The API takes SUPER_ADMIN or PLATFORM_ADMIN. There is no console capability that names exactly
+ * that pair, and inventing one would be four coupled edits to describe a set that already exists.
+ * `tenants.manage` is the closest capability the console holds and it errs the safe way — it is
+ * PLATFORM_ADMIN only, so the route is narrower than the endpoint rather than wider. A SUPER_ADMIN
+ * who needs the bench turns the flag on and calls the endpoint directly, which is the sort of thing
+ * somebody debugging the browser reader is already doing.
+ */
+const shamCashDevRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/dev/shamcash',
+  beforeLoad: guard('tenants.manage'),
+  component: ShamCashAccountPage,
+});
+
 /** Every role can open its own settings, so this one needs a session and nothing more. */
 const settingsRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -249,6 +307,8 @@ export const routeTree = rootRoute.addChildren([
   loginRoute,
   overviewRoute,
   depositsRoute,
+  statsRoute,
+  withdrawalsRoute,
   playersRoute,
   playerDetailRoute,
   paymentMethodsRoute,
@@ -261,6 +321,8 @@ export const routeTree = rootRoute.addChildren([
   telegramRoute,
   botConfigRoute,
   settingsRoute,
+  // Spread, not appended: with the flag off there is no route, so the URL 404s like any other.
+  ...(config.shamCashDevEnabled ? [shamCashDevRoute] : []),
 ]);
 
 export function createAppRouter(context: RouterContext) {

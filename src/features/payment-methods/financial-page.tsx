@@ -1,13 +1,14 @@
 import { HandCoins } from 'lucide-react';
+import { useState } from 'react';
 
 import { EmptyState, ErrorState, PageHeader } from '@/components/common';
-import { Card, CardContent, Skeleton } from '@/components/ui';
+import { Button, Card, CardContent, Skeleton } from '@/components/ui';
 import { usePaymentMethods } from '@/lib/api/queries';
 import { useT } from '@/lib/i18n/use-translation';
 
 import { railMessages } from './messages';
 import { MethodAccountCard } from './method-account-card';
-import { ShamCashCard } from './shamcash-card';
+import { ShamCashApiCard } from './shamcash-api-card';
 import { UsdtRatePanel } from './usdt-rate-panel';
 
 /**
@@ -21,9 +22,20 @@ import { UsdtRatePanel } from './usdt-rate-panel';
  * into, and an edit control on each. So the list is the methods, unfiltered; the CARD decides what
  * it can truthfully say about each one, from the rail and from the address.
  *
- * Inactive methods are listed too. A method that is off is exactly the one somebody is looking for
- * when they ask why a rail is not on the menu, and hiding it here is how they conclude it was
- * deleted.
+ * A RETIRED method — inactive AND with deposit or ledger history behind it — is reachable, but not
+ * shown by default; see the toggle below. Inactive is not enough on its own to hide a card, and
+ * that distinction is the whole point: the two USDT rails arrive INACTIVE on every new tenant,
+ * because a rail that cannot yet be priced must not be on the bot's menu, and THIS is the screen an
+ * operator uses to finish setting one up — enter the wallet, then press Activate. A method still in
+ * that state has no history yet; it is not stopped, it is not started, and hiding it here would hide
+ * the only place that lets them finish. `deletable` already carries exactly that fact (see
+ * PaymentMethodService.deletePermanently on the backend: it is true precisely when nothing has ever
+ * moved through the method), so it is reused here rather than inventing a second notion of "new".
+ *
+ * What stays hidden by default is the other case: MANUAL_CREDIT switched off, or a seeded rail like
+ * BANK_TRANSFER_MAIN that took real deposits and was later retired. Those have nothing left to
+ * finish, and showing them by default is what made this screen open onto rails nobody can pay
+ * through, indistinguishable from the ones that matter. One click away, not the first thing seen.
  *
  * ── WHY A ROUTE AND NOT A TAB ON THE RAILS SCREEN ─────────────────────────────────────────────
  * Setting the wallet address was reachable, and reachable is not the same as findable: it meant
@@ -47,8 +59,14 @@ import { UsdtRatePanel } from './usdt-rate-panel';
 export function FinancialPage() {
   const t = useT(railMessages);
   const methods = usePaymentMethods();
+  const [showRetired, setShowRetired] = useState(false);
 
-  const rows = methods.data ?? [];
+  const all = methods.data ?? [];
+  // Retired, not merely off: no history means there is still a setup step to finish here, and
+  // hiding it would hide the one screen that finishes it. See the header for the full argument.
+  const isRetired = (method: (typeof all)[number]) => !method.isActive && !method.deletable;
+  const retiredCount = all.filter(isRetired).length;
+  const rows = showRetired ? all : all.filter((method) => !isRetired(method));
 
   return (
     <div className="space-y-6">
@@ -59,7 +77,7 @@ export function FinancialPage() {
       {/* First, not last: an operator looking for "the Sham Cash account" must not have to scroll
           past every payment rail and the rate panel to find it. It is its own thing — the external
           cashier account they watch, not a rail players pay through — so it leads the page. */}
-      <ShamCashCard />
+      <ShamCashApiCard />
 
       {methods.isPending ? (
         <Card>
@@ -75,7 +93,7 @@ export function FinancialPage() {
             void methods.refetch();
           }}
         />
-      ) : rows.length === 0 ? (
+      ) : all.length === 0 ? (
         <Card>
           <CardContent className="px-0 pb-0">
             <EmptyState
@@ -86,7 +104,44 @@ export function FinancialPage() {
           </CardContent>
         </Card>
       ) : (
-        rows.map((method) => <MethodAccountCard key={method.id} method={method} />)
+        <>
+          {rows.map((method) => (
+            <MethodAccountCard key={method.id} method={method} />
+          ))}
+
+          {/*
+            Shown whenever a retired method exists, in BOTH states of the toggle — collapsed, it is
+            how an operator finds the thing that is not on the screen; expanded, it is how they put
+            it away again. Absent only when there is nothing to fold either way.
+          */}
+          {retiredCount > 0 ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setShowRetired((current) => !current);
+              }}
+            >
+              {showRetired
+                ? t('financial.methods.hideRetired')
+                : t('financial.methods.showRetired', { count: retiredCount })}
+            </Button>
+          ) : null}
+
+          {rows.length === 0 ? (
+            // Every method this operator has is retired, and the toggle is off — the state that
+            // most needs the count spelled out rather than a blank card list underneath the button.
+            <Card>
+              <CardContent className="px-0 pb-0">
+                <EmptyState
+                  icon={<HandCoins className="size-5" />}
+                  title={t('financial.methods.allRetiredTitle')}
+                  description={t('financial.methods.allRetiredBody')}
+                />
+              </CardContent>
+            </Card>
+          ) : null}
+        </>
       )}
 
       {/* Last, and only here. The rate is one stored value with one write form, and a second copy

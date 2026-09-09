@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
 import { HttpResponse, http } from 'msw';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -143,5 +143,76 @@ describe('TenantDetailPanel', () => {
     expect(await screen.findByText('path token generated')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /edit settings/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /suspend/i })).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * The bot settings, read from the platform side. A word and a colour for each mode, the URL as a
+ * link, and an honest sentence under each — because "Automatic" on its own reads as "the platform
+ * moves money on the player's word alone", which neither mode ever does.
+ *
+ * `detailRow` scopes a query to one `<dt>/<dd>` pair (see `DetailRow` in page-header.tsx): the
+ * deposit and withdrawal badges share the exact same two words ("Manual"/"Automatic",
+ * "يدوي"/"تلقائي"), so a bare `getByText` is ambiguous the moment both rows are on screen — this
+ * also proves each badge sits under the row that claims it, not merely that the word exists.
+ */
+// `find*`, not `get*`: the panel shows a loading skeleton until the tenant fetch resolves, and a
+// caller right after render has often not awaited anything else first.
+const detailRow = async (label: string) => within((await screen.findByText(label)).closest('div')!);
+
+describe('TenantDetailPanel — deposits, cash-outs and the mini app', () => {
+  it('reads manual for both modes and no URL for an operator that has none set', async () => {
+    renderPlain(
+      <TenantDetailPanel tenantId={TENANT_IDS.zero} onClose={vi.fn()} onEdit={vi.fn()} />,
+      platformAdmin,
+    );
+
+    expect(await screen.findByText('Deposits, cash-outs and the mini app')).toBeInTheDocument();
+    expect((await detailRow('Deposit mode')).getByText('Manual')).toBeInTheDocument();
+    expect((await detailRow('Withdrawal mode')).getByText('Manual')).toBeInTheDocument();
+    expect(screen.getByText('Not set')).toBeInTheDocument();
+    expect(screen.getByText(/an admin decides every deposit/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/a person still sends the money and marks it paid/i),
+    ).toBeInTheDocument();
+  });
+
+  it('reads automatic for both modes and links the URL for an operator that set everything', async () => {
+    renderPlain(
+      <TenantDetailPanel tenantId={TENANT_IDS.second} onClose={vi.fn()} onEdit={vi.fn()} />,
+      platformAdmin,
+    );
+
+    expect((await detailRow('Deposit mode')).getByText('Automatic')).toBeInTheDocument();
+    expect((await detailRow('Withdrawal mode')).getByText('Automatic')).toBeInTheDocument();
+    const link = screen.getByRole('link', { name: 'https://northern-cashier.example.app' });
+    expect(link).toHaveAttribute('href', 'https://northern-cashier.example.app');
+    expect(link).toHaveAttribute('target', '_blank');
+  });
+
+  it('reads an operator from a backend older than either setting as manual', async () => {
+    const { depositMode: _dMode, withdrawalMode: _wMode, miniAppUrl: _url, ...older } = tenantZero;
+    server.use(http.get(`${config.apiBaseUrl}/v1/admin/tenants/:id`, () => envelope(older)));
+
+    renderPlain(
+      <TenantDetailPanel tenantId={TENANT_IDS.zero} onClose={vi.fn()} onEdit={vi.fn()} />,
+      platformAdmin,
+    );
+
+    expect((await detailRow('Deposit mode')).getByText('Manual')).toBeInTheDocument();
+    expect((await detailRow('Withdrawal mode')).getByText('Manual')).toBeInTheDocument();
+    expect(screen.getByText('Not set')).toBeInTheDocument();
+  });
+
+  it('names the section and both modes in Arabic', async () => {
+    renderPlain(
+      <TenantDetailPanel tenantId={TENANT_IDS.second} onClose={vi.fn()} onEdit={vi.fn()} />,
+      { ...platformAdmin, locale: 'ar' },
+    );
+
+    expect(await screen.findByText('الإيداعات والسحوبات والتطبيق المصغّر')).toBeInTheDocument();
+    expect((await detailRow('طريقة التحقق من الإيداع')).getByText('تلقائي')).toBeInTheDocument();
+    expect((await detailRow('طريقة السحب')).getByText('تلقائي')).toBeInTheDocument();
+    expect(document.documentElement).toHaveAttribute('dir', 'rtl');
   });
 });

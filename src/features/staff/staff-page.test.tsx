@@ -39,7 +39,7 @@ describe('StaffPage', () => {
 
     await user.click(await screen.findByRole('button', { name: /add administrator/i }));
 
-    expect(await screen.findByLabelText('Telegram ID')).toBeInTheDocument();
+    expect(await screen.findByLabelText('Username')).toBeInTheDocument();
   });
 
   it('gives a finance admin the whole directory and not one write control', async () => {

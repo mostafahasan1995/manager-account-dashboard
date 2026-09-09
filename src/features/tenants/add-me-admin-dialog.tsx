@@ -49,6 +49,10 @@ type TenantTranslator = Translator<(typeof tenantMessages)['en']>;
 /** PLATFORM_ADMIN is deliberately absent: it runs the platform and sees no operator's data. */
 const TENANT_ROLES = ['SUPER_ADMIN', 'FINANCE_ADMIN', 'REVIEWER', 'SUPPORT', 'VIEWER'] as const;
 
+/** The same rules the staff form and the server hold a username to. */
+const USERNAME_PATTERN = /^[A-Za-z0-9._@+-]+$/;
+const PASSWORD_MIN_LENGTH = 8;
+
 const addMeSchemaFor = (t: TenantTranslator) =>
   z.object({
     displayName: z
@@ -58,6 +62,21 @@ const addMeSchemaFor = (t: TenantTranslator) =>
       .max(120, t('tenants.addMe.displayNameLong')),
     // Narrower than the shared role schema on purpose: only what this dialog offers can be sent.
     role: z.enum(TENANT_ROLES),
+    /*
+     * A staff account is a username and a password (2026-09-05), so this dialog has to ask for
+     * both — there is nothing of the caller's it could clone instead. It used to copy their
+     * Telegram id, which is no longer an identity `POST /v1/admin/admins` accepts at all.
+     *
+     * The username is per-OPERATOR unique, so it may well be the one they already use elsewhere;
+     * the password is a NEW one, because an existing password cannot be read back to reuse.
+     */
+    username: z
+      .string()
+      .trim()
+      .min(3, t('tenants.addMe.usernameInvalid'))
+      .max(64, t('tenants.addMe.usernameInvalid'))
+      .regex(USERNAME_PATTERN, t('tenants.addMe.usernameInvalid')),
+    password: z.string().min(PASSWORD_MIN_LENGTH, t('tenants.addMe.passwordShort')),
   });
 
 type AddMeValues = z.infer<ReturnType<typeof addMeSchemaFor>>;
@@ -123,9 +142,18 @@ function AddMeForm({
     handleSubmit,
     formState: { errors },
   } = useForm<AddMeValues>({
-    // The signed-in identity, not a blank form: this action is about THIS account, and retyping a
-    // 64-bit Telegram id from memory is how a row lands under somebody else's id.
-    defaultValues: { displayName: admin.displayName, role: 'SUPER_ADMIN' },
+    /*
+     * Prefilled from the signed-in identity where it can be: this action is about THIS person, and
+     * the display name and login they already answer to are the ones their colleagues in the new
+     * operator should see. The PASSWORD cannot be prefilled — a session never carries one back —
+     * so it is the one thing this dialog has to ask for.
+     */
+    defaultValues: {
+      displayName: admin.displayName,
+      role: 'SUPER_ADMIN',
+      username: '',
+      password: '',
+    },
     resolver: zodResolver(schema),
   });
 
@@ -144,9 +172,10 @@ function AddMeForm({
     setSubmitError(null);
     const role = values.role;
     const body: CreateAdminBody = {
-      telegramUserId: admin.telegramUserId,
       displayName: values.displayName.trim(),
       role,
+      username: values.username.trim().toLowerCase(),
+      password: values.password,
     };
 
     try {
@@ -210,12 +239,6 @@ function AddMeForm({
           )}
 
           <div className="space-y-1.5">
-            <p className="text-sm leading-none font-medium">{t('tenants.addMe.you')}</p>
-            <p className="font-mono text-sm">{admin.telegramUserId}</p>
-            <p className="text-xs text-[var(--muted-foreground)]">{t('tenants.addMe.youHint')}</p>
-          </div>
-
-          <div className="space-y-1.5">
             <Label htmlFor="add-me-display-name">{t('field.displayName')}</Label>
             <Input
               id="add-me-display-name"
@@ -224,6 +247,43 @@ function AddMeForm({
               {...register('displayName')}
             />
             <FieldError message={errors.displayName?.message} />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="add-me-username">{t('tenants.addMe.usernameLabel')}</Label>
+            <Input
+              id="add-me-username"
+              autoComplete="off"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              dir="ltr"
+              className="font-mono"
+              placeholder="you@example.com"
+              aria-invalid={errors.username !== undefined}
+              {...register('username')}
+            />
+            <p className="text-xs text-[var(--muted-foreground)]">
+              {t('tenants.addMe.usernameHint', { name })}
+            </p>
+            <FieldError message={errors.username?.message} />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="add-me-password">{t('tenants.addMe.passwordLabel')}</Label>
+            <Input
+              id="add-me-password"
+              type="password"
+              autoComplete="new-password"
+              spellCheck={false}
+              dir="ltr"
+              aria-invalid={errors.password !== undefined}
+              {...register('password')}
+            />
+            <p className="text-xs text-[var(--muted-foreground)]">
+              {t('tenants.addMe.passwordHint')}
+            </p>
+            <FieldError message={errors.password?.message} />
           </div>
 
           <fieldset className="space-y-2">
@@ -277,14 +337,12 @@ function AddMeForm({
           </Alert>
 
           {/*
-           * The instruction, not a hint: a /console code is minted by ONE bot and is scoped to the
-           * operator that bot belongs to. Sending it to the bot already open on a phone is how an
-           * owner signs into the operator they were trying to leave.
+           * The instruction, not a hint: the credential just set opens THIS operator and no other.
+           * An owner who is already signed in elsewhere has to sign out first — the session in the
+           * tab is scoped to the operator it was minted for, and no amount of navigating changes it.
            */}
           <Alert tone="info" title={t('tenants.addMe.nextStepTitle', { name })}>
-            {tenant.botUsername === null
-              ? t('tenants.addMe.nextStepNoBot', { name })
-              : t('tenants.addMe.nextStepWithBot', { bot: tenant.botUsername, name })}
+            {t('tenants.addMe.nextStepBody', { name })}
           </Alert>
         </>
       )}

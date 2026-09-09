@@ -85,6 +85,7 @@ describe('the payment buttons, which are the live part', () => {
 
   it('marks a method the bot does not show, rather than leaving it out of the list', async () => {
     render();
+    await openPaymentButtonsTab();
 
     // OLD_CRYPTO is inactive in the fixtures. Hiding it here would leave an operator with no way to
     // turn a button back on — the state this screen is most likely to be opened to fix.
@@ -94,6 +95,7 @@ describe('the payment buttons, which are the live part', () => {
 
   it('says out loud that a label’s emoji cost nothing, and prints what the payload measures', async () => {
     render();
+    await openPaymentButtonsTab();
 
     expect(await screen.findByText('Emoji in a label are safe')).toBeInTheDocument();
     expect(
@@ -180,6 +182,7 @@ describe('the preview, which mirrors what the bot would actually send', () => {
   it('sends no keyboard when exactly one method qualifies, and says why', async () => {
     const user = userEvent.setup();
     render();
+    await openPaymentButtonsTab();
 
     const amount = await screen.findByLabelText('Deposit amount');
     await user.clear(amount);
@@ -192,6 +195,7 @@ describe('the preview, which mirrors what the bot would actually send', () => {
   it('answers with limits, not a keyboard, when nothing takes the amount', async () => {
     const user = userEvent.setup();
     render();
+    await openPaymentButtonsTab();
 
     const amount = await screen.findByLabelText('Deposit amount');
     await user.clear(amount);
@@ -217,6 +221,7 @@ describe('the preview, which mirrors what the bot would actually send', () => {
       ),
     );
     render();
+    await openPaymentButtonsTab();
 
     expect(await screen.findAllByText(/Over Telegram/)).not.toHaveLength(0);
     // The bot leaves it out of the keyboard, so the preview does too.
@@ -227,6 +232,7 @@ describe('the preview, which mirrors what the bot would actually send', () => {
 
   it('quotes the bot’s own Arabic rather than translating it into the console’s language', async () => {
     render();
+    await openPaymentButtonsTab();
 
     expect(await screen.findByText('اختر طريقة الدفع:')).toBeInTheDocument();
     expect(screen.getByText(/answers every player in Arabic/i)).toBeInTheDocument();
@@ -267,7 +273,7 @@ const TABS: readonly { readonly tab: string; readonly sections: readonly Section
     sections: [
       { title: 'The buttons a player taps to pay', marker: 'Live' },
       { title: 'What the player sees', marker: 'Reading only' },
-      { title: 'The buttons under /start', marker: 'Reading only' },
+      { title: 'The buttons under the text box', marker: 'Reading only' },
     ],
   },
   {
@@ -367,9 +373,9 @@ describe('the parts that are not live', () => {
     expect(table.queryAllByRole('textbox')).toHaveLength(0);
     expect(table.queryAllByRole('button', { name: /Save|Add/ })).toHaveLength(0);
 
-    // Sixteen commands, each with the audience that decides whether it is a security property.
+    // Fifteen commands, each with the audience that decides whether it is a security property.
     expect(screen.getByText('/queue')).toBeInTheDocument();
-    expect(screen.getAllByText('Staff chats only')).toHaveLength(6);
+    expect(screen.getAllByText('Staff chats only')).toHaveLength(5);
     expect(screen.getAllByText('Everyone')).toHaveLength(10);
   });
 
@@ -490,6 +496,7 @@ describe('the four states of the live section', () => {
       ),
     );
     render();
+    await openPaymentButtonsTab();
 
     expect(await screen.findByText(/Upstream is down/)).toBeInTheDocument();
   });
@@ -501,6 +508,7 @@ describe('the four states of the live section', () => {
       ),
     );
     render();
+    await openPaymentButtonsTab();
 
     expect(await screen.findByText('No payment methods yet')).toBeInTheDocument();
     expect(
@@ -531,6 +539,7 @@ describe('the same screen in Arabic', () => {
 
   it('mirrors the console and still prints the player’s command left to right', async () => {
     renderAr();
+    await openPaymentButtonsTab();
 
     expect(await screen.findByRole('region', { name: 'ما يراه اللاعب' })).toBeInTheDocument();
     expect(document.documentElement.getAttribute('dir')).toBe('rtl');
@@ -578,6 +587,7 @@ describe('the same screen in Arabic', () => {
 
   it('carries the markers into Arabic rather than leaving the honest half in English', async () => {
     renderAr();
+    await openPaymentButtonsTab();
 
     const routing = within(await screen.findByRole('region', { name: 'أين ينشر البوت إشعاراتك' }));
     expect(routing.getByText('فعّال')).toBeInTheDocument();
@@ -587,8 +597,22 @@ describe('the same screen in Arabic', () => {
   });
 });
 
-/** Waits for the rails to have landed, and hands the code back so a row lookup can chain off it. */
+/**
+ * Opens the payment-buttons tab, waits for the rails to have landed, and hands the code back so a
+ * row lookup can chain off it.
+ *
+ * IT OPENS THE TAB because the page now lands on the menu-flow editor — that is the tab an operator
+ * came for, and the one that changes the bot's own keyboard. Every assertion below this line is
+ * about the payment buttons, so the navigation belongs here rather than repeated in each test.
+ */
 async function waitForCode(code: string): Promise<string> {
+  await openPaymentButtonsTab();
   await screen.findByRole('region', { name: code });
   return code;
+}
+
+/** The payment-buttons tab, in either language. Idempotent — clicking an open tab does nothing. */
+async function openPaymentButtonsTab(): Promise<void> {
+  const tab = await screen.findByRole('tab', { name: /Payment buttons|أزرار الدفع/ });
+  await userEvent.setup().click(tab);
 }

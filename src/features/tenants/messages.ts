@@ -48,7 +48,7 @@ export const tenantMessages = defineMessages({
 
     'tenants.checklist.commands': 'Command menus pushed',
     'tenants.checklist.commandsUnknown':
-      'Telegram is never asked what a bot’s menu holds, so nothing here can tell you whether this was done. Push them once — repeating it costs nothing, and it is what puts /start and /console in the bot’s menu.',
+      'Telegram is never asked what a bot’s menu holds, so nothing here can tell you whether this was done. Push them once — repeating it costs nothing, and it is what puts /start and /queue in the bot’s menu.',
     'tenants.checklist.commandsDone': {
       one: '{count} command pushed from here.',
       other: '{count} commands pushed from here.',
@@ -56,7 +56,7 @@ export const tenantMessages = defineMessages({
 
     'tenants.checklist.admin': 'An admin who can sign in',
     'tenants.checklist.adminUnknown':
-      'Staff belong to one operator, and this operator’s staff list is not readable from the platform screen — so this is the step you confirm yourself. Use “{action}” at the bottom of this panel, then send /console to this operator’s own bot.',
+      'Staff belong to one operator, and this operator’s staff list is not readable from the platform screen — so this is the step you confirm yourself. Use “{action}” at the bottom of this panel, then sign in with the username and password you set there.',
 
     'tenants.checklist.agent': 'Ichancy agent verified',
     'tenants.checklist.agentDone': 'Agent {agent} answered a real sign-in.',
@@ -86,12 +86,12 @@ export const tenantMessages = defineMessages({
     'tenants.webhook.remove': 'Unregister',
     'tenants.webhook.deliveringTitle': 'Telegram is delivering to this deployment',
     'tenants.webhook.deliveringBody':
-      'This bot’s updates reach this console, so /console mints a code scoped to this operator and its staff can sign in.',
+      'This bot’s updates reach this console, so its players can start a deposit and its staff see the cards.',
     'tenants.webhook.silentTitle': '{name} receives nothing from Telegram',
     'tenants.webhook.silentNoneBody':
-      'No webhook is registered for this bot, so every message sent to it is dropped: /console does nothing, no deposit can be started, and nobody can sign in to this operator. Registering the webhook is what starts delivery.',
+      'No webhook is registered for this bot, so every message sent to it is dropped: no player can start a deposit and no card reaches the admin chat. Signing in to the console is unaffected — that is an ordinary password login and never goes through Telegram. Registering the webhook is what starts delivery.',
     'tenants.webhook.silentElsewhereBody':
-      'Telegram delivers this bot’s updates to {url}, which is not this deployment’s path for this operator — so nothing reaches this console: /console does nothing and nobody can sign in. Registering the webhook repoints Telegram here, and whatever is listening at that address stops receiving them.',
+      'Telegram delivers this bot’s updates to {url}, which is not this deployment’s path for this operator — so nothing reaches this console and no deposit can be started. Registering the webhook repoints Telegram here, and whatever is listening at that address stops receiving them.',
     'tenants.webhook.whichOne':
       'Register is the one you almost always want: it is what makes a new operator’s bot answer. Unregister stops delivery without suspending the operator — its books stay open and its deposits keep expiring on their own clocks while its bot goes silent — which is what you want only when you are moving this bot to another deployment. To stop the operator trading, suspend it instead.',
     'tenants.webhook.registeredTitle': '{name} is receiving updates',
@@ -100,7 +100,7 @@ export const tenantMessages = defineMessages({
     'tenants.webhook.registerErrorTitle': 'Could not register the webhook',
     'tenants.webhook.removeConfirmTitle': 'Stop Telegram delivering to {name}?',
     'tenants.webhook.removeConfirmBody':
-      'The operator stays exactly as it is — active, with its books open and its deposits still expiring on their own clocks — but its bot stops answering: /console does nothing and nobody can sign in. If what you want is for the operator to stop trading, suspend it instead.',
+      'The operator stays exactly as it is — active, with its books open and its deposits still expiring on their own clocks — but its bot stops answering, so no player can start a deposit. Staff can still sign in to the console. If what you want is for the operator to stop trading, suspend it instead.',
     'tenants.webhook.removeConfirmLabel': 'Unregister webhook',
     'tenants.webhook.removedTitle': 'Delivery to {name} stopped',
     'tenants.webhook.removedBody':
@@ -126,7 +126,7 @@ export const tenantMessages = defineMessages({
       'The token is verified with a real getMe before anything is stored, so a bad one never reaches the database. It is sealed on arrival and never returned: this field can replace it, nothing can read it.',
     'tenants.bot.noWebhookTitle': 'The new bot will receive nothing until you register its webhook',
     'tenants.bot.noWebhookBody':
-      'Telegram permits one webhook URL per bot, and the new bot has never been told where to deliver. The moment this saves, the operator is as silent as a brand-new one — /console does nothing and nobody can sign in — until you register the webhook again.',
+      'Telegram permits one webhook URL per bot, and the new bot has never been told where to deliver. The moment this saves, the operator is as silent as a brand-new one — no player can reach it — until you register the webhook again.',
     'tenants.bot.submit': 'Replace token',
     'tenants.bot.replacedTitle': 'New bot token stored for {name}',
     'tenants.bot.replacedBody': 'Register the webhook now, or this operator stays silent.',
@@ -231,6 +231,9 @@ export const tenantMessages = defineMessages({
     'tenants.field.ichancyPassword': 'Ichancy password',
     'tenants.field.ichancyAgentId': 'Ichancy agent id',
     'tenants.field.webhookPath': 'Webhook path',
+    'tenants.field.depositMode': 'Deposit mode',
+    'tenants.field.withdrawalMode': 'Withdrawal mode',
+    'tenants.field.miniAppUrl': 'Mini app URL',
 
     // ── The detail panel ─────────────────────────────────────────────────────────────────────
     'tenants.detail.fallbackTitle': 'Tenant',
@@ -240,6 +243,11 @@ export const tenantMessages = defineMessages({
     'tenants.section.identity': 'Identity',
     'tenants.section.money': 'Money and review rules',
     'tenants.section.chats': 'Telegram chats and stored secrets',
+    'tenants.section.bot': 'Deposits, cash-outs and the mini app',
+    'tenants.bot.depositModeExplained':
+      'Automatic: the platform checks the player’s claim against Sham Cash or the chain and approves only on a match; anything unmatched waits for a person. Manual: an admin decides every deposit.',
+    'tenants.bot.modeExplained':
+      'Automatic: the platform approves, debits the player’s casino balance and checks the payout wallet by itself; a person still sends the money and marks it paid. Manual: nothing moves until an admin approves.',
     'tenants.webhook.pathGenerated': 'path token generated',
     'tenants.webhook.noPath': 'no path token',
     'tenants.secretsNote':
@@ -271,11 +279,17 @@ export const tenantMessages = defineMessages({
     'tenants.addMe.action': 'Add me as an admin here',
     'tenants.addMe.title': 'Add yourself to {name}',
     'tenants.addMe.description':
-      'Staff belong to one operator, so the same Telegram account can hold a separate admin row inside every operator you run. This creates yours inside {name}.',
+      'Staff belong to one operator, so you hold a separate admin account inside every operator you run. This creates yours inside {name}.',
     'tenants.addMe.target': 'This admin row will be written into',
-    'tenants.addMe.you': 'Your Telegram account',
-    'tenants.addMe.youHint':
-      'Taken from the session you are signed in with. This is the account that will send /console.',
+    'tenants.addMe.usernameLabel': 'Username',
+    'tenants.addMe.usernameHint':
+      'What you will type to sign in to {name}. A name or an email, unique inside that operator — it may be the same one you use elsewhere.',
+    'tenants.addMe.passwordLabel': 'Password',
+    'tenants.addMe.passwordHint':
+      'A new password, at least 8 characters. It cannot be copied from your current session, because a password is never readable back.',
+    'tenants.addMe.usernameInvalid':
+      'A username is 3 to 64 characters: letters, digits, and . _ @ + - only.',
+    'tenants.addMe.passwordShort': 'Passwords are at least 8 characters.',
     'tenants.addMe.roleHint':
       'Platform admin is not offered here: it runs the platform and sees no operator data, so a platform admin row inside {name} would give you nothing.',
     'tenants.addMe.displayNameRequired': 'Give yourself a name the other staff will recognise.',
@@ -297,12 +311,10 @@ export const tenantMessages = defineMessages({
     'tenants.addMe.createdTitle': 'You are now {role} in {name}',
     'tenants.addMe.existsTitle': 'You are already an admin there',
     'tenants.addMe.existsBody':
-      'This Telegram account already holds an admin row inside {name}. Nothing changed, and nothing needed to.',
+      'That username is already taken inside {name}. Nothing changed — if the existing account is yours, sign in with it.',
     'tenants.addMe.nextStepTitle': 'Next: sign in to {name}',
-    'tenants.addMe.nextStepWithBot':
-      'Send /console to @{bot} — that operator’s own bot. A code from any other bot signs you into the operator that bot belongs to, not into {name}.',
-    'tenants.addMe.nextStepNoBot':
-      'Send /console to the bot whose token {name} was created with. This operator has no bot username recorded yet, so confirm which bot that is in BotFather — a code from any other bot signs you into the operator that bot belongs to.',
+    'tenants.addMe.nextStepBody':
+      'Sign out, then sign in with the username and password you just set. They open {name} and nothing else.',
 
     'tenants.role.SUPER_ADMIN':
       'Top of one tenant. Everything inside it, including staff and approval limits.',
@@ -351,6 +363,15 @@ export const tenantMessages = defineMessages({
     'tenants.hint.expiryRange': '{min} to {max}.',
     'tenants.hint.minorUnits': 'Minor units — 150000 means 1,500.00',
     'tenants.hint.minorPreview': '= {preview}',
+    'tenants.hint.depositMode':
+      'Automatic checks the player’s claim against Sham Cash or the chain and approves only on a match — anything else waits for a person, same as Manual.',
+    'tenants.hint.withdrawalMode':
+      'Automatic approves, debits the player and checks the payout wallet by itself — a person still sends the money. Manual waits for an admin.',
+    'tenants.hint.miniAppUrl':
+      'https only. What the bot’s app button opens; empty means the bot answers “coming soon”.',
+    'tenants.hint.miniAppUrlClear': 'Clear the field and save to remove the stored URL.',
+    'tenants.depositMode.unset': 'Left to the server (manual)',
+    'tenants.withdrawalMode.unset': 'Left to the server (manual)',
     'tenants.placeholder.displayName': 'Northern branch',
 
     // ── What each optional field gets when it is left blank ──────────────────────────────────
@@ -367,6 +388,9 @@ export const tenantMessages = defineMessages({
       'Left blank: the platform default currency. Permanent: it is the unit of every amount this tenant will ever record.',
     'tenants.default.dualApproval': 'Left blank: the platform default threshold.',
     'tenants.default.floatWatermark': 'Left blank: the platform default watermark.',
+    'tenants.default.depositMode': 'Left blank: manual — a person decides every deposit.',
+    'tenants.default.withdrawalMode': 'Left blank: manual — a person approves every cash-out.',
+    'tenants.default.miniAppUrl': 'Left blank: no app button destination until one is set.',
     'tenants.default.depositExpiryMinutes':
       'Left blank: the platform default expiry. {min} to {max} if you set one.',
 
@@ -386,6 +410,42 @@ export const tenantMessages = defineMessages({
     'tenants.validation.minorUnits': 'Minor units: digits only, no decimal point.',
     'tenants.validation.wholeMinutes': 'Whole minutes only.',
     'tenants.validation.expiryRange': 'Between {min} and {max} minutes.',
+
+    // ── What creating an operator actually did ───────────────────────────────────────────────
+    'tenants.created.title': '{name} was created. Here is what provisioning managed.',
+    'tenants.created.dismiss': 'Dismiss',
+    'tenants.created.webhookOk': 'Webhook registered with Telegram.',
+    'tenants.created.webhookFailed': 'Webhook not registered: {error}',
+    'tenants.created.menusOk': 'Command menus pushed.',
+    'tenants.created.menusFailed': 'Command menus not pushed: {error}',
+    'tenants.created.activated': 'Activated: the Ichancy agent answered a real sign-in.',
+    'tenants.created.notActivated': 'Not activated: {error}',
+    'tenants.created.rails': {
+      one: '{count} payment method provisioned.',
+      other: '{count} payment methods provisioned.',
+    },
+    'tenants.created.railsFailed': 'Payment methods not provisioned: {error}',
+    'tenants.created.placeholders':
+      'Every provisioned payment method still points at a placeholder account. Replace them before a player is shown this operator — money sent to a placeholder is gone.',
+    'tenants.created.playersImported': 'Players imported: {count}',
+    'tenants.created.playersImportError': 'Players were not imported: {error}',
+    'tenants.created.noReason': 'no reason given',
+
+    // ── The old players: importing from Ichancy ──────────────────────────────────────────────
+    'tenants.import.title': 'Old players',
+    'tenants.import.body':
+      'Pulls this operator’s existing Ichancy accounts in as players, so they can be handled like anyone who arrived through the bot. Safe to repeat: accounts already known are counted as existing.',
+    'tenants.import.action': 'Import players from Ichancy',
+    'tenants.import.notRun': 'Not run in this session.',
+    'tenants.import.doneTitle': 'Import finished',
+    'tenants.import.summary': '{scanned} scanned, {created} created, {existing} already known.',
+    'tenants.import.errorTitle': 'Ichancy did not finish the import',
+    'tenants.import.finishedAt': 'Finished',
+    'tenants.import.successTitle': {
+      one: '{count} player imported from Ichancy',
+      other: '{count} players imported from Ichancy',
+    },
+    'tenants.import.failedTitle': 'Could not import players',
   },
 
   ar: {
@@ -422,7 +482,7 @@ export const tenantMessages = defineMessages({
 
     'tenants.checklist.commands': 'إرسال قوائم الأوامر',
     'tenants.checklist.commandsUnknown':
-      'لا يُسأل Telegram أبداً عمّا في قائمة أوامر البوت، فلا شيء هنا يستطيع أن يخبرك إن كانت هذه الخطوة قد تمّت. أرسلها مرة واحدة — تكرارها لا يكلّف شيئاً، وهي ما يُظهر /start و/console في قائمة البوت.',
+      'لا يُسأل Telegram أبداً عمّا في قائمة أوامر البوت، فلا شيء هنا يستطيع أن يخبرك إن كانت هذه الخطوة قد تمّت. أرسلها مرة واحدة — تكرارها لا يكلّف شيئاً، وهي ما يُظهر /start و/queue في قائمة البوت.',
     'tenants.checklist.commandsDone': {
       zero: 'لم يُرسل أي أمر من هنا.',
       one: 'أُرسل أمر واحد من هنا.',
@@ -434,7 +494,7 @@ export const tenantMessages = defineMessages({
 
     'tenants.checklist.admin': 'مدير يستطيع تسجيل الدخول',
     'tenants.checklist.adminUnknown':
-      'الموظفون يتبعون مشغّلاً واحداً، وقائمة موظفي هذا المشغّل غير مقروءة من شاشة المنصّة — لذلك هذه الخطوة تؤكّدها بنفسك. استخدم «{action}» في أسفل هذه اللوحة، ثم أرسل /console إلى بوت هذا المشغّل نفسه.',
+      'الموظفون يتبعون مشغّلاً واحداً، وقائمة موظفي هذا المشغّل غير مقروءة من شاشة المنصّة — لذلك هذه الخطوة تؤكّدها بنفسك. استخدم «{action}» في أسفل هذه اللوحة، ثم سجّل الدخول باسم المستخدم وكلمة المرور اللذين ضبطتهما هناك.',
 
     'tenants.checklist.agent': 'التحقق من وكيل Ichancy',
     'tenants.checklist.agentDone': 'الوكيل {agent} قبِل تسجيل دخول حقيقياً.',
@@ -466,12 +526,12 @@ export const tenantMessages = defineMessages({
     'tenants.webhook.remove': 'إلغاء التسجيل',
     'tenants.webhook.deliveringTitle': 'Telegram يسلّم إلى هذا الخادم',
     'tenants.webhook.deliveringBody':
-      'تصل تحديثات هذا البوت إلى هذه اللوحة، فيصدر /console رمزاً خاصاً بهذا المشغّل ويستطيع موظفوه تسجيل الدخول.',
+      'تصل تحديثات هذا البوت إلى هذه اللوحة، فيستطيع لاعبوه بدء إيداع ويرى موظفوه البطاقات.',
     'tenants.webhook.silentTitle': '{name} لا يصله شيء من Telegram',
     'tenants.webhook.silentNoneBody':
-      'لا يوجد webhook مسجّل لهذا البوت، فتُهمَل كل رسالة تُرسل إليه: /console لا يفعل شيئاً، ولا يمكن بدء أي إيداع، ولا يستطيع أحد تسجيل الدخول إلى هذا المشغّل. تسجيل الـ webhook هو ما يبدأ التسليم.',
+      'لا يوجد webhook مسجّل لهذا البوت، فتُهمَل كل رسالة تُرسل إليه: لا يستطيع أي لاعب بدء إيداع ولا تصل أي بطاقة إلى مجموعة الإدارة. أما تسجيل الدخول إلى اللوحة فلا يتأثر — فهو دخول بكلمة مرور ولا يمر عبر Telegram أصلاً. تسجيل الـ webhook هو ما يبدأ التسليم.',
     'tenants.webhook.silentElsewhereBody':
-      'يسلّم Telegram تحديثات هذا البوت إلى {url}، وهو ليس مسار هذا الخادم لهذا المشغّل — فلا يصل هذه اللوحة شيء: /console لا يفعل شيئاً ولا يستطيع أحد تسجيل الدخول. تسجيل الـ webhook يعيد توجيه Telegram إلى هنا، ويتوقف ما يستمع على ذلك العنوان عن استقبالها.',
+      'يسلّم Telegram تحديثات هذا البوت إلى {url}، وهو ليس مسار هذا الخادم لهذا المشغّل — فلا يصل هذه اللوحة شيء ولا يمكن بدء أي إيداع. تسجيل الـ webhook يعيد توجيه Telegram إلى هنا، ويتوقف ما يستمع على ذلك العنوان عن استقبالها.',
     'tenants.webhook.whichOne':
       'التسجيل هو ما تريده في كل الأحوال تقريباً: هو ما يجعل بوت المشغّل الجديد يردّ. أما إلغاء التسجيل فيوقف التسليم دون إيقاف المشغّل — تبقى دفاتره مفتوحة وتبقى مهل إيداعاته تجري بينما يصمت بوته — وهو ما تريده فقط حين تنقل هذا البوت إلى خادم آخر. وإن كنت تريد أن يتوقف المشغّل عن العمل، فأوقفه مؤقتاً بدل ذلك.',
     'tenants.webhook.registeredTitle': '{name} يستقبل التحديثات',
@@ -479,7 +539,7 @@ export const tenantMessages = defineMessages({
     'tenants.webhook.registerErrorTitle': 'تعذّر تسجيل الـ webhook',
     'tenants.webhook.removeConfirmTitle': 'إيقاف تسليم Telegram إلى {name}؟',
     'tenants.webhook.removeConfirmBody':
-      'يبقى المشغّل كما هو تماماً — نشطاً، بدفاتر مفتوحة ومهل إيداعات تجري — لكن بوته يتوقف عن الرد: /console لا يفعل شيئاً ولا يستطيع أحد تسجيل الدخول. وإن كان مرادك أن يتوقف المشغّل عن العمل، فأوقفه مؤقتاً بدل ذلك.',
+      'يبقى المشغّل كما هو تماماً — نشطاً، بدفاتر مفتوحة ومهل إيداعات تجري — لكن بوته يتوقف عن الرد، فلا يستطيع أي لاعب بدء إيداع. ويبقى بإمكان الموظفين تسجيل الدخول إلى اللوحة. وإن كان مرادك أن يتوقف المشغّل عن العمل، فأوقفه مؤقتاً بدل ذلك.',
     'tenants.webhook.removeConfirmLabel': 'إلغاء تسجيل الـ webhook',
     'tenants.webhook.removedTitle': 'توقّف التسليم إلى {name}',
     'tenants.webhook.removedBody':
@@ -511,7 +571,7 @@ export const tenantMessages = defineMessages({
       'يُتحقق من الرمز بنداء getMe حقيقي قبل حفظ أي شيء، فلا يصل رمز خاطئ إلى قاعدة البيانات. ويُختم عند وصوله ولا يُعاد أبداً: هذا الحقل يستبدله، ولا شيء يقرأه.',
     'tenants.bot.noWebhookTitle': 'لن يصل البوت الجديد شيء حتى تسجّل الـ webhook له',
     'tenants.bot.noWebhookBody':
-      'يسمح Telegram بعنوان webhook واحد لكل بوت، والبوت الجديد لم يُخبر قط بمكان التسليم. ولحظة الحفظ يصبح المشغّل صامتاً كمشغّل جديد تماماً — /console لا يفعل شيئاً ولا يستطيع أحد تسجيل الدخول — إلى أن تسجّل الـ webhook من جديد.',
+      'يسمح Telegram بعنوان webhook واحد لكل بوت، والبوت الجديد لم يُخبر قط بمكان التسليم. ولحظة الحفظ يصبح المشغّل صامتاً كمشغّل جديد تماماً — لا يستطيع أي لاعب الوصول إليه — إلى أن تسجّل الـ webhook من جديد.',
     'tenants.bot.submit': 'استبدال الرمز',
     'tenants.bot.replacedTitle': 'حُفظ رمز بوت جديد لـ{name}',
     'tenants.bot.replacedBody': 'سجّل الـ webhook الآن، وإلا بقي هذا المشغّل صامتاً.',
@@ -624,6 +684,9 @@ export const tenantMessages = defineMessages({
     'tenants.field.ichancyPassword': 'كلمة المرور على Ichancy',
     'tenants.field.ichancyAgentId': 'معرّف الوكيل على Ichancy',
     'tenants.field.webhookPath': 'مسار الـ webhook',
+    'tenants.field.depositMode': 'طريقة التحقق من الإيداع',
+    'tenants.field.withdrawalMode': 'طريقة السحب',
+    'tenants.field.miniAppUrl': 'رابط التطبيق المصغّر',
 
     'tenants.detail.fallbackTitle': 'المشغّل',
     'tenants.detail.loading': 'جارٍ تحميل بيانات هذا المشغّل.',
@@ -632,6 +695,11 @@ export const tenantMessages = defineMessages({
     'tenants.section.identity': 'التعريف',
     'tenants.section.money': 'المبالغ وقواعد المراجعة',
     'tenants.section.chats': 'محادثات Telegram والأسرار المحفوظة',
+    'tenants.section.bot': 'الإيداعات والسحوبات والتطبيق المصغّر',
+    'tenants.bot.depositModeExplained':
+      'تلقائي: تتحقق المنصّة من طلب اللاعب مقابل شام كاش أو السلسلة ولا توافق إلا عند التطابق؛ وما لا يتطابق ينتظر شخصاً. يدوي: يقرر مدير كل إيداع.',
+    'tenants.bot.modeExplained':
+      'تلقائي: توافق المنصّة على الطلب وتخصم من رصيد اللاعب في الكازينو وتتحقق من محفظة الدفع بنفسها؛ ويبقى إرسال المال وتعليمه «مدفوعاً» عمل شخص. يدوي: لا يتحرك شيء حتى يوافق مدير.',
     'tenants.webhook.pathGenerated': 'تم توليد مسار الـ webhook',
     'tenants.webhook.noPath': 'لا يوجد مسار webhook',
     'tenants.secretsNote':
@@ -659,11 +727,17 @@ export const tenantMessages = defineMessages({
     'tenants.addMe.action': 'أضِفني مديراً هنا',
     'tenants.addMe.title': 'أضِف نفسك إلى {name}',
     'tenants.addMe.description':
-      'الموظفون يخصّون مشغّلاً واحداً، فيمكن لحساب Telegram نفسه أن يملك سجل مدير مستقلاً داخل كل مشغّل تديره. هذا ينشئ سجلك داخل {name}.',
+      'الموظفون يخصّون مشغّلاً واحداً، فلك حساب مدير مستقل داخل كل مشغّل تديره. هذا ينشئ حسابك داخل {name}.',
     'tenants.addMe.target': 'سيُكتب سجل المدير هذا داخل',
-    'tenants.addMe.you': 'حساب Telegram الخاص بك',
-    'tenants.addMe.youHint':
-      'مأخوذ من الجلسة التي سجّلت دخولك بها. هذا هو الحساب الذي سيرسل ‎/console‎.',
+    'tenants.addMe.usernameLabel': 'اسم المستخدم',
+    'tenants.addMe.usernameHint':
+      'ما ستكتبه لتسجيل الدخول إلى {name}. اسم أو بريد إلكتروني، لا يتكرر داخل ذلك المشغّل — ويمكن أن يكون نفسه الذي تستخدمه في مكان آخر.',
+    'tenants.addMe.passwordLabel': 'كلمة المرور',
+    'tenants.addMe.passwordHint':
+      'كلمة مرور جديدة، 8 أحرف على الأقل. لا يمكن نسخها من جلستك الحالية، لأن كلمة المرور لا تُقرأ مرة أخرى أبداً.',
+    'tenants.addMe.usernameInvalid':
+      'اسم المستخدم من 3 إلى 64 حرفاً: حروف وأرقام والرموز . _ @ + - فقط.',
+    'tenants.addMe.passwordShort': 'كلمة المرور 8 أحرف على الأقل.',
     'tenants.addMe.roleHint':
       'دور مدير المنصّة غير معروض هنا: فهو يدير المنصّة ولا يرى بيانات أي مشغّل، لذا لن يفيدك سجل بهذا الدور داخل {name}.',
     'tenants.addMe.displayNameRequired': 'أعطِ نفسك اسماً يعرفه بقية الموظفين.',
@@ -685,12 +759,10 @@ export const tenantMessages = defineMessages({
     'tenants.addMe.createdTitle': 'أصبحت {role} في {name}',
     'tenants.addMe.existsTitle': 'أنت مدير هناك أصلاً',
     'tenants.addMe.existsBody':
-      'حساب Telegram هذا يملك سجل مدير داخل {name} من قبل. لم يتغيّر شيء، ولا حاجة لأن يتغيّر.',
+      'اسم المستخدم هذا مستخدم داخل {name} من قبل. لم يتغيّر شيء — وإن كان الحساب الموجود لك، فسجّل الدخول به.',
     'tenants.addMe.nextStepTitle': 'الخطوة التالية: سجّل الدخول إلى {name}',
-    'tenants.addMe.nextStepWithBot':
-      'أرسل ‎/console‎ إلى ‎@{bot}‎ — بوت هذا المشغّل نفسه. الرمز الآتي من أي بوت آخر يُدخلك إلى المشغّل التابع له ذلك البوت، لا إلى {name}.',
-    'tenants.addMe.nextStepNoBot':
-      'أرسل ‎/console‎ إلى البوت الذي أُنشئ {name} برمزه. لا يوجد اسم مستخدم مسجّل لبوت هذا المشغّل بعد، فتأكد من هويته في BotFather — الرمز الآتي من أي بوت آخر يُدخلك إلى المشغّل التابع له ذلك البوت.',
+    'tenants.addMe.nextStepBody':
+      'سجّل الخروج، ثم ادخل باسم المستخدم وكلمة المرور اللذين ضبطتهما للتو. هما يفتحان {name} ولا شيء غيره.',
 
     'tenants.role.SUPER_ADMIN':
       'أعلى صلاحية داخل مشغّل واحد. كل ما فيه، بما في ذلك الموظفون وحدود الموافقة.',
@@ -735,6 +807,15 @@ export const tenantMessages = defineMessages({
     'tenants.hint.expiryRange': 'من {min} إلى {max}.',
     'tenants.hint.minorUnits': 'وحدات صغرى — 150000 تعني 1,500.00',
     'tenants.hint.minorPreview': '= {preview}',
+    'tenants.hint.depositMode':
+      'تلقائي: تتحقق المنصّة من طلب اللاعب مقابل شام كاش أو السلسلة ولا توافق إلا عند تطابق كامل — أي شيء آخر ينتظر شخصاً، تماماً كما في الوضع اليدوي.',
+    'tenants.hint.withdrawalMode':
+      'تلقائي: توافق المنصّة وتخصم من اللاعب وتتحقق من محفظة الدفع بنفسها — ويبقى إرسال المال عمل شخص. يدوي: ينتظر موافقة مدير.',
+    'tenants.hint.miniAppUrl':
+      'https فقط. ما يفتحه زر التطبيق في البوت؛ إن تُرك فارغاً يردّ البوت بـ«قريباً».',
+    'tenants.hint.miniAppUrlClear': 'امسح الحقل واحفظ لإزالة الرابط المحفوظ.',
+    'tenants.depositMode.unset': 'يقرّره الخادم (يدوي)',
+    'tenants.withdrawalMode.unset': 'يقرّره الخادم (يدوي)',
     'tenants.placeholder.displayName': 'الفرع الشمالي',
 
     'tenants.default.slug':
@@ -750,6 +831,9 @@ export const tenantMessages = defineMessages({
       'إن تُرك فارغاً: عملة المنصّة الافتراضية. وهي دائمة: وحدة كل مبلغ سيسجّله هذا المشغّل.',
     'tenants.default.dualApproval': 'إن تُرك فارغاً: الحد الافتراضي على المنصّة.',
     'tenants.default.floatWatermark': 'إن تُرك فارغاً: الحد الأدنى الافتراضي على المنصّة.',
+    'tenants.default.depositMode': 'إن تُرك فارغاً: يدوي — يقرر شخص كل إيداع.',
+    'tenants.default.withdrawalMode': 'إن تُرك فارغاً: يدوي — يوافق شخص على كل سحب.',
+    'tenants.default.miniAppUrl': 'إن تُرك فارغاً: لا وجهة لزر التطبيق حتى يُضبط رابط.',
     'tenants.default.depositExpiryMinutes':
       'إن تُرك فارغاً: المهلة الافتراضية على المنصّة. ومن {min} إلى {max} إن ضبطتها بنفسك.',
 
@@ -767,5 +851,47 @@ export const tenantMessages = defineMessages({
     'tenants.validation.minorUnits': 'وحدات صغرى: أرقام فقط، بلا فاصلة عشرية.',
     'tenants.validation.wholeMinutes': 'دقائق صحيحة فقط.',
     'tenants.validation.expiryRange': 'بين {min} و{max} دقيقة.',
+
+    'tenants.created.title': 'تم إنشاء {name}. هذا ما أنجزه الإعداد التلقائي.',
+    'tenants.created.dismiss': 'إغلاق',
+    'tenants.created.webhookOk': 'تم تسجيل الـ webhook لدى Telegram.',
+    'tenants.created.webhookFailed': 'لم يُسجَّل الـ webhook: {error}',
+    'tenants.created.menusOk': 'تم إرسال قوائم الأوامر.',
+    'tenants.created.menusFailed': 'لم تُرسَل قوائم الأوامر: {error}',
+    'tenants.created.activated': 'تم التفعيل: وكيل Ichancy قبِل تسجيل دخول حقيقياً.',
+    'tenants.created.notActivated': 'لم يُفعَّل: {error}',
+    'tenants.created.rails': {
+      zero: 'لم تُجهَّز أي طريقة دفع.',
+      one: 'جُهِّزت طريقة دفع واحدة.',
+      two: 'جُهِّزت طريقتا دفع.',
+      few: 'جُهِّزت {count} طرق دفع.',
+      many: 'جُهِّزت {count} طريقة دفع.',
+      other: 'جُهِّزت {count} طريقة دفع.',
+    },
+    'tenants.created.railsFailed': 'لم تُجهَّز طرق الدفع: {error}',
+    'tenants.created.placeholders':
+      'كل طريقة دفع جُهِّزت ما زالت تشير إلى حساب مؤقت. استبدلها قبل أن يُعرض هذا المشغّل على أي لاعب — المال المرسل إلى حساب مؤقت يضيع.',
+    'tenants.created.playersImported': 'اللاعبون المستوردون: {count}',
+    'tenants.created.playersImportError': 'لم يُستورَد اللاعبون: {error}',
+    'tenants.created.noReason': 'بلا سبب مذكور',
+
+    'tenants.import.title': 'اللاعبون القدامى',
+    'tenants.import.body':
+      'يسحب حسابات هذا المشغّل الموجودة على Ichancy كلاعبين، ليُتعامل معهم كأي لاعب وصل عبر البوت. آمن للتكرار: الحسابات المعروفة تُحسب موجودة مسبقاً.',
+    'tenants.import.action': 'استيراد اللاعبين من Ichancy',
+    'tenants.import.notRun': 'لم يُشغَّل في هذه الجلسة.',
+    'tenants.import.doneTitle': 'انتهى الاستيراد',
+    'tenants.import.summary': '{scanned} فُحِصت، {created} أُنشئت، {existing} معروفة مسبقاً.',
+    'tenants.import.errorTitle': 'لم يُكمل Ichancy الاستيراد',
+    'tenants.import.finishedAt': 'انتهى',
+    'tenants.import.successTitle': {
+      zero: 'لم يُستورَد أي لاعب من Ichancy',
+      one: 'استُورِد لاعب واحد من Ichancy',
+      two: 'استُورِد لاعبان من Ichancy',
+      few: 'استُورِد {count} لاعبين من Ichancy',
+      many: 'استُورِد {count} لاعباً من Ichancy',
+      other: 'استُورِد {count} لاعب من Ichancy',
+    },
+    'tenants.import.failedTitle': 'تعذّر استيراد اللاعبين',
   },
 });

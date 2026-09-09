@@ -67,9 +67,10 @@ schema says so deliberately:
 @@unique([tenantId, telegramUserId])
 ```
 
-`Player` carries the same constraint for the same reason. So one phone number can be `SUPER_ADMIN`
-of operator A and of operator B, with separate rows, separate approval limits and separate sessions:
-`/console` to bot A returns a token scoped to A, `/console` to bot B one scoped to B.
+`Player` carries the same constraint for the same reason. So one person can be a `SUPER_ADMIN` of
+operator A and of operator B, with separate rows, separate approval limits and separate sessions —
+and, since 2026-09-05, a separate console username and password per row. Each credential mints a
+token scoped to the one operator whose row it belongs to.
 
 **Not unique across operators**, which is useful for testing and wrong in production:
 `ichancyAgentId`, `adminChatId`, `feedChatId`. Nothing stops two operators pointing at the same
@@ -138,7 +139,7 @@ deployment. `tenant:bootstrap` likewise only fills tenant zero. Nothing tells Te
 path token generated for a new operator.
 
 So an operator created through the API has a webhook path in the database that Telegram has never
-heard of. Its bot receives nothing, `/console` to it does nothing, and nobody can sign into it.
+heard of. Its bot receives nothing: no player can deposit and no cashier is notified of anything.
 
 `POST /v1/admin/tenants/:id/webhook` and `/bot-setup` are both listed in `plan-multitenant.md` §5 and
 neither was built — §13's "as built" list quietly drops them.
@@ -275,12 +276,13 @@ npm run admin:platform -- <telegram-id> --replace-super-admin
    defaults. "Advanced" holds all of those for the operator that has to differ, each labelled with
    what it gets when left blank. It lands **suspended**.
 3. **Register webhook** — Telegram now delivers that bot's updates to this deployment.
-4. **Push command menus** so `/console` and `/start` appear in the bot.
-5. **Add me as an admin here** — creates a `SUPER_ADMIN` row for your own Telegram id inside the new
-   operator. Possible because staff are unique per tenant, not globally.
+4. **Push command menus** so `/start` and the rest appear in the bot.
+5. **Add me as an admin here** — creates a `SUPER_ADMIN` row inside the new operator with a console
+   username and password you choose there. Possible because staff are unique per tenant, not
+   globally, so the same username may exist in another operator and mean somebody else.
 6. **Activate** — verifies the Ichancy agent with a real signin, then the operator is serving.
-7. `/console` to the **new** bot → a code scoped to that operator → sign in and you are its
-   `SUPER_ADMIN`, with its own queue, its own staff and its own books.
+7. Sign out, then sign in with that username and password → a session scoped to that operator, and
+   you are its `SUPER_ADMIN`, with its own queue, its own staff and its own books.
 
 For testing you may point several operators at the same Ichancy agent. Once section 3's change is
 in, they will share one session correctly; the console shows which operators share an agent so the

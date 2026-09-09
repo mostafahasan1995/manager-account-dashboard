@@ -65,7 +65,7 @@ export function CommandMenuPanel() {
                     {/* `dir="ltr"`, because the cell is a leading ASCII slash — bidi-neutral — in
                         front of a Latin run. On the Arabic console the neutral takes the paragraph's
                         direction and lands at the far end: `start/`, which is not a command anyone
-                        can type. Same fix as the login page's /console. */}
+                        can type. */}
                     <TableCell dir="ltr" className="font-mono text-xs text-start whitespace-nowrap">
                       /{row.command}
                     </TableCell>

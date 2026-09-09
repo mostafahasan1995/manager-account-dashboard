@@ -6,10 +6,14 @@ import {
   DEPOSIT_SORTS,
   DEPOSIT_STATUSES,
   PAYMENT_RAILS,
+  PLAYER_SOURCES,
   PLAYER_STATUSES,
   TENANT_STATUSES,
   ADMIN_ROLES,
+  WITHDRAWAL_SORTS,
+  WITHDRAWAL_STATUSES,
 } from '@/types/enums';
+import { STATS_PERIODS } from '@/types/stats';
 
 /**
  * Filters live in the URL, not in component state.
@@ -120,10 +124,33 @@ export const playerSearchSchema = z.object({
   search: optionalString,
   telegramUserId: optionalString,
   linked: optionalBool,
+  /** `ICHANCY_IMPORT` is the "old players" view — accounts that predate the bot. */
+  source: z.enum(PLAYER_SOURCES).optional().catch(undefined),
+  /** Strict, like `linked`: `?blocked=no` is absent, never true. */
+  blocked: optionalBool,
   limit: pageLimit,
   offset: pageOffset,
 });
 export type PlayerSearch = z.infer<typeof playerSearchSchema>;
+
+/**
+ * The withdrawal queue. Offset-paginated like the player directory rather than cursor-paginated like
+ * deposits, because that is how the backend serves it; the filters otherwise mirror the deposit
+ * queue's, and `selected` makes an open withdrawal a shareable link for the same reason.
+ */
+export const withdrawalSearchSchema = z.object({
+  status: csvArray(WITHDRAWAL_STATUSES).catch(undefined),
+  playerId: optionalString,
+  shortId: optionalString,
+  createdFrom: optionalString,
+  createdTo: optionalString,
+  sort: z.enum(WITHDRAWAL_SORTS).optional().catch(undefined),
+  limit: pageLimit,
+  offset: pageOffset,
+  /** The withdrawal open in the detail panel. */
+  selected: optionalString,
+});
+export type WithdrawalSearch = z.infer<typeof withdrawalSearchSchema>;
 
 export const staffSearchSchema = z.object({
   role: z.enum(ADMIN_ROLES).optional().catch(undefined),
@@ -133,9 +160,28 @@ export const staffSearchSchema = z.object({
 });
 export type StaffSearch = z.infer<typeof staffSearchSchema>;
 
+/**
+ * The rails table's state filter — three choices, not the two `optionalBool` gives every other
+ * screen.
+ *
+ * ══ WHY THIS IS THE ONE FILTER WITH ITS OWN DEFAULT ══════════════════════════════════════════
+ * Every other list on this console defaults to "everything", because everything on those lists is
+ * still current. A payment method is not: a retired rail is not just one more row, it is one that
+ * moved real money once and now MUST NOT be offered again — and a table that shows it next to the
+ * live rails, unfiltered, on first load, reads as a rail an operator could still pick. So this is
+ * the one list whose ABSENT filter is not "no opinion" but "hide what is retired", and the operator
+ * reaches everything else — retired rails, or literally everything — by choosing to.
+ *
+ * That needs a state `undefined` cannot express: undefined already means "not narrowed", and this
+ * screen wants undefined to mean something narrower than any explicit choice. `'all'` is the escape
+ * hatch — it says "no, really, show me the retired ones too" — and it has to be a value that
+ * survives in the URL, not the same undefined the default already claims.
+ */
+const paymentMethodStateFilter = z.enum(['active', 'inactive', 'all']).optional().catch(undefined);
+
 export const paymentMethodSearchSchema = z.object({
   rail: z.enum(PAYMENT_RAILS).optional().catch(undefined),
-  isActive: optionalBool,
+  state: paymentMethodStateFilter,
   /** The method whose destinations are open. */
   selected: optionalString,
   includeInactiveDestinations: optionalBool,
@@ -161,6 +207,19 @@ export const tenantSearchSchema = z.object({
   create: optionalBool,
 });
 export type TenantSearch = z.infer<typeof tenantSearchSchema>;
+
+/**
+ * The stats window, in the URL like every other filter.
+ *
+ * `.catch(undefined)` rather than a hard failure: an unknown period in a shared link falls back to
+ * the default window instead of throwing away the whole navigation, which is the same bargain every
+ * schema above makes. Undefined means the server's own default — the month — so the console does
+ * not have to restate which one that is.
+ */
+export const statsSearchSchema = z.object({
+  period: z.enum(STATS_PERIODS).optional().catch(undefined),
+});
+export type StatsSearch = z.infer<typeof statsSearchSchema>;
 
 /** Where to send the operator back to after they sign in. */
 export const loginSearchSchema = z.object({

@@ -1,4 +1,4 @@
-import { DEMO_CODE, expect, signInWithCode, test } from './fixtures';
+import { DEMO_USERNAME, expect, signInAs, test } from './fixtures';
 
 /**
  * The platform login: one account that runs every operator on the platform.
@@ -9,19 +9,20 @@ import { DEMO_CODE, expect, signInWithCode, test } from './fixtures';
  * home one, so a visibly different queue is the proof the header reached the server.
  */
 
-const PLATFORM_CODE = '111111';
+/** The demo login that lands as a PLATFORM_ADMIN. Mirrors MOCK_ROLE_LOGINS in src/mocks/demo.ts. */
+const PLATFORM_USERNAME = 'platform';
 
 /*
- * Shared with the rest of the suite rather than copied here, now that sign-in has two doors and the
- * code lives behind one of them. The local copy this replaces was already a second place that had
- * to know where the code field is — which is exactly what went stale when the screen grew a tab.
+ * Shared with the rest of the suite rather than copied here. The local copy this replaces was a
+ * second place that had to know where the login fields are — exactly what went stale when the
+ * screen changed shape.
  */
-const signIn = signInWithCode;
+const signIn = signInAs;
 
 test('a platform login lands on the operator list, not on somebody else’s queue', async ({
   page,
 }) => {
-  await signIn(page, PLATFORM_CODE);
+  await signIn(page, PLATFORM_USERNAME);
 
   await expect(page).toHaveURL(/\/tenants/);
   await expect(page.getByRole('row', { name: /northern branch/i })).toBeVisible();
@@ -29,7 +30,7 @@ test('a platform login lands on the operator list, not on somebody else’s queu
 });
 
 test('picking an operator changes what every other screen answers for', async ({ page }) => {
-  await signIn(page, PLATFORM_CODE);
+  await signIn(page, PLATFORM_USERNAME);
 
   /*
    * Until another is chosen, the switcher names the operator the session belongs to.
@@ -65,7 +66,7 @@ test('picking an operator changes what every other screen answers for', async ({
 test('a platform admin manages staff AND decides money, as the owner superset', async ({
   page,
 }) => {
-  await signIn(page, PLATFORM_CODE);
+  await signIn(page, PLATFORM_USERNAME);
 
   await page.goto('/staff');
   await expect(page.getByRole('button', { name: /add administrator/i })).toBeVisible();
@@ -78,6 +79,6 @@ test('a platform admin manages staff AND decides money, as the owner superset', 
 });
 
 test('an operator’s own role never sees the picker', async ({ page }) => {
-  await signIn(page, DEMO_CODE);
+  await signIn(page, DEMO_USERNAME);
   await expect(page.getByRole('button', { name: /tenant-zero/i })).toBeHidden();
 });

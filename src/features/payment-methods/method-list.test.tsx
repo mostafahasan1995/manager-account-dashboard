@@ -173,7 +173,32 @@ describe('MethodList', () => {
     await user.click(await screen.findByRole('option', { name: 'Inactive only' }));
 
     await waitFor(() => {
-      expect(location()).toContain('isActive=false');
+      expect(location()).toContain('state=inactive');
+    });
+  });
+
+  it('writes nothing to the URL for the default "active only" choice', async () => {
+    // 'active' is the value BEHIND the default, not a value that belongs in a shared link — writing
+    // it explicitly would make "no filter" and "I chose active" look like two different states, and
+    // they are not: the whole point is that unfiltered already means active-only.
+    const { user, location } = renderList({}, { route: '/payment-methods?state=inactive' });
+
+    await user.click(await screen.findByRole('combobox', { name: 'State' }));
+    await user.click(await screen.findByRole('option', { name: 'Active only' }));
+
+    await waitFor(() => {
+      expect(location()).not.toContain('state=');
+    });
+  });
+
+  it('writes an explicit marker to the URL for "any state", since that is not the default', async () => {
+    const { user, location } = renderList();
+
+    await user.click(await screen.findByRole('combobox', { name: 'State' }));
+    await user.click(await screen.findByRole('option', { name: 'Active and inactive' }));
+
+    await waitFor(() => {
+      expect(location()).toContain('state=all');
     });
   });
 
@@ -326,5 +351,109 @@ describe('MethodList', () => {
 
     expect(await selectButton(wallet.code)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /new method/i })).toBeNull();
+  });
+});
+
+/**
+ * DELETING A RAIL, WHICH IS NOT DEACTIVATING ONE.
+ *
+ * The button that destroys a payment method sits one pixel from the button that retires it, and only
+ * one of them is reversible. Three things have to hold for that to be safe, and each is silent when
+ * it breaks: the delete is offered ONLY where the backend would allow it, a rail with history says
+ * WHY it cannot go rather than just refusing, and neither button ever fires without a confirmation.
+ */
+describe('deleting a method for good', () => {
+  // The seeded-but-never-priced USDT rail: the one fixture the backend reports as deletable.
+  const usdt = mockPaymentMethods.find((method) => method.id === METHOD_IDS.usdtTrc20)!;
+
+  it('offers deletion only on a rail that never took a payment', async () => {
+    renderList();
+
+    expect(await screen.findByRole('button', { name: `Delete ${usdt.displayName}` })).toBeEnabled();
+    // Every fixture with history keeps its button, disabled — see the next case for why.
+    expect(screen.getByRole('button', { name: `Delete ${bank.displayName}` })).toBeDisabled();
+  });
+
+  it('keeps the button visible but disabled on a rail with history, rather than hiding it', async () => {
+    // A missing button reads as a console that forgot the feature and sends somebody hunting. A
+    // disabled one carries the answer: this rail took money, so it can only ever be retired.
+    renderList();
+
+    const blocked = await screen.findByRole('button', { name: `Delete ${bank.displayName}` });
+
+    expect(blocked).toBeDisabled();
+    expect(blocked).toBeInTheDocument();
+  });
+
+  it('confirms first, and warns that this one cannot be undone', async () => {
+    const { user } = renderList();
+
+    await user.click(await screen.findByRole('button', { name: `Delete ${usdt.displayName}` }));
+
+    expect(
+      await screen.findByRole('heading', { name: `Delete ${usdt.displayName} for good?` }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/cannot be undone/i)).toBeInTheDocument();
+    // The escape hatch is named in the dialog, because "I meant retire it" is the likely mistake.
+    expect(screen.getByText(/deactivate it instead/i)).toBeInTheDocument();
+    expect(vi.mocked(toast.success)).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: 'Delete for good' }));
+
+    await waitFor(() => {
+      expect(vi.mocked(toast.success)).toHaveBeenCalledWith(`${usdt.displayName} deleted`);
+    });
+  });
+
+  it('backs out without deleting anything', async () => {
+    const { user } = renderList();
+
+    await user.click(await screen.findByRole('button', { name: `Delete ${usdt.displayName}` }));
+    await screen.findByRole('heading', { name: `Delete ${usdt.displayName} for good?` });
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    expect(vi.mocked(toast.success)).not.toHaveBeenCalled();
+  });
+
+  it('shows the backend’s refusal, which is the message that says what to do instead', async () => {
+    const { user } = renderList();
+
+    await user.click(await screen.findByRole('button', { name: `Delete ${usdt.displayName}` }));
+    await screen.findByRole('heading', { name: `Delete ${usdt.displayName} for good?` });
+
+    server.use(
+      http.delete(`${config.apiBaseUrl}/v1/admin/payment-methods/:id/permanent`, () =>
+        HttpResponse.json(
+          {
+            success: false,
+            data: null,
+            error: {
+              code: 'PAYMENT_METHOD_HAS_HISTORY',
+              message: '14 deposits were made through this method. Deactivate it instead.',
+            },
+            meta: { correlationId: 'test', timestamp: new Date().toISOString() },
+          },
+          { status: 409 },
+        ),
+      ),
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Delete for good' }));
+
+    await waitFor(() => {
+      expect(vi.mocked(toast.error)).toHaveBeenCalledWith(
+        `Could not delete ${usdt.displayName}`,
+        expect.objectContaining({
+          description: '14 deposits were made through this method. Deactivate it instead.',
+        }),
+      );
+    });
+  });
+
+  it('gives a read-only role no delete button at all, enabled or otherwise', async () => {
+    renderList({}, { auth: { role: 'REVIEWER' } });
+
+    expect(await selectButton(bank.code)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Delete / })).toBeNull();
   });
 });

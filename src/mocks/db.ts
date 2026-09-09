@@ -5,13 +5,21 @@ import type {
   AdminIdentity,
   AdminPlayer,
   AdminUser,
+  AdminWithdrawal,
   ApprovalLimit,
+  BotMenuButton,
+  BotMenuGate,
+  BotMenuNode,
+  BotSettings,
+  BuiltinAction,
   DepositStatus,
+  IchancyAccount,
   ManualCredit,
   PaymentDestination,
   PaymentMethod,
   PlayerDebit,
   PlayerDebitStatus,
+  PlayerImportSummary,
   ReconciliationBreak,
   Tenant,
   TenantFinanceRow,
@@ -20,15 +28,20 @@ import type {
   TenantWebhook,
   DiscoveredChat,
   TelegramDestination,
+  WalletCheck,
 } from '@/types';
 
 import {
   MOCK_CURRENCY,
   MOCK_DEBIT_TIMEOUT_PLAYER_ID,
+  REQUIRED_BUILTIN_ACTIONS,
   TENANT_IDS,
   mockAdmins,
   mockApprovalLimits,
+  mockBotMenuGate,
+  mockBotMenuNodes,
   mockBreaks,
+  mockBuiltinActions,
   mockDeposits,
   mockDestinations,
   mockPaymentMethods,
@@ -42,6 +55,7 @@ import {
   mockTenants,
   mockDiscoveredChats,
   mockTelegramDestinations,
+  mockWithdrawals,
   type PlatformDefaults,
 } from './fixtures';
 
@@ -55,6 +69,11 @@ import {
  */
 
 let sequence = 0;
+/**
+ * A fresh id. The PREFIX must not be one the fixtures already number from 1 — `bbbbbbbb`,
+ * `88888888`, `99990000` — or the first row created in a test lands on a fixture's id, and a
+ * lookup by id answers the wrong row while everything looks fine.
+ */
 const nextId = (prefix: string): string =>
   `${prefix}-0000-4000-8000-${String(++sequence).padStart(12, '0')}`;
 
@@ -122,6 +141,21 @@ export interface MockState {
   playerBalances: Record<string, string>;
   /** Every manual debit this session has posted, oldest first. */
   playerDebits: PlayerDebit[];
+  /**
+   * Player cash-outs. Stateful like deposits: approving one really debits the player's balance and
+   * moves the float, and marking one paid really closes it — the E2E suite asserts the workflow.
+   */
+  withdrawals: AdminWithdrawal[];
+  /**
+   * The bot's menu: screens, buttons and the channel gate, exactly as `GET /v1/admin/bot-menu`
+   * answers them. Stateful so the flow editor's writes are visible on the next read.
+   */
+  botMenu: { nodes: BotMenuNode[]; builtinActions: BuiltinAction[]; gate: BotMenuGate };
+  /**
+   * Whether Telegram's chat menu button was pointed at the mini app. Set alongside the URL (a
+   * best-effort `setChatMenuButton` on the real backend) and cleared with it.
+   */
+  chatMenuButtonSet: boolean;
   methods: PaymentMethod[];
   destinations: PaymentDestination[];
   deposits: AdminDeposit[];
@@ -146,8 +180,8 @@ export interface MockState {
   usdtRate: MockExchangeRate | null;
   /** When that row was last written, so the screen can tell an edit from the seed. */
   platformDefaultsUpdatedAt: string;
-  /** Whether a Sham Cash browser session is linked, and when. The cookies are never held here. */
-  shamCashSession: { linked: boolean; updatedAt: string | null };
+  /** The Sham Cash API credentials. The KEY is never stored here, exactly as it is never returned. */
+  shamCashSession: { apiLinked: boolean; walletId: string | null };
   /** The admin the mock session belongs to. Switchable so tests can log in as any role. */
   currentAdmin: AdminIdentity;
   /**
@@ -232,6 +266,13 @@ function seed(): MockState {
     players: clone(mockPlayers),
     playerBalances: clone(mockPlayerBalances),
     playerDebits: [],
+    withdrawals: clone(mockWithdrawals),
+    botMenu: {
+      nodes: clone(mockBotMenuNodes),
+      builtinActions: clone(mockBuiltinActions),
+      gate: clone(mockBotMenuGate),
+    },
+    chatMenuButtonSet: false,
     methods: clone(mockPaymentMethods),
     destinations: clone(mockDestinations),
     deposits: clone(mockDeposits),
@@ -244,7 +285,7 @@ function seed(): MockState {
     platformDefaults: clone(mockPlatformDefaults),
     usdtRate: null,
     platformDefaultsUpdatedAt: '2026-08-01T00:00:00.000Z',
-    shamCashSession: { linked: false, updatedAt: null },
+    shamCashSession: { apiLinked: false, walletId: null },
     currentAdmin: {
       id: superAdmin.id,
       telegramUserId: superAdmin.telegramUserId,
@@ -454,6 +495,478 @@ export function manualCredit(player: AdminPlayer, amountMinor: bigint): ManualCr
   return { shortId, status: 'APPROVED', amount, outcome: 'approved' };
 }
 
+// ── Registering, linking, blocking and importing players ───────────────────────────────────────
+
+/** The home operator's row — the one the tenant-scoped player and bot routes act on. */
+export function homeTenant(): Tenant | undefined {
+  return db.tenants.find((row) => row.id === TENANT_IDS.zero) ?? db.tenants[0];
+}
+
+/**
+ * Links a player to a fresh Ichancy account, as `ensureLinked` does.
+ *
+ * Idempotent: an already-linked row answers `created: false`. The login is derived from the Telegram
+ * id when there is one and from the row id otherwise — the backend's `pa` + hash rule for rows that
+ * were never a Telegram account — and the balance ledger starts an account at zero, which is a real
+ * figure and not the same as the "no account" absence the debit route refuses on.
+ */
+export function linkIchancyAccount(player: AdminPlayer): IchancyAccount {
+  const alreadyLinked = player.ichancyLinked;
+  if (!alreadyLinked) {
+    player.ichancyLinked = true;
+    player.ichancyPlayerId = String(90_000 + db.players.indexOf(player));
+    player.ichancyLogin =
+      player.telegramUserId === null
+        ? `pa${player.id.replace(/\D/g, '').slice(-8)}`
+        : `tg${player.telegramUserId}`;
+    player.ichancyRegisteredAt = nowIso();
+    if (player.status === 'PENDING_ICHANCY') player.status = 'ACTIVE';
+    db.playerBalances[player.id] ??= '0';
+  }
+
+  return {
+    playerId: player.id,
+    ichancyPlayerId: player.ichancyPlayerId ?? '0',
+    ichancyLogin: player.ichancyLogin ?? '',
+    created: !alreadyLinked,
+    agentId: homeTenant()?.ichancyAgentId ?? '10045',
+  };
+}
+
+/**
+ * `POST /v1/admin/players`: a row registered from the console. Lands PENDING_ICHANCY with no
+ * account, exactly as a Telegram Start does; the handler links it afterwards when asked to.
+ */
+export function registerPlayer(body: {
+  telegramUserId: string | null;
+  firstName: string | null;
+  lastName: string | null;
+  phone: string | null;
+}): AdminPlayer {
+  const player: AdminPlayer = {
+    id: nextId('bbbbbbb1'),
+    telegramUserId: body.telegramUserId,
+    telegramUsername: null,
+    firstName: body.firstName,
+    lastName: body.lastName,
+    languageCode: null,
+    status: 'PENDING_ICHANCY',
+    source: 'ADMIN',
+    currencyCode: homeTenant()?.currencyCode ?? MOCK_CURRENCY,
+    ichancyLinked: false,
+    createdAt: nowIso(),
+    lastSeenAt: null,
+    ichancyPlayerId: null,
+    ichancyLogin: null,
+    ichancyRegisteredAt: null,
+    phone: body.phone,
+    blockedAt: null,
+    blockedReason: null,
+    blockedByAdminId: null,
+  };
+  db.players.push(player);
+  return player;
+}
+
+/** The operator's lock. The three columns move together — see `adminPlayerSchema`. */
+export function blockPlayer(player: AdminPlayer, reason: string): void {
+  player.status = 'BLOCKED';
+  player.blockedAt = nowIso();
+  player.blockedReason = reason;
+  player.blockedByAdminId = db.currentAdmin.id;
+}
+
+/** Lifting it: ACTIVE when there is an account to go back to, PENDING_ICHANCY when there is not. */
+export function unblockPlayer(player: AdminPlayer): void {
+  player.status = player.ichancyLinked ? 'ACTIVE' : 'PENDING_ICHANCY';
+  player.blockedAt = null;
+  player.blockedReason = null;
+  player.blockedByAdminId = null;
+}
+
+/**
+ * What the Ichancy agent would list for the home operator: the players already known by login,
+ * plus one it has never told us about. Scanning is one page here; the real thing pages 100 at a
+ * time, and the summary shape is the same.
+ */
+const AGENT_PLAYERS_NOT_YET_IMPORTED: readonly {
+  ichancyPlayerId: string;
+  login: string;
+  phone: string | null;
+}[] = [{ ichancyPlayerId: '98077', login: 'rami_2020', phone: '+963900000077' }];
+
+/**
+ * `POST /v1/admin/players/import` for the home operator. Idempotent: a second run finds every row
+ * `existing` and creates nothing, which is what makes the button safe to press twice.
+ */
+export function importPlayers(limit: number): PlayerImportSummary {
+  const startedAt = nowIso();
+  const known = db.players.filter((row) => row.ichancyLogin !== null && row.ichancyLinked);
+  const candidates = [
+    ...known.map((row) => ({
+      ichancyPlayerId: row.ichancyPlayerId ?? '',
+      login: row.ichancyLogin ?? '',
+      phone: row.phone ?? null,
+    })),
+    ...AGENT_PLAYERS_NOT_YET_IMPORTED,
+  ].slice(0, Math.max(limit, 0));
+
+  let created = 0;
+  let existing = 0;
+  for (const candidate of candidates) {
+    const seen = db.players.some(
+      (row) =>
+        row.ichancyLogin === candidate.login || row.ichancyPlayerId === candidate.ichancyPlayerId,
+    );
+    if (seen) {
+      existing += 1;
+      continue;
+    }
+    const player: AdminPlayer = {
+      id: nextId('bbbbbbb1'),
+      telegramUserId: null,
+      telegramUsername: null,
+      firstName: null,
+      lastName: null,
+      languageCode: null,
+      status: 'ACTIVE',
+      source: 'ICHANCY_IMPORT',
+      currencyCode: homeTenant()?.currencyCode ?? MOCK_CURRENCY,
+      ichancyLinked: true,
+      createdAt: nowIso(),
+      lastSeenAt: null,
+      ichancyPlayerId: candidate.ichancyPlayerId,
+      ichancyLogin: candidate.login,
+      ichancyRegisteredAt: nowIso(),
+      phone: candidate.phone,
+      blockedAt: null,
+      blockedReason: null,
+      blockedByAdminId: null,
+    };
+    db.players.push(player);
+    db.playerBalances[player.id] = '0';
+    created += 1;
+  }
+
+  const tenant = homeTenant();
+  if (tenant?.counts !== undefined) tenant.counts.players += created;
+
+  return {
+    scanned: candidates.length,
+    created,
+    existing,
+    error: null,
+    startedAt,
+    finishedAt: nowIso(),
+  };
+}
+
+/**
+ * `POST /v1/admin/tenants/:id/import-players`, from the platform side.
+ *
+ * The home operator's rows are the ones this db actually holds, so its import is the real one
+ * above. Another operator's directory is served as a slice of the same rows (see `forTenant` in
+ * handlers.ts), so its import only moves the count — and an operator whose agent does not answer
+ * REPORTS that in `error` rather than throwing, which is the contract: the rows written before an
+ * outage stay written, and the summary says how far it got.
+ */
+export function importPlayersForTenant(tenant: Tenant): PlayerImportSummary {
+  if (tenant.id === TENANT_IDS.zero) return importPlayers(2000);
+
+  const startedAt = nowIso();
+  const ops = operatorOps(tenant.id);
+  if (ops.ichancyError !== null) {
+    return {
+      scanned: 0,
+      created: 0,
+      existing: 0,
+      error: ops.ichancyError,
+      startedAt,
+      finishedAt: nowIso(),
+    };
+  }
+
+  const created = 2;
+  if (tenant.counts !== undefined) tenant.counts.players += created;
+  return { scanned: 3, created, existing: 1, error: null, startedAt, finishedAt: nowIso() };
+}
+
+// ── Withdrawals (player cash-out) ──────────────────────────────────────────────────────────────
+
+export function findWithdrawal(id: string): AdminWithdrawal | undefined {
+  return db.withdrawals.find((row) => row.id === id);
+}
+
+/**
+ * What the payout wallet holds, asked the way the worker asks: the rail decides WHICH wallet, and
+ * the answer is one of four — a figure that covers it, a figure that does not, a wallet nobody can
+ * read, or no wallet at all. Never a zero standing in for silence.
+ */
+function payoutWalletCheck(withdrawal: AdminWithdrawal): WalletCheck {
+  const checkedAt = nowIso();
+  const method = db.methods.find((row) => row.id === withdrawal.paymentMethodId);
+  const destination = db.destinations
+    .filter((row) => row.paymentMethodId === withdrawal.paymentMethodId && row.isActive)
+    .sort((a, b) => a.priority - b.priority)[0];
+
+  if (method?.rail === 'CRYPTO') {
+    // A placeholder address is not a wallet, and a rail nobody configured cannot be checked.
+    if (destination === undefined || destination.accountIdentifier.startsWith('SEED-PLACEHOLDER')) {
+      return { status: 'not_configured', availableMinor: null, currency: null, checkedAt };
+    }
+    return { status: 'ok', availableMinor: '12500000000', currency: 'USDT', checkedAt };
+  }
+
+  if (method?.code === 'SHAM_CASH') {
+    return db.shamCashSession.apiLinked
+      ? { status: 'ok', availableMinor: '25000000', currency: 'SYP', checkedAt }
+      : { status: 'not_configured', availableMinor: null, currency: null, checkedAt };
+  }
+
+  // A bank or a cash office: only a hand-typed balance can say anything, and it says it in its
+  // own currency — compared as minor units because that is the only figure either side holds.
+  if (destination?.declaredBalanceMinor != null && destination.declaredBalanceCurrency !== null) {
+    const covers =
+      minorFromString(destination.declaredBalanceMinor) >= minorFromString(withdrawal.amount.minor);
+    return {
+      status: covers ? 'ok' : 'insufficient',
+      availableMinor: destination.declaredBalanceMinor,
+      currency: destination.declaredBalanceCurrency,
+      checkedAt,
+    };
+  }
+
+  return { status: 'unknown', availableMinor: null, currency: null, checkedAt };
+}
+
+/**
+ * Approving, collapsed to what the worker does seconds later — exactly as `manualCredit` collapses
+ * the credit spine — so a demo sees the effect: the player's balance drops, the float rises (the
+ * chips came back to the agent, the same posting as a manual debit), and the payout wallet is
+ * checked. The real row passes through APPROVED and DEBITING first; the mock lands on the ending.
+ *
+ * The ending is not always DEBITED. A player who spent the money between asking and being approved
+ * is refused by Ichancy, and that is `DEBIT_FAILED` with the code the backend uses — a row nobody
+ * was paid on and nobody was charged for, closed rather than retried.
+ */
+export function approveWithdrawal(withdrawal: AdminWithdrawal): AdminWithdrawal {
+  const now = nowIso();
+  withdrawal.decidedAt = now;
+  withdrawal.decidedByAdminId = db.currentAdmin.id;
+
+  const amount = minorFromString(withdrawal.amount.minor);
+  const before = playerBalanceMinor(withdrawal.playerId);
+
+  if (before === null || before < amount) {
+    withdrawal.status = 'DEBIT_FAILED';
+    withdrawal.failureCode = 'WITHDRAWAL_INSUFFICIENT_BALANCE';
+    withdrawal.failureMessage =
+      before === null
+        ? 'The player has no Ichancy account to debit.'
+        : `Ichancy refused the debit: the account holds ${formatMinorToDecimal(before)} ${withdrawal.amount.currency}, less than the ${withdrawal.amount.amount} asked for.`;
+    withdrawal.closedAt = now;
+    return withdrawal;
+  }
+
+  db.playerBalances[withdrawal.playerId] = (before - amount).toString();
+  db.agentFloatLedgerMinor += amount;
+  db.agentFloatIchancyMinor += amount;
+
+  withdrawal.status = 'DEBITED';
+  withdrawal.playerDebitId = nextId('77777771');
+  withdrawal.debitedAt = now;
+  withdrawal.walletCheck = payoutWalletCheck(withdrawal);
+  return withdrawal;
+}
+
+/** REQUESTED → REJECTED. Nothing was taken, so nothing moves. */
+export function rejectWithdrawal(withdrawal: AdminWithdrawal, reason: string): AdminWithdrawal {
+  const now = nowIso();
+  withdrawal.status = 'REJECTED';
+  withdrawal.rejectionReason = reason;
+  withdrawal.decidedAt = now;
+  withdrawal.decidedByAdminId = db.currentAdmin.id;
+  withdrawal.closedAt = now;
+  return withdrawal;
+}
+
+/** DEBITED → PAID. The payout is posted to the ledger against the reference the person typed. */
+export function markWithdrawalPaid(
+  withdrawal: AdminWithdrawal,
+  payoutReference: string,
+): AdminWithdrawal {
+  const now = nowIso();
+  withdrawal.status = 'PAID';
+  withdrawal.payoutReference = payoutReference;
+  withdrawal.ledgerPayoutTxId = nextId('66666666');
+  withdrawal.paidAt = now;
+  withdrawal.paidByAdminId = db.currentAdmin.id;
+  withdrawal.closedAt = now;
+  return withdrawal;
+}
+
+// ── The bot's menu and its settings ────────────────────────────────────────────────────────────
+
+export function findMenuNode(id: string): BotMenuNode | undefined {
+  return db.botMenu.nodes.find((node) => node.id === id);
+}
+
+export function findMenuButton(
+  id: string,
+): { node: BotMenuNode; button: BotMenuButton } | undefined {
+  for (const node of db.botMenu.nodes) {
+    const button = node.buttons.find((row) => row.id === id);
+    if (button !== undefined) return { node, button };
+  }
+  return undefined;
+}
+
+/**
+ * The rule `deleteButton`, `updateButton({ isActive: false })` and `deleteNode` all share on the
+ * backend: a bot must keep at least one ACTIVE button for each required action. `except` names the
+ * buttons about to be removed or hidden, so the check asks "would any remain" rather than "do any
+ * exist".
+ */
+export function requiredActionLeftWithout(except: readonly string[]): string | null {
+  for (const action of REQUIRED_BUILTIN_ACTIONS) {
+    const remaining = db.botMenu.nodes.some((node) =>
+      node.buttons.some(
+        (button) =>
+          button.kind === 'BUILTIN' &&
+          button.builtinAction === action &&
+          button.isActive &&
+          !except.includes(button.id),
+      ),
+    );
+    if (!remaining) return action;
+  }
+  return null;
+}
+
+export function createMenuNode(body: Record<string, unknown>): BotMenuNode {
+  const node: BotMenuNode = {
+    id: nextId('88888881'),
+    key: str(body.key, `screen-${String(db.botMenu.nodes.length + 1)}`),
+    name: str(body.name, 'New screen'),
+    promptText: optionalStr(body.promptText),
+    isRoot: false,
+    buttons: [],
+  };
+  db.botMenu.nodes.push(node);
+  return node;
+}
+
+/** Answers the screen another button still opens, or null when the node may go. */
+export function menuNodeStillLinkedFrom(nodeId: string): BotMenuNode | null {
+  return (
+    db.botMenu.nodes.find((node) =>
+      node.buttons.some((button) => button.kind === 'NAVIGATE' && button.targetNodeId === nodeId),
+    ) ?? null
+  );
+}
+
+export function deleteMenuNode(node: BotMenuNode): void {
+  db.botMenu.nodes = db.botMenu.nodes.filter((row) => row.id !== node.id);
+}
+
+/**
+ * Exactly one payload column per kind, as the CHECK constraint insists: the other two are nulled on
+ * every write, whatever the caller sent.
+ */
+function buttonPayload(kind: BotMenuButton['kind'], body: Record<string, unknown>) {
+  return {
+    builtinAction: kind === 'BUILTIN' ? optionalStr(body.builtinAction) : null,
+    targetNodeId: kind === 'NAVIGATE' ? optionalStr(body.targetNodeId) : null,
+    bodyText: kind === 'TEXT' ? optionalStr(body.bodyText) : null,
+  };
+}
+
+export function createMenuButton(node: BotMenuNode, body: Record<string, unknown>): BotMenuButton {
+  const kind = (body.kind ?? 'BUILTIN') as BotMenuButton['kind'];
+  const lastRow = node.buttons.reduce((max, button) => Math.max(max, button.rowIndex), -1);
+  const button: BotMenuButton = {
+    id: nextId('99990001'),
+    nodeId: node.id,
+    label: str(body.label, 'New button'),
+    kind,
+    ...buttonPayload(kind, body),
+    rowIndex: num(body.rowIndex, lastRow + 1),
+    sortOrder: num(body.sortOrder, 0),
+    isActive: bool(body.isActive, true),
+  };
+  node.buttons.push(button);
+  return button;
+}
+
+export function updateMenuButton(button: BotMenuButton, body: Record<string, unknown>): void {
+  const kind = (body.kind ?? button.kind) as BotMenuButton['kind'];
+  const payload = buttonPayload(kind, {
+    builtinAction: body.builtinAction ?? button.builtinAction,
+    targetNodeId: body.targetNodeId ?? button.targetNodeId,
+    bodyText: body.bodyText ?? button.bodyText,
+  });
+  button.kind = kind;
+  button.builtinAction = payload.builtinAction;
+  button.targetNodeId = payload.targetNodeId;
+  button.bodyText = payload.bodyText;
+  button.label = str(body.label, button.label);
+  button.rowIndex = num(body.rowIndex, button.rowIndex);
+  button.sortOrder = num(body.sortOrder, button.sortOrder);
+  button.isActive = bool(body.isActive, button.isActive);
+}
+
+export function deleteMenuButton(node: BotMenuNode, button: BotMenuButton): void {
+  node.buttons = node.buttons.filter((row) => row.id !== button.id);
+}
+
+/** The whole layout in one write, as the backend applies it in one transaction. */
+export function reorderMenuButtons(
+  node: BotMenuNode,
+  positions: readonly { id: string; rowIndex: number; sortOrder: number }[],
+): void {
+  for (const position of positions) {
+    const button = node.buttons.find((row) => row.id === position.id);
+    if (button === undefined) continue;
+    button.rowIndex = position.rowIndex;
+    button.sortOrder = position.sortOrder;
+  }
+  node.buttons.sort((a, b) => a.rowIndex - b.rowIndex || a.sortOrder - b.sortOrder);
+}
+
+/**
+ * The bot's runtime settings live on the HOME tenant's row, so the tenants screen and the bot
+ * settings card cannot disagree: a PATCH here is a PATCH there. `chatMenuButtonSet` is the one
+ * fact the tenant row does not carry.
+ */
+export function botSettingsView(): BotSettings {
+  const tenant = homeTenant();
+  return {
+    miniAppUrl: tenant?.miniAppUrl ?? null,
+    depositMode: tenant?.depositMode ?? 'MANUAL',
+    withdrawalMode: tenant?.withdrawalMode ?? 'MANUAL',
+    chatMenuButtonSet: db.chatMenuButtonSet,
+  };
+}
+
+export function updateBotSettings(body: {
+  miniAppUrl?: string | null;
+  depositMode?: BotSettings['depositMode'];
+  withdrawalMode?: BotSettings['withdrawalMode'];
+}): BotSettings {
+  const tenant = homeTenant();
+  if (tenant !== undefined) {
+    if (body.depositMode !== undefined) tenant.depositMode = body.depositMode;
+    if (body.withdrawalMode !== undefined) tenant.withdrawalMode = body.withdrawalMode;
+    if (body.miniAppUrl !== undefined) {
+      tenant.miniAppUrl = body.miniAppUrl;
+      // Best-effort on the real backend; always succeeds here, and clears with the URL.
+      db.chatMenuButtonSet = body.miniAppUrl !== null;
+    }
+    tenant.updatedAt = nowIso();
+  }
+  return botSettingsView();
+}
+
 // ── Payment methods ────────────────────────────────────────────────────────────────────────────
 
 export function createMethod(body: Record<string, unknown>): PaymentMethod {
@@ -479,8 +992,32 @@ export function createMethod(body: Record<string, unknown>): PaymentMethod {
     createdAt: nowIso(),
     updatedAt: nowIso(),
     requiredProofFields: [],
+    // A rail created just now has taken nothing, so it is always removable — which is exactly the
+    // state the real backend reports for it, and the state that makes a mis-click undoable.
+    deletable: true,
+    deleteBlockedBy: null,
   };
   db.methods.push(method);
+  return method;
+}
+
+/**
+ * Really remove a method, the way `DELETE /payment-methods/:id/permanent` does.
+ *
+ * Returns null when the fixture is marked undeletable, so the mock refuses on the same grounds the
+ * server does rather than letting a test delete a rail the real system would protect.
+ */
+export function deleteMethod(id: string): PaymentMethod | null {
+  const index = db.methods.findIndex((method) => method.id === id);
+  if (index === -1) return null;
+
+  const method = db.methods[index];
+  if (method?.deletable !== true) return null;
+
+  db.methods.splice(index, 1);
+  db.destinations = db.destinations.filter(
+    (destination) => destination.paymentMethodId !== method.id,
+  );
   return method;
 }
 
@@ -515,8 +1052,13 @@ export function createDestination(
 export function createAdmin(body: Record<string, unknown>): AdminUser {
   const admin: AdminUser = {
     id: nextId('aaaaaaaa'),
-    telegramUserId: str(body.telegramUserId, '0'),
-    username: optionalStr(body.username),
+    // Always null: a staff account is a username and a password. The real server writes the column
+    // as null here too and refuses a telegramUserId in the body outright.
+    telegramUserId: null,
+    // Lower-cased like the server does, so the mock cannot accept a pair of usernames the real
+    // unique index would treat as one.
+    username: optionalStr(body.username)?.toLowerCase() ?? null,
+    hasPassword: typeof body.password === 'string' && body.password.length > 0,
     displayName: str(body.displayName, 'New admin'),
     role: (body.role ?? 'VIEWER') as AdminUser['role'],
     isActive: true,
@@ -627,8 +1169,11 @@ export function createTenant(body: Record<string, unknown>): {
     // Always SUSPENDED: the agent id cannot be verified from a form.
     status: 'SUSPENDED',
     hasWebhookPath: true,
-    // The platform admin making the request — the account that will send /console to this bot.
-    adminChatId: optionalStr(body.adminChatId) ?? db.currentAdmin.telegramUserId,
+    // The platform admin making the request — the account this bot reports to on Telegram.
+    // Falls back to '' only for a console-only admin with no Telegram id, which the real backend
+    // instead refuses outright (TENANT_ADMIN_CHAT_UNRESOLVED) — not worth reproducing here since
+    // every mock `currentAdmin` fixture has a real Telegram id.
+    adminChatId: optionalStr(body.adminChatId) ?? db.currentAdmin.telegramUserId ?? '',
     // The one optional field with no default: no feed chat until somebody sets one.
     feedChatId: optionalStr(body.feedChatId),
     botUsername: null,
@@ -677,6 +1222,11 @@ export function createTenant(body: Record<string, unknown>): {
     paymentMethodsError: null,
     // Every seeded rail points at a placeholder until somebody enters a real account.
     paymentMethodsNeedAccounts: true,
+    // The import runs only after activation succeeded, and activation cannot here — so it did not
+    // run, and the report says so rather than claiming zero old players were found.
+    playersImported: 0,
+    playersImportError:
+      'Players were not imported: the operator was not activated. Import them from the operator once it is.',
   };
 
   return { tenant, provisioning };

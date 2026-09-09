@@ -170,11 +170,13 @@ function ShamCashCellView({ cell }: { cell: ShamCashCell }) {
   switch (cell.status) {
     case 'not_loaded':
       return <NotLoaded />;
-    // Neither an outage nor a figure: the operator simply has no Sham Cash session on record.
+    // Neither an outage nor a figure: the operator simply has no Sham Cash API key on record.
     case 'not_linked':
       return <Muted>{t('finance.shamCash.notLinked')}</Muted>;
-    case 'expired':
-      return <FailedRead title={t('finance.shamCash.expired')} />;
+    // A key that exists and is refused. The operator's to fix, and NOT an outage — saying "could
+    // not reach" would send them looking at the network instead of at their key.
+    case 'unauthorized':
+      return <FailedRead title={t('finance.shamCash.unauthorized')} />;
     case 'unavailable':
       return <FailedRead title={t('finance.unavailable')} detail={cell.detail} />;
     case 'ok':

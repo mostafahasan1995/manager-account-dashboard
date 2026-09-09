@@ -81,7 +81,9 @@ export function PlayerFilters() {
     search.search !== undefined ||
     search.status !== undefined ||
     search.linked !== undefined ||
-    search.telegramUserId !== undefined;
+    search.telegramUserId !== undefined ||
+    search.source !== undefined ||
+    search.blocked !== undefined;
 
   return (
     <div className="flex flex-wrap items-end gap-3">
@@ -186,6 +188,9 @@ export function PlayerFilters() {
               status: undefined,
               linked: undefined,
               telegramUserId: undefined,
+              // The segmented view above these is a filter too, and "clear" means all of them.
+              source: undefined,
+              blocked: undefined,
             });
           }}
         >

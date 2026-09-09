@@ -39,10 +39,26 @@ describe('PaymentMethodsPage', () => {
   });
 
   it('honours an inactive-only filter carried in the URL', async () => {
-    render('/payment-methods?isActive=false');
+    render('/payment-methods?state=inactive');
 
     expect(await screen.findByRole('button', { name: /^OLD_CRYPTO/ })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^BANK_SYR/ })).toBeNull();
+  });
+
+  it('hides a retired rail from the default view — nothing in the URL asked to see it', async () => {
+    // The bug this pins: an operator landing on this screen with no filter at all must not be shown
+    // a rail that was deliberately taken off the menu, as though it were still on offer.
+    render();
+
+    await screen.findByRole('button', { name: /^BANK_SYR/ });
+    expect(screen.queryByRole('button', { name: /^OLD_CRYPTO/ })).toBeNull();
+  });
+
+  it('shows a retired rail once the operator explicitly asks for everything', async () => {
+    render('/payment-methods?state=all');
+
+    expect(await screen.findByRole('button', { name: /^BANK_SYR/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^OLD_CRYPTO/ })).toBeInTheDocument();
   });
 
   it('explains a shared link whose method the filters hide', async () => {

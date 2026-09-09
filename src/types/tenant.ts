@@ -1,7 +1,13 @@
 import { z } from 'zod';
 
 import { isoDateTime } from './api';
-import { tenantStatusSchema } from './enums';
+import {
+  depositModeSchema,
+  tenantStatusSchema,
+  withdrawalModeSchema,
+  type DepositMode,
+  type WithdrawalMode,
+} from './enums';
 
 export const tenantSchema = z.looseObject({
   id: z.string(),
@@ -20,11 +26,39 @@ export const tenantSchema = z.looseObject({
   dualApprovalThresholdMinor: z.string(),
   agentFloatLowWatermarkMinor: z.string(),
   depositExpiryMinutes: z.number(),
+  /**
+   * How this operator's bot answers a submitted deposit — see `DEPOSIT_MODES`. Optional for the
+   * same reason withdrawalMode is: a backend older than this feature answers no such field, and
+   * `tenantDepositMode` below reads the absent value as the conservative one.
+   */
+  depositMode: depositModeSchema.optional(),
+  /**
+   * How this operator's bot answers a cash-out — see `WITHDRAWAL_MODES`. Optional because a backend
+   * older than the withdrawal module answers no such field, and a console that refused to parse its
+   * operator list over one missing setting would blank the platform screen; `tenantWithdrawalMode`
+   * below reads the absent value as the conservative one.
+   */
+  withdrawalMode: withdrawalModeSchema.optional(),
+  /**
+   * The https URL the bot's "open the app" button opens. Null is "not set yet" — the bot answers
+   * "coming soon" — and absent is the older backend again.
+   */
+  miniAppUrl: z.string().nullable().optional(),
   createdAt: isoDateTime,
   updatedAt: isoDateTime,
   counts: z.looseObject({ players: z.number(), deposits: z.number() }).optional(),
 });
 export type Tenant = z.infer<typeof tenantSchema>;
+
+/** MANUAL until the backend says otherwise: a missing setting must not auto-approve money. */
+export function tenantWithdrawalMode(tenant: Pick<Tenant, 'withdrawalMode'>): WithdrawalMode {
+  return tenant.withdrawalMode ?? 'MANUAL';
+}
+
+/** MANUAL until the backend says otherwise: a missing setting must not auto-approve money. */
+export function tenantDepositMode(tenant: Pick<Tenant, 'depositMode'>): DepositMode {
+  return tenant.depositMode ?? 'MANUAL';
+}
 
 /** GET /v1/admin/tenants answers `{ tenants: [...] }`, not a bare array. */
 export const tenantListSchema = z.looseObject({ tenants: z.array(tenantSchema) });
@@ -61,6 +95,10 @@ export interface CreateTenantBody {
   dualApprovalThresholdMinor?: string;
   agentFloatLowWatermarkMinor?: string;
   depositExpiryMinutes?: number;
+  depositMode?: DepositMode;
+  withdrawalMode?: WithdrawalMode;
+  /** `null` clears it; absent leaves it alone. An https URL, which the server insists on. */
+  miniAppUrl?: string | null;
 }
 
 /** `slug` and `currencyCode` are absent for a reason: both would rewrite the meaning of old rows. */
@@ -71,6 +109,9 @@ export interface UpdateTenantBody {
   dualApprovalThresholdMinor?: string;
   agentFloatLowWatermarkMinor?: string;
   depositExpiryMinutes?: number;
+  depositMode?: DepositMode;
+  withdrawalMode?: WithdrawalMode;
+  miniAppUrl?: string | null;
 }
 
 // ── Operator operations: webhook, bot, health ──────────────────────────────────────────────────
@@ -222,6 +263,14 @@ export const tenantProvisioningSchema = z.looseObject({
   paymentMethodsError: z.string().nullable(),
   /** True while any provisioned method still points at a placeholder account. */
   paymentMethodsNeedAccounts: z.boolean(),
+
+  /**
+   * The "old players": how many of the agent's existing Ichancy accounts were pulled in on create.
+   * `.catch()` on both, so a backend that predates the import reads as "none imported, no error"
+   * rather than failing to parse a creation that succeeded — the same degrade `deletable` uses.
+   */
+  playersImported: z.number().catch(0),
+  playersImportError: z.string().nullable().catch(null),
 });
 export type TenantProvisioning = z.infer<typeof tenantProvisioningSchema>;
 

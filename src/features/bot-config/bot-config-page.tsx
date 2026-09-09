@@ -15,10 +15,12 @@ import {
 import { usePaymentMethods } from '@/lib/api/queries';
 import { useT } from '@/lib/i18n/use-translation';
 
+import { BotSettingsCard } from './bot-settings-card';
 import { CommandMenuPanel } from './command-menu-panel';
 import { IdentityPanel } from './identity-panel';
 import { MessageSurfacesPanel } from './message-surfaces-panel';
 import { botConfigMessages } from './messages';
+import { FlowPanel } from './flow-panel';
 import { PaymentButtonsPanel } from './payment-buttons-panel';
 import { SurfaceBadge } from './surface-state';
 
@@ -104,15 +106,24 @@ export function BotConfigPage() {
         </CardContent>
       </Card>
 
-      <Tabs defaultValue="buttons">
-        {/* Wraps rather than scrolls: four labels do not fit one 390px line, and a tab list that
+      {/* `flow` is the default because it is the only tab that CHANGES the bot's own menu, and it
+          is what an operator opening "bot configuration" came for. The rest read or edit around
+          it. */}
+      <Tabs defaultValue="flow">
+        {/* Wraps rather than scrolls: five labels do not fit one 390px line, and a tab list that
             scrolls sideways hides the tab an operator has not thought to look for. */}
         <TabsList className="flex flex-wrap">
+          <TabsTrigger value="flow">{t('botConfig.tab.flow')}</TabsTrigger>
           <TabsTrigger value="buttons">{t('botConfig.tab.buttons')}</TabsTrigger>
           <TabsTrigger value="commands">{t('botConfig.tab.commands')}</TabsTrigger>
           <TabsTrigger value="messages">{t('botConfig.tab.messages')}</TabsTrigger>
           <TabsTrigger value="identity">{t('botConfig.tab.identity')}</TabsTrigger>
+          <TabsTrigger value="settings">{t('botConfig.tab.settings')}</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="flow">
+          <FlowPanel />
+        </TabsContent>
 
         <TabsContent value="buttons">
           <PaymentButtonsPanel
@@ -135,6 +146,12 @@ export function BotConfigPage() {
 
         <TabsContent value="identity">
           <IdentityPanel />
+        </TabsContent>
+
+        {/* The two runtime settings that are not buttons — live, like the flow, and kept apart from
+            it because a mini-app URL and a cash-out mode are not a keyboard. */}
+        <TabsContent value="settings">
+          <BotSettingsCard />
         </TabsContent>
       </Tabs>
     </div>

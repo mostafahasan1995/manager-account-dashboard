@@ -69,3 +69,61 @@ test('a player id that does not exist explains itself rather than blanking', asy
   await signedIn.goto('/players/bbbbbbbb-0000-4000-8000-000000009999');
   await expect(signedIn.getByRole('alert')).toContainText(/not found/i);
 });
+
+/**
+ * The doors into the directory that are not a Telegram Start, and the operator's own lock. All of
+ * it runs against the mock API, which registers, imports, blocks and unblocks for real in its
+ * in-memory state.
+ */
+
+test('the old players are a view of their own, and the view is a URL', async ({ signedIn }) => {
+  await signedIn.getByRole('tab', { name: /old players/i }).click();
+
+  await expect(signedIn).toHaveURL(/source=ICHANCY_IMPORT/);
+  // The imported account has no name and no Telegram; its Ichancy login is what names it.
+  await expect(signedIn.getByRole('link', { name: 'samer1987' })).toBeVisible();
+  await expect(signedIn.getByRole('link', { name: /karim nasser/i })).toBeHidden();
+});
+
+test('registers a player from the console and reports it on the page', async ({ signedIn }) => {
+  await signedIn.getByRole('button', { name: /register player/i }).click();
+  const dialog = signedIn.getByRole('dialog');
+  await dialog.getByLabel(/first name/i).fill('Nour');
+  await dialog.getByLabel(/last name/i).fill('Haddad');
+  await dialog.getByRole('button', { name: /^register$/i }).click();
+
+  await expect(
+    signedIn.getByRole('status').filter({ hasText: /registered nour haddad/i }),
+  ).toBeVisible();
+  await expect(signedIn.getByRole('link', { name: 'Nour Haddad', exact: true })).toBeVisible();
+});
+
+test('blocks a player from the row, and the blocked view lists them', async ({ signedIn }) => {
+  await signedIn.getByRole('button', { name: 'Block Karim Nasser' }).click();
+  const dialog = signedIn.getByRole('dialog');
+  await dialog.getByLabel(/reason/i).fill('Three accounts on one receipt');
+  await dialog.getByRole('button', { name: /review this block/i }).click();
+  await dialog.getByRole('button', { name: 'Block Karim Nasser' }).click();
+
+  await expect(signedIn.getByRole('row', { name: /karim nasser/i })).toContainText(/blocked/i);
+
+  await signedIn.getByRole('tab', { name: /^blocked$/i }).click();
+  await expect(signedIn).toHaveURL(/blocked=true/);
+  await expect(signedIn.getByRole('link', { name: /karim nasser/i })).toBeVisible();
+});
+
+test('the detail page says why a player is blocked and can lift it', async ({ signedIn }) => {
+  await signedIn.goto('/players/bbbbbbbb-0000-4000-8000-000000000008');
+
+  await expect(signedIn.getByText(/blocked from the bot/i)).toBeVisible();
+  await expect(signedIn.getByText('Three accounts sharing one bank receipt.')).toBeVisible();
+
+  await signedIn.getByRole('button', { name: /unblock player/i }).click();
+  await signedIn
+    .getByRole('dialog')
+    .getByRole('button', { name: /^unblock$/i })
+    .click();
+
+  await expect(signedIn.getByText(/blocked from the bot/i)).toBeHidden();
+  await expect(signedIn.getByRole('button', { name: /^block player$/i })).toBeVisible();
+});

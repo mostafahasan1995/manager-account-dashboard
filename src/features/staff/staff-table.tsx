@@ -77,7 +77,11 @@ export function StaffTable({
               {admin.username === null ? '—' : `@${admin.username}`}
             </TableCell>
             <TableCell>
-              <CopyableValue value={admin.telegramUserId} />
+              {admin.telegramUserId === null ? (
+                <span aria-label={t('staff.telegram.none')}>—</span>
+              ) : (
+                <CopyableValue value={admin.telegramUserId} />
+              )}
             </TableCell>
             <TableCell>
               <RoleBadge role={admin.role} />

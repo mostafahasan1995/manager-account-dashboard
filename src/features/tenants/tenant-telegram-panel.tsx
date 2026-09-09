@@ -16,10 +16,10 @@ import type { TenantOperatorActions } from './tenant-actions';
  * The Telegram side of one operator.
  *
  * ── THE WEBHOOK IS THE HEADLINE, NOT A DOT ────────────────────────────────────────────────────
- * An operator whose webhook is not registered receives NOTHING: its bot never answers, `/console`
- * does nothing, and nobody can sign into it — see docs/TENANT-OPERATIONS.md section 5. That is not
- * a degraded state to colour red in a corner, it is the whole operator being offline, so it is
- * stated in a sentence with the button that fixes it underneath.
+ * An operator whose webhook is not registered receives NOTHING: its bot never answers, no player
+ * can deposit and no cashier is notified of anything — see docs/TENANT-OPERATIONS.md section 5.
+ * That is not a degraded state to colour red in a corner, it is the whole operator being offline,
+ * so it is stated in a sentence with the button that fixes it underneath.
  *
  * The two failing shapes are told apart on purpose. No webhook at all and a webhook pointing at
  * somebody else's deployment look identical in a status pill and lead to completely different

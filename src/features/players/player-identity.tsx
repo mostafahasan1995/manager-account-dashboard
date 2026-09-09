@@ -6,8 +6,9 @@ import {
   TimeAgo,
 } from '@/components/common';
 import { Badge, Card, CardContent, CardHeader, CardTitle, Separator } from '@/components/ui';
-import { useT } from '@/lib/i18n/use-translation';
-import type { AdminPlayer } from '@/types/player';
+import { useFormatters } from '@/lib/i18n/use-format';
+import { useEnumLabel, useT } from '@/lib/i18n/use-translation';
+import { isImportedPlayer, type AdminPlayer } from '@/types/player';
 
 import { playerMessages } from './messages';
 
@@ -24,6 +25,8 @@ const orDash = (value: string | null | undefined) =>
 
 export function PlayerIdentity({ player }: { player: AdminPlayer }) {
   const t = useT(playerMessages);
+  const enumLabel = useEnumLabel();
+  const formatters = useFormatters();
 
   return (
     <Card>
@@ -36,7 +39,7 @@ export function PlayerIdentity({ player }: { player: AdminPlayer }) {
             <CopyableValue value={player.id} />
           </DetailRow>
           <DetailRow label={t('field.telegramId')}>
-            <CopyableValue value={player.telegramUserId} />
+            {player.telegramUserId === null ? '—' : <CopyableValue value={player.telegramUserId} />}
           </DetailRow>
           <DetailRow label={t('field.username')}>
             {player.telegramUsername == null ? '—' : `@${player.telegramUsername}`}
@@ -49,6 +52,15 @@ export function PlayerIdentity({ player }: { player: AdminPlayer }) {
           <DetailRow label={t('players.field.language')}>{orDash(player.languageCode)}</DetailRow>
           <DetailRow label={t('field.status')}>
             <PlayerStatusBadge status={player.status} />
+          </DetailRow>
+          <DetailRow label={t('players.field.source')}>
+            {/* An "old player" says when Ichancy first knew them, which is the date that matters
+                for a row the bot has never seen; the other sources are a word. */}
+            {isImportedPlayer(player) && player.ichancyRegisteredAt != null
+              ? t('players.source.importedOn', {
+                  date: formatters.dateTime(player.ichancyRegisteredAt),
+                })
+              : enumLabel('playerSource', player.source)}
           </DetailRow>
           <DetailRow label={t('field.currency')}>
             <span className="tabular">{player.currencyCode}</span>

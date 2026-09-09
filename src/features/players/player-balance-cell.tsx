@@ -4,7 +4,7 @@ import { MinorAmount } from '@/components/common';
 import { Button } from '@/components/ui';
 import { usePlayerBalance } from '@/lib/api/queries';
 import { useT } from '@/lib/i18n/use-translation';
-import type { AdminPlayer } from '@/types/player';
+import { playerDisplayName, type AdminPlayer } from '@/types/player';
 
 import { playerMessages } from './messages';
 
@@ -73,7 +73,7 @@ export function PlayerBalanceCell({
           variant="ghost"
           size="sm"
           onClick={() => void query.refetch()}
-          aria-label={t('players.balance.retryFor', { name: player.telegramUserId })}
+          aria-label={t('players.balance.retryFor', { name: playerDisplayName(player) })}
         >
           <RefreshCw className="size-3" />
         </Button>

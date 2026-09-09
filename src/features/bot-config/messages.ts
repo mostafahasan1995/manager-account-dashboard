@@ -19,7 +19,7 @@ import { defineMessages } from '@/lib/i18n/messages';
  * interface while they are looking at this screen.
  *
  * ══ SLASH COMMANDS IN ARABIC CARRY LRM MARKS ══════════════════════════════════════════════════
- * `‎/start‎` and friends are wrapped in U+200E, the same as /console in `common-messages.ts`. The
+ * `‎/start‎` and friends are wrapped in U+200E. The
  * leading slash is bidi-neutral, so in an Arabic sentence it takes the paragraph direction and
  * lands at the far end of the Latin run: `start/`, which is not a command anyone can type. The
  * marks are invisible and the string still matches a search for the command.
@@ -54,10 +54,129 @@ export const botConfigMessages = defineMessages({
       'Deposits, withdrawals, new players and reports go to the Telegram groups you bind yourself. That part is fully wired in both directions and has its own screen.',
     'botConfig.routing.link': 'Telegram destinations',
 
+    'botConfig.tab.flow': 'Menu flow',
     'botConfig.tab.buttons': 'Payment buttons',
     'botConfig.tab.commands': 'Commands',
     'botConfig.tab.messages': 'Messages',
     'botConfig.tab.identity': 'Name and profile',
+    'botConfig.tab.settings': 'Settings',
+
+    // ── The flow editor ──────────────────────────────────────────────────────────────────────
+    'botConfig.flow.title': 'The menu your players tap',
+    'botConfig.flow.body':
+      'Each screen is one keyboard. A button either runs something the bot already does, opens another screen, sends a message you write, or goes back. Changes reach the bot within a minute.',
+    'botConfig.flow.labelTitle': 'A button’s text is how the bot recognises it',
+    'botConfig.flow.labelBody':
+      'The keyboard sends no hidden data — tapping a button sends its text to the bot as a message, and that text is how the bot knows which button was pressed. So renaming one changes what it does, not just how it looks, and anyone still looking at the old keyboard will tap a name the bot no longer knows. They get it back with /start.',
+    'botConfig.flow.screens': 'Screens',
+    'botConfig.flow.root': 'Main',
+    'botConfig.flow.rootBody':
+      'This is the screen /start draws. It cannot be deleted, and it sends no message of its own because the welcome already greeted the player.',
+    'botConfig.flow.buttonCount': '{count} buttons',
+    'botConfig.flow.addScreen': 'Add a screen',
+    'botConfig.flow.screenName': 'Screen name',
+    'botConfig.flow.screenCreated': '{name} added.',
+    'botConfig.flow.screenCreateFailed': 'Could not add that screen.',
+    'botConfig.flow.deleteScreen': 'Delete screen',
+    'botConfig.flow.screenDeleted': '{name} deleted.',
+    'botConfig.flow.screenDeleteFailed': 'Could not delete that screen.',
+    'botConfig.flow.prompt': 'Message sent when the player opens this screen',
+    'botConfig.flow.promptHint':
+      'Leave it empty to show the buttons with no message. Telegram always attaches a keyboard to a message, so an empty one falls back to the screen’s name.',
+    'botConfig.flow.promptSaved': 'Saved.',
+    'botConfig.flow.promptFailed': 'Could not save that message.',
+    'botConfig.flow.addButton': 'Add a button',
+    'botConfig.flow.noButtons.title': 'This screen has no buttons',
+    'botConfig.flow.noButtons.body':
+      'A player who reaches it sees your message and no keyboard at all. Add a button, or a way back.',
+    'botConfig.flow.row': 'Row {n}',
+    'botConfig.flow.opens': 'Opens {name}',
+    'botConfig.flow.sendsText': 'Sends your message',
+    'botConfig.flow.goesBack': 'Goes back to the previous screen',
+    'botConfig.flow.shown': 'Show {label} in the bot',
+    'botConfig.flow.moveUp': 'Move {label} earlier',
+    'botConfig.flow.moveDown': 'Move {label} later',
+    'botConfig.flow.edit': 'Edit {label}',
+    'botConfig.flow.delete': 'Delete {label}',
+    'botConfig.flow.reorderFailed': 'Could not reorder the buttons.',
+    'botConfig.flow.buttonDeleted': 'Button deleted.',
+    'botConfig.flow.saveFailed': 'Could not save.',
+    'botConfig.flow.empty.title': 'This bot has no menu yet',
+    'botConfig.flow.empty.body':
+      'A menu is created with every bot. If this is empty, the bot was set up before menus were editable — contact support.',
+
+    'botConfig.flow.newButton': 'New button',
+    'botConfig.flow.editButton': 'Edit button',
+    'botConfig.flow.dialogBody': 'On the screen “{name}”.',
+    'botConfig.flow.labelHint':
+      'What the player sees, and what the bot matches on. Emoji are fine and cost nothing.',
+    'botConfig.flow.kind': 'What it does',
+    'botConfig.flow.kind.builtin': 'Something the bot already does',
+    'botConfig.flow.kind.navigate': 'Opens another screen',
+    'botConfig.flow.kind.text': 'Sends a message you write',
+    'botConfig.flow.kind.back': 'Goes back',
+    'botConfig.flow.action': 'Which one',
+    'botConfig.flow.actionHint':
+      'These are built into the bot. New ones need a developer — everything else on this screen does not.',
+    'botConfig.flow.target': 'Screen to open',
+    'botConfig.flow.targetPlaceholder': 'Pick a screen',
+    'botConfig.flow.noTargets':
+      'There is no other screen to open yet. Add one first, then point a button at it.',
+    'botConfig.flow.body.field': 'Message',
+    'botConfig.flow.bodyHint': 'Sent when the button is tapped. The player stays on this screen.',
+    'botConfig.flow.backBody':
+      'Returns the player to whichever screen they arrived from — not a fixed one, so the same button works wherever it is reached from.',
+    'botConfig.flow.rowIndex': 'Row',
+    'botConfig.flow.rowIndexHint':
+      'Buttons sharing a row sit side by side. Row 0 is the top. Two or three per row reads best on a phone.',
+    'botConfig.flow.buttonCreated': '{label} added.',
+    'botConfig.flow.buttonSaved': '{label} saved.',
+
+    // ── The channel gate ─────────────────────────────────────────────────────────────────────
+    'botConfig.gate.title': 'Require joining a channel',
+    'botConfig.gate.body':
+      'When set, pressing Start tells the player to join your channel first. They join, press /start again, and the menu appears. Checked only at /start — someone who joins and later leaves keeps access until their next /start.',
+    'botConfig.gate.adminTitle': 'The bot must be an admin of the channel',
+    'botConfig.gate.adminBody':
+      'Telegram only lets a bot see who is in a channel if it is an administrator there. Without that the check fails, and the bot lets everyone through rather than locking out players who are already members. Add the bot to the channel and promote it before switching this on.',
+    'botConfig.gate.username': 'Channel @username',
+    'botConfig.gate.usernameHint': 'What the player is shown and taps. Without the @.',
+    'botConfig.gate.channelId': 'Channel ID',
+    'botConfig.gate.channelIdHint':
+      'Starts with -100. This is what the bot checks against, because a username can be changed by the channel owner and an ID cannot.',
+    'botConfig.gate.saved': 'Channel gate saved.',
+    'botConfig.gate.cleared': 'Channel gate switched off.',
+    'botConfig.gate.failed': 'Could not save the channel gate.',
+    'botConfig.gate.turnOff': 'Switch off',
+
+    // ── The two runtime settings that are not buttons ────────────────────────────────────────
+    'botConfig.settings.title': 'The mini app, and how deposits and cash-outs are answered',
+    'botConfig.settings.body':
+      'Settings the bot reads on every message that are not buttons: where its app button opens, whether a deposit is checked against Sham Cash or the chain before a person sees it, and whether a player’s cash-out waits for a person.',
+    'botConfig.settings.miniAppUrl': 'Mini app URL',
+    'botConfig.settings.miniAppUrlHint':
+      'What the 🚀 button in the menu and the chat menu button under the text box open. Must start with https://. Leave it empty and save to clear it — the bot then answers “coming soon”.',
+    'botConfig.settings.miniAppUrlNgrok':
+      'An ngrok URL changes every time the tunnel restarts. Paste the new one here each time, or the button opens a dead page.',
+    'botConfig.settings.miniAppUrlInvalid': 'Must be an https:// URL.',
+    'botConfig.settings.chatMenuButtonSet':
+      'The chat menu button under the text box points at this app.',
+    'botConfig.settings.chatMenuButtonUnset':
+      'The chat menu button is not set: the URL is saved, but Telegram was not told about it. Save again to retry.',
+    'botConfig.settings.chatMenuButtonNone': 'No URL, so there is no chat menu button.',
+    'botConfig.settings.depositMode': 'How a deposit is verified',
+    'botConfig.settings.depositModeOption.AUTO.body':
+      'The platform checks the player’s claim against Sham Cash’s own statement (or the chain, for a crypto rail) before an admin ever sees the card, and approves it ONLY when the amount and reference match. Anything that does not match — not found, a different amount, the provider unreachable — waits for a person exactly as MANUAL does.',
+    'botConfig.settings.depositModeOption.MANUAL.body':
+      'An admin decides every submitted deposit in the deposits queue; nothing is checked automatically first.',
+    'botConfig.settings.withdrawalMode': 'How a cash-out is answered',
+    'botConfig.settings.mode.AUTO.body':
+      'The platform approves the request by itself, debits the player’s casino balance and checks that the payout wallet holds enough. A person still sends the money and marks the request paid — nothing here can transfer funds.',
+    'botConfig.settings.mode.MANUAL.body':
+      'Nothing happens until an admin approves the request in the withdrawals queue. The player is told it was received and is being handled.',
+    'botConfig.settings.readOnly': 'Changing these needs the bot settings permission.',
+    'botConfig.settings.saved': 'Bot settings saved.',
+    'botConfig.settings.failed': 'Could not save the bot settings.',
 
     // ── The live section ─────────────────────────────────────────────────────────────────────
     'botConfig.buttons.title': 'The buttons a player taps to pay',
@@ -135,9 +254,9 @@ export const botConfigMessages = defineMessages({
     'botConfig.commands.copyBody':
       'Nothing serves the bot’s menu over the API, so this is transcribed from the bot’s own constants. If the bot’s list changes, this screen keeps showing the old one until somebody updates it too.',
 
-    'botConfig.menu.title': 'The buttons under /start',
+    'botConfig.menu.title': 'The buttons under the text box',
     'botConfig.menu.body':
-      'Eight buttons below the welcome message. They are built once when the bot starts and nothing about them reads your operator, so every operator’s bot shows exactly these.',
+      'Eight buttons on the bot’s docked keyboard — they sit under the message box and stay there, rather than on the welcome message. They are built once when the bot starts and nothing about them reads your operator, so every operator’s bot shows exactly these. Tapping one sends its label to the bot as a message, which is why the player sees their own taps in the chat.',
 
     // ── The messages ─────────────────────────────────────────────────────────────────────────
     'botConfig.messages.title': '“The bot’s messages” is not one list',
@@ -232,10 +351,125 @@ export const botConfigMessages = defineMessages({
       'الإيداعات والسحوبات واللاعبون الجدد والتقارير تذهب إلى مجموعات Telegram التي تربطها بنفسك. هذا الجزء موصول بالكامل في الاتجاهين وله شاشته الخاصة.',
     'botConfig.routing.link': 'وجهات تيليغرام',
 
+    'botConfig.tab.flow': 'مسار القائمة',
     'botConfig.tab.buttons': 'أزرار الدفع',
     'botConfig.tab.commands': 'الأوامر',
     'botConfig.tab.messages': 'الرسائل',
     'botConfig.tab.identity': 'الاسم والملف',
+    'botConfig.tab.settings': 'الإعدادات',
+
+    // ── محرّر المسار ─────────────────────────────────────────────────────────────────────────
+    'botConfig.flow.title': 'القائمة التي يضغطها اللاعبون',
+    'botConfig.flow.body':
+      'كل شاشة هي لوحة أزرار واحدة. الزر إمّا ينفّذ شيئاً يقوم به البوت أصلاً، أو يفتح شاشة أخرى، أو يرسل رسالة تكتبها أنت، أو يرجع للخلف. التعديلات تصل البوت خلال دقيقة.',
+    'botConfig.flow.labelTitle': 'نص الزر هو ما يتعرّف عليه البوت',
+    'botConfig.flow.labelBody':
+      'لوحة الأزرار لا ترسل أي بيانات مخفية — الضغط على زر يرسل نصّه إلى البوت كرسالة، وهذا النص هو ما يعرف به البوت أي زر ضُغط. لذلك تغيير التسمية يغيّر ما يفعله الزر، لا شكله فقط، ومن كانت لديه اللوحة القديمة سيضغط اسماً لم يعد البوت يعرفه. يستعيدها بالضغط على ‎/start‎.',
+    'botConfig.flow.screens': 'الشاشات',
+    'botConfig.flow.root': 'الرئيسية',
+    'botConfig.flow.rootBody':
+      'هذه الشاشة التي يرسمها ‎/start‎. لا يمكن حذفها، ولا ترسل رسالة خاصة بها لأن الترحيب سبق وحيّا اللاعب.',
+    'botConfig.flow.buttonCount': '{count} أزرار',
+    'botConfig.flow.addScreen': 'إضافة شاشة',
+    'botConfig.flow.screenName': 'اسم الشاشة',
+    'botConfig.flow.screenCreated': 'تمت إضافة {name}.',
+    'botConfig.flow.screenCreateFailed': 'تعذّرت إضافة الشاشة.',
+    'botConfig.flow.deleteScreen': 'حذف الشاشة',
+    'botConfig.flow.screenDeleted': 'تم حذف {name}.',
+    'botConfig.flow.screenDeleteFailed': 'تعذّر حذف الشاشة.',
+    'botConfig.flow.prompt': 'الرسالة التي تُرسل عند فتح هذه الشاشة',
+    'botConfig.flow.promptHint':
+      'اتركها فارغة لعرض الأزرار بلا رسالة. تلغرام يربط لوحة الأزرار برسالة دائماً، لذا الفارغة تُستبدل باسم الشاشة.',
+    'botConfig.flow.promptSaved': 'تم الحفظ.',
+    'botConfig.flow.promptFailed': 'تعذّر حفظ الرسالة.',
+    'botConfig.flow.addButton': 'إضافة زر',
+    'botConfig.flow.noButtons.title': 'لا أزرار في هذه الشاشة',
+    'botConfig.flow.noButtons.body':
+      'من يصل إليها يرى رسالتك بلا أي لوحة أزرار. أضف زراً، أو طريقة للرجوع.',
+    'botConfig.flow.row': 'الصف {n}',
+    'botConfig.flow.opens': 'يفتح {name}',
+    'botConfig.flow.sendsText': 'يرسل رسالتك',
+    'botConfig.flow.goesBack': 'يرجع إلى الشاشة السابقة',
+    'botConfig.flow.shown': 'إظهار {label} في البوت',
+    'botConfig.flow.moveUp': 'تقديم {label}',
+    'botConfig.flow.moveDown': 'تأخير {label}',
+    'botConfig.flow.edit': 'تعديل {label}',
+    'botConfig.flow.delete': 'حذف {label}',
+    'botConfig.flow.reorderFailed': 'تعذّر إعادة ترتيب الأزرار.',
+    'botConfig.flow.buttonDeleted': 'تم حذف الزر.',
+    'botConfig.flow.saveFailed': 'تعذّر الحفظ.',
+    'botConfig.flow.empty.title': 'لا توجد قائمة لهذا البوت بعد',
+    'botConfig.flow.empty.body':
+      'تُنشأ قائمة مع كل بوت. إن كانت فارغة فقد أُعدّ البوت قبل أن تصبح القوائم قابلة للتعديل — تواصل مع الدعم.',
+
+    'botConfig.flow.newButton': 'زر جديد',
+    'botConfig.flow.editButton': 'تعديل الزر',
+    'botConfig.flow.dialogBody': 'في شاشة «{name}».',
+    'botConfig.flow.labelHint': 'ما يراه اللاعب، وما يطابقه البوت. الإيموجي مسموح ولا يكلّف شيئاً.',
+    'botConfig.flow.kind': 'ماذا يفعل',
+    'botConfig.flow.kind.builtin': 'شيء يقوم به البوت أصلاً',
+    'botConfig.flow.kind.navigate': 'يفتح شاشة أخرى',
+    'botConfig.flow.kind.text': 'يرسل رسالة تكتبها',
+    'botConfig.flow.kind.back': 'يرجع للخلف',
+    'botConfig.flow.action': 'أيّها',
+    'botConfig.flow.actionHint':
+      'هذه مدمجة في البوت. إضافة جديدة تحتاج مطوّراً — أما بقية ما في هذه الشاشة فلا.',
+    'botConfig.flow.target': 'الشاشة التي تُفتح',
+    'botConfig.flow.targetPlaceholder': 'اختر شاشة',
+    'botConfig.flow.noTargets': 'لا توجد شاشة أخرى لفتحها بعد. أضف واحدة أولاً ثم وجّه زراً إليها.',
+    'botConfig.flow.body.field': 'الرسالة',
+    'botConfig.flow.bodyHint': 'تُرسل عند الضغط على الزر. يبقى اللاعب في هذه الشاشة.',
+    'botConfig.flow.backBody':
+      'يعيد اللاعب إلى الشاشة التي أتى منها — لا إلى شاشة ثابتة، فيعمل الزر نفسه من أي مكان يُوصل إليه منه.',
+    'botConfig.flow.rowIndex': 'الصف',
+    'botConfig.flow.rowIndexHint':
+      'الأزرار في الصف نفسه تظهر جنباً إلى جنب. الصف 0 هو الأعلى. زرّان أو ثلاثة في الصف أفضل شكلاً على الهاتف.',
+    'botConfig.flow.buttonCreated': 'تمت إضافة {label}.',
+    'botConfig.flow.buttonSaved': 'تم حفظ {label}.',
+
+    // ── شرط الانضمام للقناة ──────────────────────────────────────────────────────────────────
+    'botConfig.gate.title': 'اشتراط الانضمام إلى قناة',
+    'botConfig.gate.body':
+      'عند تفعيله، الضغط على Start يطلب من اللاعب الانضمام إلى قناتك أولاً. ينضم، يضغط ‎/start‎ ثانية، فتظهر القائمة. يُفحص عند ‎/start‎ فقط — من ينضم ثم يغادر يبقى وصوله حتى ‎/start‎ التالي.',
+    'botConfig.gate.adminTitle': 'يجب أن يكون البوت مشرفاً في القناة',
+    'botConfig.gate.adminBody':
+      'تلغرام لا يسمح للبوت برؤية أعضاء القناة إلا إذا كان مشرفاً فيها. بدون ذلك يفشل الفحص، ويسمح البوت للجميع بالمرور بدل حجب لاعبين هم أصلاً أعضاء. أضف البوت إلى القناة ورقّه مشرفاً قبل تفعيل هذا.',
+    'botConfig.gate.username': 'معرّف القناة @',
+    'botConfig.gate.usernameHint': 'ما يُعرض للاعب ويضغطه. بدون علامة @.',
+    'botConfig.gate.channelId': 'رقم القناة',
+    'botConfig.gate.channelIdHint':
+      'يبدأ بـ ‎-100‎. هذا ما يفحص البوت مقابله، لأن المعرّف يمكن لمالك القناة تغييره أما الرقم فلا.',
+    'botConfig.gate.saved': 'تم حفظ شرط القناة.',
+    'botConfig.gate.cleared': 'تم إيقاف شرط القناة.',
+    'botConfig.gate.failed': 'تعذّر حفظ شرط القناة.',
+    'botConfig.gate.turnOff': 'إيقاف',
+
+    'botConfig.settings.title': 'التطبيق المصغّر، وكيفية الردّ على الإيداعات وطلبات السحب',
+    'botConfig.settings.body':
+      'إعدادات يقرأها البوت مع كل رسالة وليست أزراراً: أين يفتح زر التطبيق، وهل يُتحقّق من الإيداع مقابل شام كاش أو السلسلة قبل أن يراه شخص، وهل ينتظر طلب سحب اللاعب موافقة شخص.',
+    'botConfig.settings.miniAppUrl': 'رابط التطبيق المصغّر',
+    'botConfig.settings.miniAppUrlHint':
+      'ما يفتحه زر 🚀 في القائمة وزر القائمة تحت مربع الكتابة. يجب أن يبدأ بـ https://. اتركه فارغاً واحفظ لمسحه — عندها يردّ البوت بـ«قريباً».',
+    'botConfig.settings.miniAppUrlNgrok':
+      'رابط ngrok يتغيّر مع كل إعادة تشغيل للنفق. الصق الرابط الجديد هنا كل مرة، وإلا فتح الزر صفحة ميتة.',
+    'botConfig.settings.miniAppUrlInvalid': 'يجب أن يكون رابط https://.',
+    'botConfig.settings.chatMenuButtonSet': 'زر القائمة تحت مربع الكتابة يشير إلى هذا التطبيق.',
+    'botConfig.settings.chatMenuButtonUnset':
+      'زر القائمة غير مضبوط: الرابط محفوظ لكن Telegram لم يُبلَّغ به. احفظ مرة أخرى لإعادة المحاولة.',
+    'botConfig.settings.chatMenuButtonNone': 'لا رابط، فلا زر قائمة في المحادثة.',
+    'botConfig.settings.depositMode': 'كيف يُتحقّق من الإيداع',
+    'botConfig.settings.depositModeOption.AUTO.body':
+      'تتحقق المنصّة من طلب اللاعب مقابل كشف حساب شام كاش نفسه (أو السلسلة، لعملية بعملة رقمية) قبل أن يرى المدير البطاقة، ولا توافق إلا عندما يتطابق المبلغ والمرجع. أي شيء لا يتطابق — لم يُعثر عليه، مبلغ مختلف، تعذّر الوصول لمزوّد الخدمة — ينتظر شخصاً تماماً كما في الوضع اليدوي.',
+    'botConfig.settings.depositModeOption.MANUAL.body':
+      'يقرر المدير كل إيداع مُرسَل في قائمة الإيداعات؛ لا يُتحقّق من شيء تلقائياً أولاً.',
+    'botConfig.settings.withdrawalMode': 'كيف يُرَدّ على طلب السحب',
+    'botConfig.settings.mode.AUTO.body':
+      'توافق المنصّة على الطلب بنفسها، وتخصم المبلغ من رصيد اللاعب في الكازينو، وتتحقق من أن محفظة الدفع فيها ما يكفي. ويبقى إرسال المال وتعليم الطلب «مدفوعاً» عمل شخص — لا شيء هنا يستطيع تحويل الأموال.',
+    'botConfig.settings.mode.MANUAL.body':
+      'لا يحدث شيء حتى يوافق مدير على الطلب في قائمة السحوبات. يُخبَر اللاعب أن الطلب وصل وأنه قيد المعالجة.',
+    'botConfig.settings.readOnly': 'تغيير هذه الإعدادات يحتاج صلاحية إعدادات البوت.',
+    'botConfig.settings.saved': 'تم حفظ إعدادات البوت.',
+    'botConfig.settings.failed': 'تعذّر حفظ إعدادات البوت.',
 
     'botConfig.buttons.title': 'الأزرار التي يضغطها اللاعب ليدفع',
     'botConfig.buttons.body':
@@ -307,9 +541,9 @@ export const botConfigMessages = defineMessages({
     'botConfig.commands.copyBody':
       'لا شيء يقدّم قائمة البوت عبر الـ API، لذلك نُقلت هنا من ثوابت البوت نفسها. إذا تغيّرت قائمة البوت تبقى هذه الشاشة تعرض القديمة حتى يحدّثها أحد.',
 
-    'botConfig.menu.title': 'الأزرار تحت ‎/start‎',
+    'botConfig.menu.title': 'الأزرار تحت مربع الكتابة',
     'botConfig.menu.body':
-      'ثمانية أزرار تحت رسالة الترحيب. تُبنى مرة واحدة عند تشغيل البوت ولا شيء فيها يقرأ المشغّل، فبوت كل مشغّل يعرض هذه الأزرار نفسها.',
+      'ثمانية أزرار على لوحة البوت المثبّتة — تظهر تحت مربع الكتابة وتبقى هناك، لا على رسالة الترحيب. تُبنى مرة واحدة عند تشغيل البوت ولا شيء فيها يقرأ المشغّل، فبوت كل مشغّل يعرض هذه الأزرار نفسها. الضغط على زر يرسل تسميته إلى البوت كرسالة، ولهذا يرى اللاعب ضغطاته في المحادثة.',
 
     'botConfig.messages.title': '«رسائل البوت» ليست قائمة واحدة',
     'botConfig.messages.body':

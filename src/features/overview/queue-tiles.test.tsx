@@ -11,6 +11,7 @@ import { QueueTiles } from './queue-tiles';
 
 const depositsUrl = `${config.apiBaseUrl}/v1/admin/deposits`;
 const breaksUrl = `${config.apiBaseUrl}/v1/admin/reconciliation/breaks`;
+const withdrawalsUrl = `${config.apiBaseUrl}/v1/admin/withdrawals`;
 
 const envelope = (data: unknown, extra: Record<string, unknown>) => ({
   success: true,
@@ -54,6 +55,38 @@ describe('QueueTiles', () => {
     const stuck = target(await tileShowing(/stuck money/i, '2'));
     expect(stuck).toContain('CREDIT_FAILED');
     expect(stuck).toContain('NEEDS_RECONCILIATION');
+  });
+
+  it('counts the cash-outs a person owes something to, exactly, and links to that filter', async () => {
+    renderWithProviders(<QueueTiles />, { auth: { role: 'REVIEWER' } });
+
+    // One REQUESTED and one DEBITED in the fixtures; the offset list sends a real total.
+    const tile = await tileShowing(/withdrawals waiting/i, '2');
+    expect(target(tile)).toContain('/withdrawals');
+    expect(target(tile)).toContain('REQUESTED');
+    expect(target(tile)).toContain('DEBITED');
+    expect(within(tile).getByText(/debited and not yet paid/i)).toBeInTheDocument();
+  });
+
+  it('hides the withdrawals tile from a role that cannot read the queue', async () => {
+    renderWithProviders(<QueueTiles />, { auth: { role: 'VIEWER' } });
+
+    await tileShowing(/waiting for review/i, '3');
+    expect(screen.queryByRole('link', { name: /withdrawals waiting/i })).not.toBeInTheDocument();
+  });
+
+  it('breaks only the withdrawals tile when that list is down', async () => {
+    server.use(http.get(withdrawalsUrl, failure));
+
+    const { user } = renderWithProviders(<QueueTiles />, { auth: { role: 'REVIEWER' } });
+
+    expect(await screen.findByText('The queue is down.')).toBeInTheDocument();
+    await tileShowing(/waiting for review/i, '3');
+
+    server.resetHandlers();
+    await user.click(screen.getByRole('button', { name: /try again/i }));
+
+    await tileShowing(/withdrawals waiting/i, '2');
   });
 
   it('counts the open breaks and points at the reconciliation screen', async () => {

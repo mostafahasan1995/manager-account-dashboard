@@ -8,6 +8,7 @@ import {
   reconciliationSearchSchema,
   staffSearchSchema,
   tenantSearchSchema,
+  withdrawalSearchSchema,
 } from './search-schemas';
 
 /**
@@ -87,6 +88,77 @@ describe('playerSearchSchema', () => {
   it('trims a search term and drops an empty one', () => {
     expect(playerSearchSchema.parse({ search: '  karim  ' }).search).toBe('karim');
     expect(playerSearchSchema.parse({ search: '   ' }).search).toBeUndefined();
+  });
+
+  it('keeps a real source — the "old players" view is a link — and forgets an invented one', () => {
+    expect(playerSearchSchema.parse({ source: 'ICHANCY_IMPORT' }).source).toBe('ICHANCY_IMPORT');
+    expect(playerSearchSchema.parse({ source: 'ADMIN' }).source).toBe('ADMIN');
+    expect(playerSearchSchema.parse({ source: 'FAX' }).source).toBeUndefined();
+  });
+
+  it('accepts the BLOCKED status the block action introduced', () => {
+    expect(playerSearchSchema.parse({ status: 'BLOCKED' }).status).toBe('BLOCKED');
+  });
+
+  it('reads blocked as strictly as linked: false is false, and "no" is absent', () => {
+    expect(playerSearchSchema.parse({ blocked: 'true' }).blocked).toBe(true);
+    expect(playerSearchSchema.parse({ blocked: false }).blocked).toBe(false);
+    expect(playerSearchSchema.parse({ blocked: 'no' }).blocked).toBeUndefined();
+    expect(playerSearchSchema.parse({}).blocked).toBeUndefined();
+  });
+});
+
+describe('withdrawalSearchSchema', () => {
+  it('accepts a comma-separated status list, uppercased, unknown entries dropped', () => {
+    expect(withdrawalSearchSchema.parse({ status: 'requested,DEBITED,NOPE' }).status).toEqual([
+      'REQUESTED',
+      'DEBITED',
+    ]);
+    expect(withdrawalSearchSchema.parse({ status: ['PAID'] }).status).toEqual(['PAID']);
+    expect(withdrawalSearchSchema.parse({ status: 'GARBAGE' }).status).toBeUndefined();
+  });
+
+  it('keeps the two sorts it has and forgets the amount sorts deposits have', () => {
+    expect(withdrawalSearchSchema.parse({ sort: 'oldest' }).sort).toBe('oldest');
+    expect(withdrawalSearchSchema.parse({ sort: 'amount_desc' }).sort).toBeUndefined();
+  });
+
+  it('reads the text filters back as text, even when the router typed them as numbers', () => {
+    const parsed = withdrawalSearchSchema.parse({
+      shortId: 'WD7Q42',
+      playerId: 'p-1',
+      createdFrom: '2026-09-01T00:00:00.000Z',
+      createdTo: 20260904,
+      selected: 'wd-1',
+    });
+    expect(parsed.shortId).toBe('WD7Q42');
+    expect(parsed.playerId).toBe('p-1');
+    expect(parsed.createdFrom).toBe('2026-09-01T00:00:00.000Z');
+    expect(parsed.createdTo).toBe('20260904');
+    expect(parsed.selected).toBe('wd-1');
+  });
+
+  it('coerces and clamps the page, as an offset list', () => {
+    expect(withdrawalSearchSchema.parse({ limit: '25', offset: '50' })).toMatchObject({
+      limit: 25,
+      offset: 50,
+    });
+    expect(withdrawalSearchSchema.parse({ limit: '0' }).limit).toBeUndefined();
+    expect(withdrawalSearchSchema.parse({ offset: '-5' }).offset).toBeUndefined();
+  });
+
+  it('parses an empty URL into an all-undefined default view', () => {
+    expect(withdrawalSearchSchema.parse({})).toEqual({
+      status: undefined,
+      playerId: undefined,
+      shortId: undefined,
+      createdFrom: undefined,
+      createdTo: undefined,
+      sort: undefined,
+      limit: undefined,
+      offset: undefined,
+      selected: undefined,
+    });
   });
 });
 
@@ -174,9 +246,6 @@ describe('boolean filters', () => {
 
     expect(staffSearchSchema.parse({ isActive: 'no' }).isActive).toBeUndefined();
     expect(staffSearchSchema.parse({ isActive: 'false' }).isActive).toBe(false);
-
-    expect(paymentMethodSearchSchema.parse({ isActive: 'no' }).isActive).toBeUndefined();
-    expect(paymentMethodSearchSchema.parse({ isActive: 'false' }).isActive).toBe(false);
 
     const inactive = paymentMethodSearchSchema.parse({ includeInactiveDestinations: 'False' });
     expect(inactive.includeInactiveDestinations).toBe(false);

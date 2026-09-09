@@ -19,8 +19,9 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet';
 import { useTenant } from '@/lib/api/queries';
-import { useT } from '@/lib/i18n/use-translation';
+import { useEnumLabel, useT } from '@/lib/i18n/use-translation';
 import type { Tenant } from '@/types';
+import { tenantDepositMode, tenantWithdrawalMode } from '@/types/tenant';
 
 import { AddMeAsAdminAction } from './add-me-admin-dialog';
 import { tenantMessages } from './messages';
@@ -110,6 +111,10 @@ export function TenantDetailPanel({
 
 function TenantDetails({ tenant }: { tenant: Tenant }) {
   const t = useT(tenantMessages);
+  const enumLabel = useEnumLabel();
+  const depositMode = tenantDepositMode(tenant);
+  const withdrawalMode = tenantWithdrawalMode(tenant);
+  const miniAppUrl = tenant.miniAppUrl ?? null;
 
   return (
     <div className="space-y-6">
@@ -157,6 +162,49 @@ function TenantDetails({ tenant }: { tenant: Tenant }) {
             {t('tenants.minutes', { count: tenant.depositExpiryMinutes })}
           </DetailRow>
         </DetailList>
+      </section>
+
+      {/*
+       * The same settings the bot-config screen edits from inside the operator. Each mode is a
+       * word and a colour — automatic is the one that moves without a person having looked first,
+       * so it is the one that carries the warning tone — and a sentence under the list says what
+       * each word means, so a platform admin reading "Automatic" does not assume the platform
+       * moves money on the player's word alone.
+       */}
+      <section aria-labelledby="tenant-bot-heading" className="space-y-2">
+        <h3 id="tenant-bot-heading" className="text-sm font-semibold">
+          {t('tenants.section.bot')}
+        </h3>
+        <DetailList>
+          <DetailRow label={t('tenants.field.depositMode')}>
+            <Badge tone={depositMode === 'AUTO' ? 'warning' : 'muted'}>
+              {enumLabel('depositMode', depositMode)}
+            </Badge>
+          </DetailRow>
+          <DetailRow label={t('tenants.field.withdrawalMode')}>
+            <Badge tone={withdrawalMode === 'AUTO' ? 'warning' : 'muted'}>
+              {enumLabel('withdrawalMode', withdrawalMode)}
+            </Badge>
+          </DetailRow>
+          <DetailRow label={t('tenants.field.miniAppUrl')}>
+            {miniAppUrl === null ? (
+              <span className="text-[var(--muted-foreground)]">{t('common.notSet')}</span>
+            ) : (
+              <a
+                href={miniAppUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="font-mono text-xs break-all underline"
+              >
+                {miniAppUrl}
+              </a>
+            )}
+          </DetailRow>
+        </DetailList>
+        <p className="text-xs text-[var(--muted-foreground)]">
+          {t('tenants.bot.depositModeExplained')}
+        </p>
+        <p className="text-xs text-[var(--muted-foreground)]">{t('tenants.bot.modeExplained')}</p>
       </section>
 
       {/*

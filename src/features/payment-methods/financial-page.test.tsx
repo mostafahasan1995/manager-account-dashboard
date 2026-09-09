@@ -335,6 +335,58 @@ describe('FinancialPage', () => {
   });
 
   /**
+   * A retired rail — inactive AND with history — used to open this page next to the ones an
+   * operator can still use, indistinguishable at a glance. `OLD_CRYPTO` is the fixture for it:
+   * inactive, and marked `deletable: false` because something depends on it, same as a rail that
+   * actually took deposits.
+   */
+  describe('a retired method', () => {
+    it('is not on the screen by default', async () => {
+      render();
+
+      await cardFor('Bank transfer');
+      expect(screen.queryByRole('region', { name: 'Crypto (retired)' })).toBeNull();
+    });
+
+    it('is one press away, named by count, and folds back on a second press', async () => {
+      const { user } = render();
+      await cardFor('Bank transfer');
+
+      await user.click(await screen.findByRole('button', { name: 'Show 1 retired method' }));
+      expect(await cardFor('Crypto (retired)')).toBeInTheDocument();
+
+      await user.click(screen.getByRole('button', { name: 'Hide retired methods' }));
+      await waitFor(() => {
+        expect(screen.queryByRole('region', { name: 'Crypto (retired)' })).toBeNull();
+      });
+    });
+
+    it('is what the empty state names when every method the operator has is retired', async () => {
+      db.methods = db.methods.filter((method) => method.id === METHOD_IDS.retired);
+      render();
+
+      expect(await screen.findByText('Every method here is retired')).toBeInTheDocument();
+      // Still reachable — the state is "nothing shown", not "nothing exists".
+      await screen.findByRole('button', { name: 'Show 1 retired method' });
+    });
+  });
+
+  /**
+   * The other reason a method is inactive: it was seeded and never finished. `USDT_TRC20` is that
+   * fixture verbatim — inactive, `deletable: true`, no history — and it is the rail this whole page
+   * exists to let an operator finish setting up. Hiding it behind the same toggle as a retired rail
+   * would hide the one screen that completes it.
+   */
+  it('shows an unconfigured-but-inactive rail without the operator asking for it', async () => {
+    render();
+
+    expect(await cardFor('USDT — TRC20 (Tron)')).toBeInTheDocument();
+    // And it does not count toward "retired", so the toggle button does not even appear for it
+    // alone — the fixtures also carry OLD_CRYPTO, so this only proves the count is not off by one.
+    expect(screen.getByRole('button', { name: /retired method/i })).toHaveTextContent('1');
+  });
+
+  /**
    * SUPPORT, not VIEWER: VIEWER cannot read payment methods at all and would never reach this
    * route. SUPPORT holds `paymentMethods.read` and not `paymentMethods.write`, which is the case
    * the read-gated route exists for — it reads the rate while deciding a crypto deposit, and must

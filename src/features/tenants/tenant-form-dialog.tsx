@@ -15,13 +15,26 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
+import { Input, baseField } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { errorMessage } from '@/lib/api/errors';
 import { useCreateTenant, useUpdateTenant } from '@/lib/api/queries';
-import { useT, type Translator } from '@/lib/i18n/use-translation';
+import {
+  useEnumLabel,
+  useT,
+  type Translator,
+  type TranslatorKey,
+} from '@/lib/i18n/use-translation';
 import { formatMinorToDecimal, groupDecimal, minorFromString } from '@/lib/money';
-import type { CreateTenantBody, Tenant, UpdateTenantBody } from '@/types';
+import { cn } from '@/lib/utils';
+import type { CreateTenantBody, Tenant, TenantCreated, UpdateTenantBody } from '@/types';
+import { tenantDepositMode, tenantWithdrawalMode } from '@/types/tenant';
+import {
+  DEPOSIT_MODES,
+  WITHDRAWAL_MODES,
+  depositModeSchema,
+  withdrawalModeSchema,
+} from '@/types/enums';
 
 import { tenantMessages } from './messages';
 
@@ -48,6 +61,18 @@ import { tenantMessages } from './messages';
  * The schemas are built from `t` at render, not declared once at module load. A zod message frozen
  * at import time is whatever language the module was first evaluated in, which is English forever —
  * and a validation message is exactly the sentence an operator needs in their own language.
+ *
+ * ── THE BOT SETTINGS, AND WHAT "EMPTY" MEANS ON EACH FORM ─────────────────────────────────────
+ * `depositMode`, `withdrawalMode` and `miniAppUrl` are the same settings the bot-config screen
+ * edits from inside the operator, seen from the platform side. On CREATE all follow the rule
+ * above: blank is absent, and the server's default (manual, no URL) applies. On EDIT the rule has
+ * to bend for the URL,
+ * because "absent" and "cleared" are different requests to a PATCH: a URL the operator emptied goes
+ * out as `miniAppUrl: null` — the API's spelling of "remove it" — but ONLY when the row held one;
+ * an operator that never had a URL and still has none sends nothing. The mode is a select with no
+ * blank on the edit form, so it is sent when it differs from what the row holds and omitted
+ * otherwise — a backend older than the setting is never sent a key it does not know for a value
+ * that did not change.
  */
 
 const SLUG_RE = /^[a-z][a-z0-9-]{1,30}[a-z0-9]$/;
@@ -122,6 +147,9 @@ const createSchemaFor = (t: TenantTranslator) =>
     dualApprovalThresholdMinor: optionalFieldFor(DIGITS_RE, t('tenants.validation.minorUnits')),
     agentFloatLowWatermarkMinor: optionalFieldFor(DIGITS_RE, t('tenants.validation.minorUnits')),
     depositExpiryMinutes: optionalExpiryFieldFor(t),
+    depositMode: z.enum(['', ...DEPOSIT_MODES]),
+    withdrawalMode: z.enum(['', ...WITHDRAWAL_MODES]),
+    miniAppUrl: optionalFieldFor(HTTPS_RE, t('tenants.validation.httpsUrl')),
   });
 type CreateFormValues = z.infer<ReturnType<typeof createSchemaFor>>;
 
@@ -139,6 +167,9 @@ const ADVANCED_FIELDS = [
   'dualApprovalThresholdMinor',
   'agentFloatLowWatermarkMinor',
   'depositExpiryMinutes',
+  'depositMode',
+  'withdrawalMode',
+  'miniAppUrl',
 ] as const satisfies readonly (keyof CreateFormValues)[];
 
 const editSchemaFor = (t: TenantTranslator) =>
@@ -149,6 +180,9 @@ const editSchemaFor = (t: TenantTranslator) =>
     dualApprovalThresholdMinor: minorFieldFor(t),
     agentFloatLowWatermarkMinor: minorFieldFor(t),
     depositExpiryMinutes: expiryFieldFor(t),
+    depositMode: depositModeSchema,
+    withdrawalMode: withdrawalModeSchema,
+    miniAppUrl: optionalFieldFor(HTTPS_RE, t('tenants.validation.httpsUrl')),
   });
 type EditFormValues = z.infer<ReturnType<typeof editSchemaFor>>;
 
@@ -162,7 +196,8 @@ export function TenantFormDialog({
   /** null opens the create form; a tenant opens the edit form for that tenant. */
   tenant: Tenant | null;
   onOpenChange: (open: boolean) => void;
-  onSaved: (tenant: Tenant) => void;
+  /** A create hands back the provisioning report too; an edit answers the bare row. */
+  onSaved: (tenant: TenantCreated) => void;
 }) {
   const cancel = () => {
     onOpenChange(false);
@@ -185,7 +220,7 @@ function CreateTenantForm({
   onSaved,
   onCancel,
 }: {
-  onSaved: (tenant: Tenant) => void;
+  onSaved: (tenant: TenantCreated) => void;
   onCancel: () => void;
 }) {
   const createTenant = useCreateTenant();
@@ -215,6 +250,9 @@ function CreateTenantForm({
       dualApprovalThresholdMinor: '',
       agentFloatLowWatermarkMinor: '',
       depositExpiryMinutes: '',
+      depositMode: '',
+      withdrawalMode: '',
+      miniAppUrl: '',
     },
   });
 
@@ -413,6 +451,29 @@ function CreateTenantForm({
                 currencyCode={currencyCode}
                 blankHint={t('tenants.default.floatWatermark')}
               />
+              <DepositModeField
+                id="tenant-create-deposit-mode"
+                registration={register('depositMode')}
+                error={errors.depositMode?.message}
+                hint={t('tenants.default.depositMode')}
+                allowUnset
+              />
+              <WithdrawalModeField
+                id="tenant-create-withdrawal-mode"
+                registration={register('withdrawalMode')}
+                error={errors.withdrawalMode?.message}
+                hint={t('tenants.default.withdrawalMode')}
+                allowUnset
+              />
+              <TextField
+                id="tenant-create-mini-app-url"
+                label={`${t('tenants.field.miniAppUrl')} (${t('common.optional')})`}
+                registration={register('miniAppUrl')}
+                error={errors.miniAppUrl?.message}
+                hint={`${t('tenants.hint.miniAppUrl')} ${t('tenants.default.miniAppUrl')}`}
+                placeholder="https://cashier.example.app"
+                className="font-mono"
+              />
             </div>
           </div>
         ) : null}
@@ -460,6 +521,9 @@ function EditTenantForm({
       dualApprovalThresholdMinor: tenant.dualApprovalThresholdMinor,
       agentFloatLowWatermarkMinor: tenant.agentFloatLowWatermarkMinor,
       depositExpiryMinutes: String(tenant.depositExpiryMinutes),
+      depositMode: tenantDepositMode(tenant),
+      withdrawalMode: tenantWithdrawalMode(tenant),
+      miniAppUrl: tenant.miniAppUrl ?? '',
     },
   });
 
@@ -468,7 +532,10 @@ function EditTenantForm({
 
   const submit = handleSubmit(async (values) => {
     try {
-      const updated = await updateTenant.mutateAsync({ id: tenant.id, body: toUpdateBody(values) });
+      const updated = await updateTenant.mutateAsync({
+        id: tenant.id,
+        body: toUpdateBody(values, tenant),
+      });
       toast.success(t('tenants.edit.successTitle', { name: updated.displayName }), {
         description: t('tenants.edit.successBody'),
       });
@@ -552,6 +619,27 @@ function EditTenantForm({
           raw={agentFloatLowWatermarkMinor}
           currencyCode={tenant.currencyCode}
         />
+        <DepositModeField
+          id="tenant-edit-deposit-mode"
+          registration={register('depositMode')}
+          error={errors.depositMode?.message}
+          hint={t('tenants.hint.depositMode')}
+        />
+        <WithdrawalModeField
+          id="tenant-edit-withdrawal-mode"
+          registration={register('withdrawalMode')}
+          error={errors.withdrawalMode?.message}
+          hint={t('tenants.hint.withdrawalMode')}
+        />
+        <TextField
+          id="tenant-edit-mini-app-url"
+          label={`${t('tenants.field.miniAppUrl')} (${t('common.optional')})`}
+          registration={register('miniAppUrl')}
+          error={errors.miniAppUrl?.message}
+          hint={`${t('tenants.hint.miniAppUrl')} ${t('tenants.hint.miniAppUrlClear')}`}
+          placeholder="https://cashier.example.app"
+          className="font-mono"
+        />
       </div>
 
       <DialogFooter>
@@ -624,6 +712,105 @@ function TextField({
         </p>
       )}
     </div>
+  );
+}
+
+/**
+ * How the operator's bot answers a deposit or a cash-out, as a native select: two options and a
+ * blank one on the create form, where blank means "let the server decide" exactly as every other
+ * optional field there does. Native rather than the Radix picker because a form of eleven text
+ * inputs does not need a listbox for two values, and a native control is what the keyboard and the
+ * screen reader already know. Shared between the deposit and withdrawal fields below them — the
+ * two differ only in which enum they read and which two message keys they show.
+ */
+type TenantMessageKey = TranslatorKey<typeof tenantMessages.en>;
+
+function ModeField({
+  id,
+  values,
+  enumGroup,
+  labelKey,
+  unsetKey,
+  registration,
+  error,
+  hint,
+  allowUnset = false,
+}: {
+  id: string;
+  values: readonly ('AUTO' | 'MANUAL')[];
+  enumGroup: 'depositMode' | 'withdrawalMode';
+  labelKey: TenantMessageKey;
+  unsetKey: TenantMessageKey;
+  registration: UseFormRegisterReturn;
+  error: string | undefined;
+  hint: string;
+  allowUnset?: boolean;
+}) {
+  const t = useT(tenantMessages);
+  const enumLabel = useEnumLabel();
+
+  return (
+    <div className="space-y-1.5">
+      <Label htmlFor={id}>{t(labelKey)}</Label>
+      <select
+        id={id}
+        aria-invalid={error !== undefined}
+        aria-describedby={`${id}-hint`}
+        className={cn(baseField, 'appearance-auto')}
+        {...registration}
+      >
+        {allowUnset ? <option value="">{t(unsetKey)}</option> : null}
+        {values.map((mode) => (
+          <option key={mode} value={mode}>
+            {enumLabel(enumGroup, mode)}
+          </option>
+        ))}
+      </select>
+      <p id={`${id}-hint`} className="text-xs text-[var(--muted-foreground)]">
+        {hint}
+      </p>
+      {error === undefined ? null : (
+        <p role="alert" className="text-sm text-[var(--danger)]">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function DepositModeField(props: {
+  id: string;
+  registration: UseFormRegisterReturn;
+  error: string | undefined;
+  hint: string;
+  allowUnset?: boolean;
+}) {
+  return (
+    <ModeField
+      {...props}
+      values={DEPOSIT_MODES}
+      enumGroup="depositMode"
+      labelKey="tenants.field.depositMode"
+      unsetKey="tenants.depositMode.unset"
+    />
+  );
+}
+
+function WithdrawalModeField(props: {
+  id: string;
+  registration: UseFormRegisterReturn;
+  error: string | undefined;
+  hint: string;
+  allowUnset?: boolean;
+}) {
+  return (
+    <ModeField
+      {...props}
+      values={WITHDRAWAL_MODES}
+      enumGroup="withdrawalMode"
+      labelKey="tenants.field.withdrawalMode"
+      unsetKey="tenants.withdrawalMode.unset"
+    />
   );
 }
 
@@ -732,6 +919,7 @@ function toCreateBody(values: CreateFormValues): CreateTenantBody {
   const dualApprovalThresholdMinor = values.dualApprovalThresholdMinor.trim();
   const agentFloatLowWatermarkMinor = values.agentFloatLowWatermarkMinor.trim();
   const depositExpiryMinutes = values.depositExpiryMinutes.trim();
+  const miniAppUrl = values.miniAppUrl.trim();
 
   return {
     displayName: values.displayName.trim(),
@@ -748,11 +936,22 @@ function toCreateBody(values: CreateFormValues): CreateTenantBody {
     ...(agentFloatLowWatermarkMinor === '' ? {} : { agentFloatLowWatermarkMinor }),
     // The only Number() on this form: minutes are a small integer, unlike every other value here.
     ...(depositExpiryMinutes === '' ? {} : { depositExpiryMinutes: Number(depositExpiryMinutes) }),
+    // Blank is the server's default — manual, and no URL — like every other optional field here.
+    ...(values.depositMode === '' ? {} : { depositMode: values.depositMode }),
+    ...(values.withdrawalMode === '' ? {} : { withdrawalMode: values.withdrawalMode }),
+    ...(miniAppUrl === '' ? {} : { miniAppUrl }),
   };
 }
 
-function toUpdateBody(values: EditFormValues): UpdateTenantBody {
+/**
+ * The changeable fields, plus the three bot settings under the rule described at the top of the
+ * file: a URL the operator emptied is sent as `null` only when the row held one, and each mode is
+ * sent only when it differs from what the row holds.
+ */
+function toUpdateBody(values: EditFormValues, tenant: Tenant): UpdateTenantBody {
   const feedChatId = values.feedChatId.trim();
+  const miniAppUrl = values.miniAppUrl.trim();
+  const hadMiniAppUrl = (tenant.miniAppUrl ?? null) !== null;
   return {
     displayName: values.displayName.trim(),
     adminChatId: values.adminChatId.trim(),
@@ -760,5 +959,12 @@ function toUpdateBody(values: EditFormValues): UpdateTenantBody {
     dualApprovalThresholdMinor: values.dualApprovalThresholdMinor.trim(),
     agentFloatLowWatermarkMinor: values.agentFloatLowWatermarkMinor.trim(),
     depositExpiryMinutes: Number(values.depositExpiryMinutes),
+    ...(values.depositMode === tenantDepositMode(tenant)
+      ? {}
+      : { depositMode: values.depositMode }),
+    ...(values.withdrawalMode === tenantWithdrawalMode(tenant)
+      ? {}
+      : { withdrawalMode: values.withdrawalMode }),
+    ...(miniAppUrl !== '' ? { miniAppUrl } : hadMiniAppUrl ? { miniAppUrl: null } : {}),
   };
 }

@@ -113,6 +113,8 @@ describe('homeRouteFor', () => {
 describe('visibleNavItems', () => {
   it('returns only what the role holds', () => {
     const items = visibleNavItems((capability) => can('VIEWER', capability));
-    expect(items.map((item) => item.to)).toEqual(['/', '/deposits', '/reconciliation']);
+    // Stats is on `deposits.read`, the same capability as the queue it summarises, so a VIEWER
+    // who can read the queue can read its totals.
+    expect(items.map((item) => item.to)).toEqual(['/', '/deposits', '/stats', '/reconciliation']);
   });
 });

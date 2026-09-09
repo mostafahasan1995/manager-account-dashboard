@@ -169,13 +169,24 @@ export function StaffDetailPage() {
           <CardContent>
             <DetailList>
               <DetailRow label={t('field.telegramId')}>
-                <CopyableValue value={row.telegramUserId} />
+                {row.telegramUserId === null ? (
+                  <span className="text-[var(--muted-foreground)]">{t('staff.telegram.none')}</span>
+                ) : (
+                  <CopyableValue value={row.telegramUserId} />
+                )}
               </DetailRow>
               <DetailRow label={t('field.username')}>
                 {row.username === null ? (
                   <span className="text-[var(--muted-foreground)]">{t('common.notSet')}</span>
                 ) : (
                   `@${row.username}`
+                )}
+              </DetailRow>
+              <DetailRow label={t('staff.detail.consolePassword')}>
+                {row.hasPassword ? (
+                  t('staff.detail.consolePasswordSet')
+                ) : (
+                  <span className="text-[var(--muted-foreground)]">{t('common.notSet')}</span>
                 )}
               </DetailRow>
               <DetailRow label={t('field.role')}>

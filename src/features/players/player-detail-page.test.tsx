@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 
 import { config } from '@/config';
 import { db } from '@/mocks/db';
-import { PLAYER_IDS } from '@/mocks/fixtures';
+import { ADMIN_IDS, PLAYER_IDS } from '@/mocks/fixtures';
 import { server } from '@/test/msw-server';
 import { renderWithProviders } from '@/test/utils';
 import type { AdminRole } from '@/types/enums';
@@ -249,5 +249,118 @@ describe('PlayerDetailPage: a debit nobody can prove', () => {
     expect(within(warning).getByText('This may already have gone through')).toBeInTheDocument();
     expect(within(warning).getByText('The debit service is unavailable.')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^Debit 1,500/ })).not.toBeInTheDocument();
+  });
+});
+
+describe('PlayerDetailPage: the operator’s lock', () => {
+  it('says why a blocked player is blocked, when, and by whom, and offers only Unblock', async () => {
+    renderDetail(PLAYER_IDS.blocked);
+
+    expect(await screen.findByRole('heading', { name: 'Bassel Khoury' })).toBeInTheDocument();
+    const alert = screen.getByTestId('player-blocked-alert');
+    expect(within(alert).getByText('Blocked from the bot')).toBeInTheDocument();
+    expect(within(alert).getByText('Three accounts sharing one bank receipt.')).toBeInTheDocument();
+    expect(within(alert).getByText(ADMIN_IDS.financeAdmin)).toBeInTheDocument();
+    expect(within(screen.getByRole('banner')).getByText('Blocked')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Unblock player' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Block player' })).not.toBeInTheDocument();
+  });
+
+  it('lifts the block from the header and the page follows', async () => {
+    const { user } = renderDetail(PLAYER_IDS.blocked);
+
+    await user.click(await screen.findByRole('button', { name: 'Unblock player' }));
+    await user.click(await screen.findByRole('button', { name: 'Unblock' }));
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('player-blocked-alert')).not.toBeInTheDocument();
+    });
+    expect(within(screen.getByRole('banner')).getByText('Active')).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Block player' })).toBeInTheDocument();
+  });
+
+  it('blocks from the header behind a two-step confirmation, and the reason appears', async () => {
+    const { user } = renderDetail(PLAYER_IDS.linkedActive);
+
+    await user.click(await screen.findByRole('button', { name: 'Block player' }));
+    await user.type(await screen.findByLabelText('Reason'), 'Sharing an account');
+    await user.click(screen.getByRole('button', { name: 'Review this block' }));
+    expect(await screen.findByText('Block Karim Nasser from the bot?')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Block Karim Nasser' }));
+
+    const alert = await screen.findByTestId('player-blocked-alert');
+    expect(within(alert).getByText('Sharing an account')).toBeInTheDocument();
+    expect(within(screen.getByRole('banner')).getByText('Blocked')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Unblock player' })).toBeInTheDocument();
+  });
+
+  it('offers neither lock action to a closed account', async () => {
+    renderDetail(PLAYER_IDS.closed);
+
+    expect(await screen.findByRole('heading', { name: 'Old Account' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Block player' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Unblock player' })).not.toBeInTheDocument();
+  });
+
+  it('hides the lock actions from a role that cannot hold them', async () => {
+    renderDetail(PLAYER_IDS.blocked, 'SUPPORT');
+
+    expect(await screen.findByRole('heading', { name: 'Bassel Khoury' })).toBeInTheDocument();
+    // The alert still tells support why — hiding the button is not hiding the fact.
+    expect(screen.getByTestId('player-blocked-alert')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Unblock player' })).not.toBeInTheDocument();
+  });
+});
+
+describe('PlayerDetailPage: an old player with no Telegram', () => {
+  it('shows a dash for the id, the source, and offers Attach Telegram', async () => {
+    renderDetail(PLAYER_IDS.imported);
+
+    expect(await screen.findByRole('heading', { name: 'samer1987' })).toBeInTheDocument();
+    expect(
+      within(screen.getByRole('banner')).getByLabelText('No Telegram account'),
+    ).toHaveTextContent('—');
+    expect(screen.getByText(/^Imported from Ichancy — registered there on/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Attach Telegram' })).toBeInTheDocument();
+  });
+
+  it('attaches the id and the header shows it, copyable', async () => {
+    const { user } = renderDetail(PLAYER_IDS.imported);
+
+    await user.click(await screen.findByRole('button', { name: 'Attach Telegram' }));
+    await user.type(await screen.findByLabelText('Telegram ID'), '512340099');
+    await user.click(screen.getByRole('button', { name: 'Attach' }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
+    expect(await screen.findAllByText('512340099')).not.toHaveLength(0);
+    expect(screen.queryByRole('button', { name: 'Attach Telegram' })).not.toBeInTheDocument();
+  });
+
+  it('does not offer Attach Telegram for a player who already has one', async () => {
+    renderDetail(PLAYER_IDS.linkedActive);
+
+    expect(await screen.findByRole('heading', { name: 'Karim Nasser' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Attach Telegram' })).not.toBeInTheDocument();
+  });
+
+  it('hides Attach Telegram from a role that cannot write players', async () => {
+    renderDetail(PLAYER_IDS.imported, 'SUPPORT');
+
+    expect(await screen.findByRole('heading', { name: 'samer1987' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Attach Telegram' })).not.toBeInTheDocument();
+  });
+
+  it('reads in Arabic', async () => {
+    renderWithProviders(<PlayerDetailPage />, {
+      route: `/players/${PLAYER_IDS.blocked}`,
+      routePath: '/players/$playerId',
+      locale: 'ar',
+    });
+
+    expect(await screen.findByRole('button', { name: 'رفع الحظر' })).toBeInTheDocument();
+    expect(screen.getByText('محظور من البوت')).toBeInTheDocument();
+    expect(document.documentElement.getAttribute('dir')).toBe('rtl');
   });
 });

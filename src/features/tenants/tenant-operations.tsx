@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { errorMessage } from '@/lib/api/errors';
 import {
+  useImportTenantPlayers,
   useRegisterTenantWebhook,
   useRemoveTenantWebhook,
   useSetupTenantBot,
@@ -24,6 +25,7 @@ import type { TenantOperatorActions } from './tenant-actions';
 import { TenantBotTokenDialog } from './tenant-bot-token-dialog';
 import { TenantIchancyDialog } from './tenant-ichancy-dialog';
 import { TenantIchancyPanel } from './tenant-ichancy-panel';
+import { TenantImportPlayersCard } from './tenant-import-players-card';
 import { TenantSetupChecklist } from './tenant-setup-checklist';
 import { TenantTelegramPanel } from './tenant-telegram-panel';
 
@@ -55,6 +57,7 @@ function TenantOperationsBody({ tenant }: { tenant: Tenant }) {
   const register = useRegisterTenantWebhook();
   const remove = useRemoveTenantWebhook();
   const setup = useSetupTenantBot();
+  const importPlayers = useImportTenantPlayers();
   const [unregisterOpen, setUnregisterOpen] = useState(false);
   const [botTokenOpen, setBotTokenOpen] = useState(false);
   const [ichancyOpen, setIchancyOpen] = useState(false);
@@ -112,6 +115,32 @@ function TenantOperationsBody({ tenant }: { tenant: Tenant }) {
     );
   };
 
+  /*
+   * An Ichancy failure is a 200 with `error` set, not a thrown request — the import is a batch
+   * that may have got halfway — so the toast is chosen by the summary, and the card keeps both the
+   * counts and the sentence. Only a refused REQUEST (403, 404, network) is a toast.error alone.
+   */
+  const runImportPlayers = () => {
+    importPlayers.mutate(tenant.id, {
+      onSuccess: (summary) => {
+        if (summary.error === null) {
+          toast.success(t('tenants.import.successTitle', { count: summary.created }), {
+            description: t('tenants.import.summary', {
+              scanned: summary.scanned,
+              created: summary.created,
+              existing: summary.existing,
+            }),
+          });
+        } else {
+          toast.error(t('tenants.import.errorTitle'), { description: summary.error });
+        }
+      },
+      onError: (error) => {
+        toast.error(t('tenants.import.failedTitle'), { description: errorMessage(error) });
+      },
+    });
+  };
+
   const actions: TenantOperatorActions = {
     registerWebhook: runRegister,
     registering: register.isPending,
@@ -127,6 +156,8 @@ function TenantOperationsBody({ tenant }: { tenant: Tenant }) {
     editIchancy: () => {
       setIchancyOpen(true);
     },
+    importPlayers: runImportPlayers,
+    importing: importPlayers.isPending,
     recheck: () => {
       void query.refetch();
     },
@@ -171,6 +202,7 @@ function TenantOperationsBody({ tenant }: { tenant: Tenant }) {
             commandsResult={setup.data ?? null}
           />
           <TenantIchancyPanel tenant={tenant} ichancy={health.ichancy} actions={actions} />
+          <TenantImportPlayersCard summary={importPlayers.data ?? null} actions={actions} />
 
           <Card>
             <CardHeader>

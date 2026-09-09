@@ -62,6 +62,15 @@ export function DepositFilters() {
   const needsReview =
     search.status === undefined || sameStatusSet(search.status, REVIEWABLE_DEPOSIT_STATUSES);
   const stuck = sameStatusSet(search.status, ATTENTION_DEPOSIT_STATUSES);
+  /*
+   * "All" is EVERY status spelled out, not an absent filter.
+   *
+   * An absent `status` means the reviewable three to the backend — that is its documented default —
+   * so clearing the filter shows LESS, not more. Listing all thirteen is the only way to ask for a
+   * credited deposit, and credited deposits are most of them. This chip is why somebody can see
+   * their successful deposits at all.
+   */
+  const showingAll = sameStatusSet(search.status, DEPOSIT_STATUSES);
 
   const toggleStatus = (status: DepositStatus, checked: boolean) => {
     const next = checked
@@ -124,6 +133,19 @@ export function DepositFilters() {
             }}
           >
             {t('deposits.filters.needsReview')}
+          </FilterChip>
+          <FilterChip
+            pressed={showingAll}
+            onClick={() => {
+              setSearch({
+                status: showingAll ? undefined : [...DEPOSIT_STATUSES],
+                // Cleared with it: "everything" and "only the ones nobody has claimed" contradict
+                // each other, and leaving it on would show a filtered list under an All heading.
+                unclaimedOnly: undefined,
+              });
+            }}
+          >
+            {t('deposits.filters.all')}
           </FilterChip>
           <FilterChip
             pressed={search.unclaimedOnly === true}

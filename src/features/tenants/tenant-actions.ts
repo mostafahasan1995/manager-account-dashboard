@@ -14,13 +14,16 @@ export interface TenantOperatorActions {
   /** Asks first: stopped delivery is invisible from the operator's own status. */
   askUnregisterWebhook: () => void;
   unregistering: boolean;
-  /** Pushes the command menus, so `/console` and `/start` appear in the bot. */
+  /** Pushes the command menus, so `/start` and the rest appear in the bot. */
   pushCommands: () => void;
   pushing: boolean;
   /** Opens the write-only bot token form. */
   replaceBotToken: () => void;
   /** Opens the Ichancy credentials form. */
   editIchancy: () => void;
+  /** Pulls the operator's existing Ichancy accounts in as players. Safe to repeat. */
+  importPlayers: () => void;
+  importing: boolean;
   /** Re-reads health: a real Ichancy sign-in and a Telegram round trip. */
   recheck: () => void;
   checking: boolean;

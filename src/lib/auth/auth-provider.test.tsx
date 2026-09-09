@@ -45,7 +45,7 @@ function Probe() {
       <button
         onClick={() => {
           // The real login screen renders the rejection; this probe only has to not explode.
-          void signIn('123456').catch(() => undefined);
+          void signIn({ username: 'owner', password: 'demo-pass' }).catch(() => undefined);
         }}
       >
         sign in
@@ -101,7 +101,7 @@ describe('restoring', () => {
 });
 
 describe('signing in', () => {
-  it('exchanges the bot code, stores the session and exposes the role', async () => {
+  it('exchanges the credential, stores the session and exposes the role', async () => {
     const user = userEvent.setup();
     renderProvider();
     await waitFor(() => {
@@ -119,15 +119,18 @@ describe('signing in', () => {
     expect(window.sessionStorage.getItem(SESSION_STORAGE_KEY)).not.toBeNull();
   });
 
-  it('leaves the console signed out when the code is refused', async () => {
+  it('leaves the console signed out when the credential is refused', async () => {
     const user = userEvent.setup();
     server.use(
-      http.post(`${config.apiBaseUrl}/v1/admin/auth/bot-code`, () =>
+      http.post(`${config.apiBaseUrl}/v1/admin/auth/credentials`, () =>
         HttpResponse.json(
           {
             success: false,
             data: null,
-            error: { code: 'BOT_CODE_INVALID', message: 'That code is not valid.' },
+            error: {
+              code: 'ADMIN_CREDENTIALS_INVALID',
+              message: 'Those credentials are not valid.',
+            },
             meta: { correlationId: 'c', timestamp: 't' },
           },
           { status: 401 },

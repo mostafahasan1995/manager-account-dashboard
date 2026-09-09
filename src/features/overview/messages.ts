@@ -26,6 +26,8 @@ export const overviewMessages = defineMessages({
     'overview.tiles.stuckHint': 'Credit failed or needs reconciliation',
     'overview.tiles.breaks': 'Open breaks',
     'overview.tiles.breaksHint': 'Open and under investigation',
+    'overview.tiles.withdrawals': 'Withdrawals waiting',
+    'overview.tiles.withdrawalsHint': 'Waiting for a decision, or debited and not yet paid',
     'overview.tiles.sampleHint': 'First {limit} counted — the queue sends no total',
 
     // ── Oldest waiting ───────────────────────────────────────────────────────────────────────
@@ -83,6 +85,8 @@ export const overviewMessages = defineMessages({
     'overview.tiles.stuckHint': 'فشلت إضافتها أو تحتاج تسوية',
     'overview.tiles.breaks': 'فروقات مفتوحة',
     'overview.tiles.breaksHint': 'مفتوحة أو قيد التحقيق',
+    'overview.tiles.withdrawals': 'سحوبات بانتظار إجراء',
+    'overview.tiles.withdrawalsHint': 'بانتظار قرار، أو خُصمت ولم تُدفع بعد',
     'overview.tiles.sampleHint': 'عُدّت أول {limit} فقط — القائمة لا ترسل مجموعاً',
 
     'overview.waiting.title': 'الأطول انتظاراً',
