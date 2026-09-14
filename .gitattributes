@@ -14,6 +14,15 @@
 # eslint and the diff all already assume.
 * text=auto eol=lf
 
+# Anything executed inside a Linux container, named explicitly even though the rule above already
+# covers it. These are the files where a CRLF is not a formatting nit but a container that will not
+# start: a shell script checked out as CRLF fails with "/bin/sh^M: not found", and nginx reads the
+# `\r` into its directive values. Stated here so that nobody narrowing the rule above breaks them.
+*.sh text eol=lf
+Dockerfile text eol=lf
+.dockerignore text eol=lf
+docker/** text eol=lf
+
 # Binaries, which must never be touched by any of the above.
 *.png binary
 *.jpg binary

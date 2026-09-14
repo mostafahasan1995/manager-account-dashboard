@@ -1,0 +1,32 @@
+# What the Docker build is allowed to see.
+#
+# The build runs `npm ci` itself, so a host node_modules (Windows binaries, possibly stale) must never
+# be sent in, and neither must a host dist/ that could mask a failed build.
+node_modules
+dist
+coverage
+playwright-report
+test-results
+.vite
+*.tsbuildinfo
+*.log
+
+# Every .env file, the example included. Vite reads .env, .env.local, .env.production and friends
+# from the project root during `vite build` — so a developer's local file would silently bake its
+# API URL, or VITE_ALLOW_MOCKS_IN_BUILD, into the image. The image gets its settings from the
+# Dockerfile and, at start, from the container environment; nothing else.
+.env
+.env.*
+*.local
+
+# Not needed to build, and changing them should not invalidate the build cache.
+.git
+.github
+.idea
+.vscode
+docs
+README.md
+Dockerfile
+.dockerignore
+docker/test-*.sh
+docker/*.mjs
