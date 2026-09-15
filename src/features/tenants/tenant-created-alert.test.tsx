@@ -24,6 +24,7 @@ const allGood: TenantProvisioning = {
   paymentMethodsNeedAccounts: false,
   playersImported: 37,
   playersImportError: null,
+  ichancyFake: false,
 };
 
 describe('TenantCreatedAlert', () => {
@@ -81,6 +82,52 @@ describe('TenantCreatedAlert', () => {
       ),
     ).toBeInTheDocument();
     expect(screen.getByText(/money sent to a placeholder is gone/)).toBeInTheDocument();
+  });
+
+  it('says an activation and an import in fake mode proved nothing', () => {
+    renderPlain(
+      <TenantCreatedAlert
+        tenant={tenant}
+        provisioning={{ ...allGood, ichancyFake: true, playersImported: 5 }}
+        onDismiss={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByText(
+        'Activated in fake mode: Ichancy was not contacted, so the agent’s credentials are unproven.',
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText('Players imported in fake mode: 5, made up rather than read from Ichancy.'),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/no real connection was made while creating/)).toBeInTheDocument();
+    // The real-mode claim must not sit beside the fake one.
+    expect(
+      screen.queryByText('Activated: the Ichancy agent answered a real sign-in.'),
+    ).not.toBeInTheDocument();
+  });
+
+  it('names binding the staff group as the next step when the operator has none', () => {
+    renderPlain(
+      <TenantCreatedAlert
+        tenant={{ ...tenant, adminChatId: null }}
+        provisioning={{
+          ...allGood,
+          activated: false,
+          activationError:
+            'This operator has no staff group yet, so it cannot be activated: its deposit review cards and alerts would go nowhere.',
+        }}
+        onDismiss={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText(/Not activated: This operator has no staff group yet/)).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'No staff group yet: open the operator, use “Add bot to staff group”, then activate it.',
+      ),
+    ).toBeInTheDocument();
   });
 
   it('dismisses on request', async () => {

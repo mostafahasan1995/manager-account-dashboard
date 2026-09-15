@@ -28,7 +28,9 @@ What actually happens under the hood, what the console offers, and the state of 
 
 1. Resolves the optional half of the request. Only four fields are required — `displayName`,
    `botToken`, `ichancyUsername`, `ichancyPassword` — and everything else comes from the
-   **PlatformDefaults** settings row, from the caller (`adminChatId`), or from the display name
+   **PlatformDefaults** settings row, or from the display name. `adminChatId` defaults to nothing
+   since 2026-09-15: the operator has no staff group until one is bound (API-CONTRACT.md, "Staff and
+   feed groups"), and stays suspended until then. `slug` comes
    (`slug`, slugified and de-duplicated with `-2`, `-3`, …). A slug the caller *chose* is still
    refused when it is taken; a derived one cannot collide. `ichancyAgentId` falls back
    PlatformDefaults → tenant zero → **400 naming the field**: Ichancy `signin()` returns only a
@@ -271,10 +273,14 @@ npm run admin:platform -- <telegram-id> --replace-super-admin
 
 1. **@BotFather** → `/newbot` → copy the token.
 2. Console → Operators → **New operator**: a name, that bot token, the Ichancy username and
-   password. That is the whole form — the slug comes from the name, the admin chat from your own
-   Telegram id, and the base URL, agent id, currency, thresholds and expiry from the platform
-   defaults. "Advanced" holds all of those for the operator that has to differ, each labelled with
-   what it gets when left blank. It lands **suspended**.
+   password. That is the whole form — the slug comes from the name, and the base URL, agent id,
+   currency, thresholds and expiry from the platform defaults. "Advanced" holds all of those for the
+   operator that has to differ, each labelled with what it gets when left blank. It lands
+   **suspended**, with no staff group.
+   Then, on the operator's page, **Add bot to staff group** (setup checklist): pick the staff group
+   in Telegram, and the bot binds it and says so in the group. Activation is refused until this is
+   done. Each staff member who approves in the group links their Telegram once from their staff
+   record (**Link Telegram**, then `/link <code>` to the bot in a private chat).
 3. **Register webhook** — Telegram now delivers that bot's updates to this deployment.
 4. **Push command menus** so `/start` and the rest appear in the bot.
 5. **Add me as an admin here** — creates a `SUPER_ADMIN` row inside the new operator with a console

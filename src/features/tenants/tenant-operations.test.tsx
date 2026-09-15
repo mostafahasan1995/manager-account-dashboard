@@ -96,7 +96,9 @@ describe('TenantOperations', () => {
       renderPlain(<TenantOperations tenant={stalledTenant} />, platformAdmin);
 
       expect(await screen.findByText('Setup checklist')).toBeInTheDocument();
-      expect(screen.getByText('4 steps still to do.')).toBeInTheDocument();
+      // Bot token, webhook, staff group, agent and activation. The feed group is optional, not missing.
+      expect(screen.getByText('5 steps still to do.')).toBeInTheDocument();
+      expect(screen.getByText('Staff group bound')).toBeInTheDocument();
       expect(screen.getByText('Bot token verified')).toBeInTheDocument();
       expect(screen.getByText('Webhook registered')).toBeInTheDocument();
       expect(screen.getByText('Ichancy agent verified')).toBeInTheDocument();

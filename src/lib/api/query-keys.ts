@@ -197,6 +197,19 @@ export const tenantHealthKeys = {
   detail: (tenantId: string) => [...tenantHealthKeys.all, tenantId] as const,
 };
 
+/**
+ * One operator's chat directory, keyed BY THAT OPERATOR — the staff and feed group picker.
+ *
+ * Deliberately not `telegramChatKeys`: that list follows the console's operator switcher, while this
+ * one names its operator in the path. Sharing a key would let a platform admin looking at operator X
+ * be shown operator Y's groups for one render — titles, and who added the bot — which is precisely the
+ * leak picking the wrong group causes.
+ */
+export const tenantChatKeys = {
+  all: ['tenant-telegram-chats'] as const,
+  list: (tenantId: string) => [...tenantChatKeys.all, tenantId] as const,
+};
+
 export const healthKeys = {
   all: ['health'] as const,
   snapshot: () => [...healthKeys.all, 'snapshot'] as const,

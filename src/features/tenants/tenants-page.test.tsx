@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { tenantSearchSchema } from '@/app/search-schemas';
 import { config } from '@/config';
 import type { Locale } from '@/lib/i18n/locales';
-import { mockAdmins, mockPlatformDefaults, mockTenants } from '@/mocks/fixtures';
+import { mockPlatformDefaults, mockTenants } from '@/mocks/fixtures';
 import { server } from '@/test/msw-server';
 import { renderWithProviders } from '@/test/utils';
 
@@ -255,7 +255,9 @@ describe('TenantsPage', () => {
     expect(await screen.findByRole('heading', { name: 'Harbour kiosk' })).toBeInTheDocument();
     const panel = within(screen.getByRole('dialog', { name: /harbour kiosk/i }));
     expect(panel.getByText('Slug harbour-kiosk')).toBeInTheDocument();
-    expect(panel.getByText(mockAdmins[0]!.telegramUserId!)).toBeInTheDocument();
+    // No staff group was named, so none was invented: the panel says so in red (2026-09-15).
+    expect(panel.getByText('No staff group yet')).toBeInTheDocument();
+    expect(panel.getByText('Not bound')).toBeInTheDocument();
     expect(panel.getByText(mockPlatformDefaults.currencyCode)).toBeInTheDocument();
     expect(panel.getByText('500,000.00 NSP')).toBeInTheDocument();
     expect(panel.getByText('30 minutes')).toBeInTheDocument();

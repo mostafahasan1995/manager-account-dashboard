@@ -41,6 +41,11 @@ export const floatSyncResultSchema = z.looseObject({
   deltaMinor: z.string().nullable(),
   breakId: z.string().nullable(),
   belowWatermark: z.boolean(),
+  /**
+   * True under ICHANCY_FAKE: the wallet was NOT read, so `ichancyMinor` is null for that reason and
+   * not because Ichancy failed. The panel must say "fake mode" there, never "could not be read".
+   */
+  ichancyFake: z.boolean(),
 });
 export type FloatSyncResult = z.infer<typeof floatSyncResultSchema>;
 

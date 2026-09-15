@@ -154,6 +154,7 @@ describe('aiming the write at the operator being viewed', () => {
             data: {
               id: 'new-admin',
               telegramUserId: null,
+              telegramLinked: false,
               username: null,
               hasPassword: false,
               displayName: 'Nour Haddad',

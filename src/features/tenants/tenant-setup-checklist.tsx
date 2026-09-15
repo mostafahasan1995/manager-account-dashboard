@@ -1,4 +1,4 @@
-import { CircleDashed, CircleHelp, CircleCheck } from 'lucide-react';
+import { CircleCheck, CircleDashed, CircleDot, CircleHelp } from 'lucide-react';
 import type { ReactNode } from 'react';
 
 import { Badge } from '@/components/ui/badge';
@@ -10,19 +10,28 @@ import type { Tenant, TenantHealth } from '@/types';
 
 import { tenantMessages } from './messages';
 import type { TenantOperatorActions } from './tenant-actions';
+import { sightingFor } from './chat-sighting';
+import { TenantChatBinding } from './tenant-chat-binding';
 
 /**
- * The six steps between a created operator and one that serves somebody.
+ * The steps between a created operator and one that serves somebody.
  *
- * A new operator lands SUSPENDED with a webhook path Telegram has never heard of, so the honest
- * first screen is not a dashboard of green dots — it is a list of what is still missing, in the
- * order docs/TENANT-OPERATIONS.md section 7 does it, with the control for each step beside it.
+ * A new operator lands SUSPENDED with no staff group, so the honest first screen is not a dashboard
+ * of green dots — it is a list of what is still missing, in the order it has to be done, with the
+ * control for each step beside it. The staff group comes right after the webhook because its link
+ * only completes once Telegram delivers to this deployment, and activation is refused without it.
  *
- * ── WHY TWO OF THE STEPS ARE NEITHER DONE NOR TODO ────────────────────────────────────────────
+ * ── WHY TWO OF THE STEPS ARE NEITHER DONE NOR TODO ────────────────────────────────────────────────
  * Telegram is never asked what a bot's command menu contains, and this operator's staff list is not
  * readable from the platform screen — `/v1/admin/admins` answers for whichever operator the console
  * is pointed at, which is not necessarily this one. Both steps therefore report that they cannot be
- * checked from here, instead of a tick that would be a guess or a cross that would be a lie.
+ * checked from here, instead of a tick that would be a guess or a cross that would be a lie. The agent
+ * step joins them in Ichancy fake mode: a fake sign-in proves nothing, and neither tick nor cross is
+ * honest about it.
+ *
+ * ── WHY THE FEED GROUP IS "OPTIONAL" RATHER THAN "TODO" ───────────────────────────────────────────
+ * An operator with no feed group is fully set up. Counting it as a missing step would keep "every step
+ * is done" out of reach forever, and teach people to ignore the count.
  */
 export function TenantSetupChecklist({
   tenant,
@@ -40,6 +49,13 @@ export function TenantSetupChecklist({
   const { bot, ichancy } = health;
 
   const botVerified = bot.ok && bot.username !== null;
+  const staffSighting = sightingFor(tenant.adminChatId, health.chats.staff);
+  const staffName = staffSighting?.title ?? tenant.adminChatId ?? '';
+  const staffRemoved = staffSighting?.isPresent === false;
+  const feedSighting = sightingFor(tenant.feedChatId, health.chats.feed);
+  const feedName = feedSighting?.title ?? tenant.feedChatId ?? '';
+  const feedRemoved = feedSighting?.isPresent === false;
+
   const steps: ChecklistStep[] = [
     {
       key: 'bot-token',
@@ -73,6 +89,30 @@ export function TenantSetupChecklist({
       ),
     },
     {
+      key: 'staff-group',
+      title: t('tenants.checklist.staffGroup'),
+      state: tenant.adminChatId === null || staffRemoved ? 'todo' : 'done',
+      body:
+        tenant.adminChatId === null
+          ? t('tenants.checklist.staffGroupTodo')
+          : staffRemoved
+            ? t('tenants.checklist.staffGroupRemoved', { name: staffName })
+            : t('tenants.checklist.staffGroupDone', { name: staffName }),
+      action: <TenantChatBinding tenant={tenant} purpose="STAFF" />,
+    },
+    {
+      key: 'feed-group',
+      title: t('tenants.checklist.feedGroup'),
+      state: tenant.feedChatId === null ? 'optional' : feedRemoved ? 'todo' : 'done',
+      body:
+        tenant.feedChatId === null
+          ? t('tenants.checklist.feedGroupOff')
+          : feedRemoved
+            ? t('tenants.checklist.feedGroupRemoved', { name: feedName })
+            : t('tenants.checklist.feedGroupDone', { name: feedName }),
+      action: <TenantChatBinding tenant={tenant} purpose="FEED" />,
+    },
+    {
       key: 'commands',
       title: t('tenants.checklist.commands'),
       state: commandsSet === null ? 'unknown' : 'done',
@@ -103,15 +143,18 @@ export function TenantSetupChecklist({
     {
       key: 'agent',
       title: t('tenants.checklist.agent'),
-      state: ichancy.ok ? 'done' : 'todo',
-      body: ichancy.ok
-        ? t('tenants.checklist.agentDone', { agent: ichancy.agentId })
-        : t('tenants.checklist.agentTodo'),
-      action: ichancy.ok ? null : (
-        <Button variant="secondary" size="sm" onClick={actions.editIchancy}>
-          {t('tenants.ichancy.edit')}
-        </Button>
-      ),
+      state: ichancy.fake ? 'unknown' : ichancy.ok ? 'done' : 'todo',
+      body: ichancy.fake
+        ? t('tenants.checklist.agentFake')
+        : ichancy.ok
+          ? t('tenants.checklist.agentDone', { agent: ichancy.agentId })
+          : t('tenants.checklist.agentTodo'),
+      action:
+        ichancy.ok || ichancy.fake ? null : (
+          <Button variant="secondary" size="sm" onClick={actions.editIchancy}>
+            {t('tenants.ichancy.edit')}
+          </Button>
+        ),
     },
     {
       key: 'active',
@@ -120,7 +163,9 @@ export function TenantSetupChecklist({
       body:
         tenant.status === 'ACTIVE'
           ? t('tenants.checklist.activeDone')
-          : t('tenants.checklist.activeTodo', { action: t('tenants.activate.action') }),
+          : tenant.adminChatId === null
+            ? t('tenants.checklist.activeNeedsStaffGroup', { action: t('tenants.activate.action') })
+            : t('tenants.checklist.activeTodo', { action: t('tenants.activate.action') }),
       action: null,
     },
   ];
@@ -148,7 +193,7 @@ export function TenantSetupChecklist({
   );
 }
 
-type StepState = 'done' | 'todo' | 'unknown';
+type StepState = 'done' | 'todo' | 'unknown' | 'optional';
 
 interface ChecklistStep {
   key: string;
@@ -162,18 +207,21 @@ const STATE_ICONS = {
   done: CircleCheck,
   todo: CircleDashed,
   unknown: CircleHelp,
+  optional: CircleDot,
 } as const;
 
 const STATE_COLORS = {
   done: 'text-[var(--success)]',
   todo: 'text-[var(--warning)]',
   unknown: 'text-[var(--muted-foreground)]',
+  optional: 'text-[var(--muted-foreground)]',
 } as const;
 
 const STATE_TONES = {
   done: 'success',
   todo: 'warning',
   unknown: 'muted',
+  optional: 'muted',
 } as const;
 
 function ChecklistRow({ step, number }: { step: ChecklistStep; number: number }) {
@@ -183,10 +231,11 @@ function ChecklistRow({ step, number }: { step: ChecklistStep; number: number })
     done: t('tenants.checklist.stateDone'),
     todo: t('tenants.checklist.stateTodo'),
     unknown: t('tenants.checklist.stateUnknown'),
+    optional: t('tenants.checklist.stateOptional'),
   }[step.state];
 
   return (
-    <li className="flex items-start gap-3">
+    <li className="flex items-start gap-3" data-step={step.key}>
       {/* Never mirrored: a tick and a dashed ring mean the same thing in both directions. */}
       <Icon className={cn('mt-0.5 size-4 shrink-0', STATE_COLORS[step.state])} aria-hidden="true" />
       <div className="min-w-0 flex-1 space-y-1">

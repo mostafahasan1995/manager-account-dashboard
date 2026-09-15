@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import { describe, expect, it, vi } from 'vitest';
 
 import { config } from '@/config';
-import { mockAdmins, mockPlatformDefaults, mockTenants } from '@/mocks/fixtures';
+import { mockPlatformDefaults, mockTenants } from '@/mocks/fixtures';
 import { server } from '@/test/msw-server';
 import { renderPlain } from '@/test/utils';
 
@@ -18,8 +18,11 @@ const platformAdmin = { auth: { role: 'PLATFORM_ADMIN' as const } };
 
 const VALID_BOT_TOKEN = '123456789:AAH-abcdefghijklmnopqrstuvwxyz012345';
 
-/** Whoever the mock session belongs to — the admin chat id a created operator inherits. */
-const CREATING_ADMIN_TELEGRAM_ID = mockAdmins[0]!.telegramUserId;
+/**
+ * What a created operator gets for a staff group when the form names none: nothing (2026-09-15). It is
+ * no longer the creating admin's Telegram id, and it stays suspended until a group is bound.
+ */
+const NO_STAFF_GROUP = null;
 
 /**
  * The four fields the API cannot fill in for anybody: a name, the bot token from BotFather, and the
@@ -134,7 +137,7 @@ describe('TenantFormDialog — create', () => {
       expect(screen.getByLabelText(label)).toBeInTheDocument();
     }
     expect(screen.getByText(/made from the display name/i)).toBeInTheDocument();
-    expect(screen.getByText(/your own Telegram id/i)).toBeInTheDocument();
+    expect(screen.getByText(/Left blank: no staff group/i)).toBeInTheDocument();
     expect(screen.getByText(/the platform default Ichancy URL/i)).toBeInTheDocument();
     expect(screen.getByText(/or tenant zero’s if the platform has none/i)).toBeInTheDocument();
     expect(screen.getByText(/the platform default currency/i)).toBeInTheDocument();
@@ -260,7 +263,7 @@ describe('TenantFormDialog — create', () => {
           status: 'SUSPENDED',
           // Every one of these was resolved by the server, not sent by the form.
           slug: 'southern-branch',
-          adminChatId: CREATING_ADMIN_TELEGRAM_ID,
+          adminChatId: NO_STAFF_GROUP,
           feedChatId: null,
           ichancyBaseUrl: mockPlatformDefaults.ichancyBaseUrl,
           ichancyAgentId: mockPlatformDefaults.ichancyAgentId,
@@ -394,7 +397,7 @@ describe('TenantFormDialog — create', () => {
           depositExpiryMinutes: 45,
           // Still defaulted: overriding one field does not opt the rest out.
           agentFloatLowWatermarkMinor: mockPlatformDefaults.agentFloatLowWatermarkMinor,
-          adminChatId: CREATING_ADMIN_TELEGRAM_ID,
+          adminChatId: NO_STAFF_GROUP,
         }),
       );
     });
@@ -455,7 +458,8 @@ describe('TenantFormDialog — create, in Arabic', () => {
     await user.click(advanced);
 
     expect(screen.getByText(/رابط Ichancy الافتراضي للمنصّة/)).toBeInTheDocument();
-    expect(screen.getByText(/معرّف حسابك على Telegram/)).toBeInTheDocument();
+    // No staff group by default since 2026-09-15, said in Arabic too.
+    expect(screen.getByText(/إن تُرك فارغاً: لا توجد مجموعة موظفين/)).toBeInTheDocument();
     // The one field with no default anywhere says so in Arabic too, agent id and all.
     expect(screen.getByText(/لا يمكن استنتاج معرّف الوكيل من بيانات الدخول/)).toBeInTheDocument();
   });

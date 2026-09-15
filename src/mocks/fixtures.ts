@@ -16,6 +16,7 @@ import type {
   TenantFinanceRow,
   DiscoveredChat,
   TelegramDestination,
+  TenantDiscoveredChat,
 } from '@/types';
 
 /**
@@ -160,6 +161,7 @@ export const mockAdmins: AdminUser[] = [
   {
     id: ADMIN_IDS.superAdmin,
     telegramUserId: '700000001',
+    telegramLinked: true,
     username: 'nour_ops',
     hasPassword: false,
     displayName: 'Nour Haddad',
@@ -171,6 +173,7 @@ export const mockAdmins: AdminUser[] = [
   {
     id: ADMIN_IDS.financeAdmin,
     telegramUserId: '700000002',
+    telegramLinked: true,
     username: 'sami_finance',
     hasPassword: false,
     displayName: 'Sami Aziz',
@@ -182,6 +185,7 @@ export const mockAdmins: AdminUser[] = [
   {
     id: ADMIN_IDS.reviewer,
     telegramUserId: '700000003',
+    telegramLinked: true,
     username: 'lina_review',
     hasPassword: false,
     displayName: 'Lina Farah',
@@ -193,6 +197,7 @@ export const mockAdmins: AdminUser[] = [
   {
     id: ADMIN_IDS.support,
     telegramUserId: '700000004',
+    telegramLinked: true,
     username: null,
     hasPassword: false,
     displayName: 'Omar Support',
@@ -204,6 +209,7 @@ export const mockAdmins: AdminUser[] = [
   {
     id: ADMIN_IDS.viewer,
     telegramUserId: '700000005',
+    telegramLinked: true,
     username: 'audit_bot',
     hasPassword: false,
     displayName: 'Audit Read-only',
@@ -215,6 +221,7 @@ export const mockAdmins: AdminUser[] = [
   {
     id: ADMIN_IDS.platformAdmin,
     telegramUserId: '700000006',
+    telegramLinked: true,
     username: 'platform',
     hasPassword: false,
     displayName: 'Platform Operations',
@@ -226,6 +233,7 @@ export const mockAdmins: AdminUser[] = [
   {
     id: ADMIN_IDS.deactivated,
     telegramUserId: '700000007',
+    telegramLinked: true,
     username: 'former_staff',
     hasPassword: false,
     displayName: 'Rami (left)',
@@ -239,6 +247,7 @@ export const mockAdmins: AdminUser[] = [
     // deposit-deciding role, so it does not also need an approval-limit fixture of its own.
     id: ADMIN_IDS.noTelegram,
     telegramUserId: null,
+    telegramLinked: false,
     username: 'maya_console',
     hasPassword: true,
     displayName: 'Maya Console',
@@ -1766,6 +1775,7 @@ export const mockTenants: Tenant[] = [
     depositMode: 'MANUAL',
     withdrawalMode: 'MANUAL',
     miniAppUrl: null,
+    ichancyFake: false,
     createdAt: minutesAgo(60 * 24 * 400),
     updatedAt: minutesAgo(60 * 24 * 3),
     counts: { players: 1284, deposits: 9417 },
@@ -1791,6 +1801,7 @@ export const mockTenants: Tenant[] = [
     depositMode: 'AUTO',
     withdrawalMode: 'AUTO',
     miniAppUrl: 'https://northern-cashier.example.app',
+    ichancyFake: false,
     createdAt: minutesAgo(60 * 24 * 60),
     updatedAt: minutesAgo(60 * 24 * 6),
     counts: { players: 312, deposits: 1188 },
@@ -1801,7 +1812,9 @@ export const mockTenants: Tenant[] = [
     displayName: 'Pilot operator',
     status: 'SUSPENDED',
     hasWebhookPath: true,
-    adminChatId: '-1002222222222',
+    // Created since 2026-09-15: no staff group until the platform admin binds one, which is one of
+    // the reasons it is still suspended (and why activating it is refused).
+    adminChatId: null,
     feedChatId: null,
     botUsername: null,
     ichancyBaseUrl: 'https://agent.ichancy.example',
@@ -1814,6 +1827,7 @@ export const mockTenants: Tenant[] = [
     depositMode: 'MANUAL',
     withdrawalMode: 'MANUAL',
     miniAppUrl: null,
+    ichancyFake: false,
     createdAt: minutesAgo(60 * 24 * 2),
     updatedAt: minutesAgo(60 * 24 * 2),
     counts: { players: 0, deposits: 0 },
@@ -2081,5 +2095,134 @@ export const mockDiscoveredChats: DiscoveredChat[] = [
     lastSeenAt: '2026-08-10T08:00:00.000Z',
   },
 ];
+
+/**
+ * One sighting in an operator's OWN chat directory, as the backend stores it. `boundAs` and
+ * `alreadyBound` are not stored: the handler computes them from the operator row on every read, so
+ * binding a group can never leave a stale "not bound" behind.
+ */
+export type MockTenantChat = Omit<TenantDiscoveredChat, 'boundAs' | 'alreadyBound'>;
+
+/**
+ * Per operator, the groups its bot was seen in — the fallback picker on the operator page.
+ *
+ * Tenant zero's two rows are its bound staff and feed groups, so the picker marks them. The pilot
+ * operator has NO staff group yet and one row per case the picker renders differently: a private
+ * supergroup ready to bind (added by a named person), a group where the bot is only a member, the
+ * dead id an old group left when it became a supergroup, and a channel, which can be neither group.
+ */
+export const mockTenantChats: Record<string, MockTenantChat[]> = {
+  [TENANT_IDS.zero]: [
+    {
+      chatId: '-1001234567890',
+      chatType: 'SUPERGROUP',
+      title: 'Cashier ops',
+      username: 'cashier_ops',
+      status: 'ADMINISTRATOR',
+      isAdministrator: true,
+      isPresent: true,
+      canPost: true,
+      migratedToChatId: null,
+      lastChangedByTelegramUserId: '700000006',
+      lastChangedByUsername: 'platform_owner',
+      firstSeenAt: '2026-08-01T08:55:00.000Z',
+      lastSeenAt: minutesAgo(40),
+    },
+    {
+      chatId: '-1009876543210',
+      chatType: 'SUPERGROUP',
+      title: 'Credited deposits',
+      username: null,
+      status: 'ADMINISTRATOR',
+      isAdministrator: true,
+      isPresent: true,
+      canPost: true,
+      migratedToChatId: null,
+      lastChangedByTelegramUserId: '700000006',
+      lastChangedByUsername: 'platform_owner',
+      firstSeenAt: '2026-08-01T09:10:00.000Z',
+      lastSeenAt: minutesAgo(90),
+    },
+  ],
+  [TENANT_IDS.second]: [
+    {
+      chatId: '-1001111111111',
+      chatType: 'SUPERGROUP',
+      title: 'Northern staff',
+      username: null,
+      status: 'ADMINISTRATOR',
+      isAdministrator: true,
+      isPresent: true,
+      canPost: true,
+      migratedToChatId: null,
+      lastChangedByTelegramUserId: '700000006',
+      lastChangedByUsername: 'platform_owner',
+      firstSeenAt: '2026-07-20T10:00:00.000Z',
+      lastSeenAt: minutesAgo(60 * 6),
+    },
+  ],
+  [TENANT_IDS.suspended]: [
+    {
+      chatId: '-1002233445566',
+      chatType: 'SUPERGROUP',
+      title: 'Pilot staff (private)',
+      username: null,
+      status: 'ADMINISTRATOR',
+      isAdministrator: true,
+      isPresent: true,
+      canPost: true,
+      migratedToChatId: null,
+      lastChangedByTelegramUserId: '700000123',
+      lastChangedByUsername: 'pilot_owner',
+      firstSeenAt: minutesAgo(30),
+      lastSeenAt: minutesAgo(5),
+    },
+    {
+      chatId: '-1007788990011',
+      chatType: 'GROUP',
+      title: 'Pilot support',
+      username: null,
+      status: 'MEMBER',
+      isAdministrator: false,
+      isPresent: true,
+      canPost: true,
+      migratedToChatId: null,
+      lastChangedByTelegramUserId: '700000123',
+      lastChangedByUsername: 'pilot_owner',
+      firstSeenAt: minutesAgo(60 * 3),
+      lastSeenAt: minutesAgo(60 * 3),
+    },
+    {
+      chatId: '-4455667788',
+      chatType: 'GROUP',
+      title: 'Pilot staff (old)',
+      username: null,
+      status: 'ADMINISTRATOR',
+      isAdministrator: true,
+      isPresent: true,
+      canPost: true,
+      migratedToChatId: '-1002233445566',
+      lastChangedByTelegramUserId: '700000123',
+      lastChangedByUsername: 'pilot_owner',
+      firstSeenAt: minutesAgo(40),
+      lastSeenAt: minutesAgo(31),
+    },
+    {
+      chatId: '-1005555000222',
+      chatType: 'CHANNEL',
+      title: 'Pilot announcements',
+      username: 'pilot_news',
+      status: 'ADMINISTRATOR',
+      isAdministrator: true,
+      isPresent: true,
+      canPost: true,
+      migratedToChatId: null,
+      lastChangedByTelegramUserId: null,
+      lastChangedByUsername: null,
+      firstSeenAt: minutesAgo(60 * 24),
+      lastSeenAt: minutesAgo(60 * 24),
+    },
+  ],
+};
 
 export { MOCK_CONSOLE_PASSWORD, MOCK_CONSOLE_USERNAME, MOCK_SESSION_TTL_MINUTES } from './demo';

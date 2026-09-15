@@ -157,6 +157,13 @@ export const playerImportSummarySchema = z.looseObject({
   error: z.string().nullable(),
   startedAt: isoDateTime,
   finishedAt: isoDateTime,
+  /**
+   * True when the deployment runs with ICHANCY_FAKE, so every count is of made-up players. The
+   * platform route (`/v1/admin/tenants/:id/import-players`) always sends it; the operator-side
+   * `/v1/admin/players/import` does not, which is why it is optional here — and absent reads as
+   * "not known to be fake", never as a claim that Ichancy was really asked.
+   */
+  ichancyFake: z.boolean().optional(),
 });
 export type PlayerImportSummary = z.infer<typeof playerImportSummarySchema>;
 

@@ -129,8 +129,8 @@ describe('tenant creation defaults', () => {
     expect(created).toMatchObject({
       status: 'SUSPENDED',
       slug: 'harbour-kiosk',
-      // The platform admin making the request, not a zero placeholder.
-      adminChatId: db.currentAdmin.telegramUserId,
+      // No staff group until one is bound (2026-09-15) — not the creating admin's own Telegram id.
+      adminChatId: null,
       feedChatId: null,
       ichancyBaseUrl: mockPlatformDefaults.ichancyBaseUrl,
       ichancyAgentId: mockPlatformDefaults.ichancyAgentId,

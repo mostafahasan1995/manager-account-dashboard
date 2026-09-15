@@ -161,6 +161,39 @@ export const staffMessages = defineMessages({
     'staff.limit.error.currency': 'A three-letter currency code, for example NSP.',
     'staff.limit.error.secondAbove':
       'The second-approval threshold must be a plain decimal amount, or blank for never.',
+
+    // ── Linking a staff account to Telegram ──────────────────────────────────────────────────
+    'staff.telegram.row': 'Telegram link',
+    'staff.telegram.linked': 'Linked',
+    'staff.telegram.notLinked': 'Not linked',
+    'staff.telegram.linkedHint': 'Their Approve and Reject taps in the staff group count as theirs.',
+    'staff.telegram.notLinkedHint':
+      'Their taps in the staff group are refused until this account is linked.',
+    'staff.telegram.link': 'Link Telegram',
+    'staff.telegram.unlink': 'Unlink',
+    'staff.telegram.dialogTitle': 'Link {name} to Telegram',
+    'staff.telegram.dialogBody':
+      'The code links whichever Telegram account sends it. Only {name} should send it, from the Telegram account they approve deposits with.',
+    'staff.telegram.issuing': 'Getting a code…',
+    'staff.telegram.codeLabel': 'One-time code',
+    'staff.telegram.stepOpenBot': '1. Open @{bot} in a private chat.',
+    'staff.telegram.stepOpenAnyBot': '1. Open this operator’s bot in a private chat.',
+    'staff.telegram.stepSend': '2. Send exactly this, as a new message:',
+    'staff.telegram.openBot': 'Open @{bot}',
+    'staff.telegram.timeLeft': 'Works once. Time left:',
+    'staff.telegram.neverInGroup':
+      'Never post the code in a group: a code sent in a group is cancelled. An edited message is not read, so fix a typo by sending the command again.',
+    'staff.telegram.waiting': 'Waiting for the code to reach the bot. This page checks every few seconds.',
+    'staff.telegram.newCode': 'Get a new code',
+    'staff.telegram.done': 'Done',
+    'staff.telegram.linkedTitle': '{name} is linked to Telegram',
+    'staff.telegram.linkedBody': 'Their taps in the staff group count from now on.',
+    'staff.telegram.errorTitle': 'Could not get a code',
+    'staff.telegram.unlinkTitle': 'Unlink {name} from Telegram?',
+    'staff.telegram.unlinkBody':
+      'Their taps in the staff group are refused from this moment, and a code not yet used stops working. They can link again with a new code.',
+    'staff.telegram.unlinkedToast': '{name} is no longer linked to Telegram.',
+    'staff.telegram.unlinkErrorTitle': 'Could not unlink',
   },
 
   ar: {
@@ -304,6 +337,37 @@ export const staffMessages = defineMessages({
     'staff.limit.error.currency': 'رمز عملة من ثلاثة أحرف، مثل NSP.',
     'staff.limit.error.secondAbove':
       'حد الموافقة الثانية يجب أن يكون مبلغاً عشرياً بسيطاً، أو فارغاً إذا لم يكن مطلوباً أبداً.',
+
+    'staff.telegram.row': 'ربط تلغرام',
+    'staff.telegram.linked': 'مربوط',
+    'staff.telegram.notLinked': 'غير مربوط',
+    'staff.telegram.linkedHint': 'ضغطاته على «موافقة» و«رفض» في مجموعة الموظفين تُحسب له.',
+    'staff.telegram.notLinkedHint': 'تُرفض ضغطاته في مجموعة الموظفين حتى يُربط هذا الحساب.',
+    'staff.telegram.link': 'ربط تلغرام',
+    'staff.telegram.unlink': 'فك الربط',
+    'staff.telegram.dialogTitle': 'ربط {name} بتلغرام',
+    'staff.telegram.dialogBody':
+      'يربط الرمز حساب تلغرام الذي يرسله أياً كان. يجب أن يرسله {name} وحده، من حساب تلغرام الذي يوافق به على الإيداعات.',
+    'staff.telegram.issuing': 'جارٍ الحصول على رمز…',
+    'staff.telegram.codeLabel': 'رمز لمرة واحدة',
+    'staff.telegram.stepOpenBot': '1. افتح ‎@{bot} في محادثة خاصة.',
+    'staff.telegram.stepOpenAnyBot': '1. افتح بوت هذا المشغّل في محادثة خاصة.',
+    'staff.telegram.stepSend': '2. أرسل هذا حرفياً، في رسالة جديدة:',
+    'staff.telegram.openBot': 'افتح ‎@{bot}',
+    'staff.telegram.timeLeft': 'يعمل مرة واحدة. الوقت المتبقي:',
+    'staff.telegram.neverInGroup':
+      'لا تنشر الرمز في مجموعة أبداً: الرمز المرسل في مجموعة يُلغى. والرسالة المعدّلة لا تُقرأ، فصحّح أي خطأ بإرسال الأمر من جديد.',
+    'staff.telegram.waiting': 'بانتظار وصول الرمز إلى البوت. تتحقق هذه الصفحة كل بضع ثوانٍ.',
+    'staff.telegram.newCode': 'الحصول على رمز جديد',
+    'staff.telegram.done': 'تم',
+    'staff.telegram.linkedTitle': 'رُبط {name} بتلغرام',
+    'staff.telegram.linkedBody': 'ضغطاته في مجموعة الموظفين تُحسب من الآن.',
+    'staff.telegram.errorTitle': 'تعذّر الحصول على رمز',
+    'staff.telegram.unlinkTitle': 'فك ربط {name} بتلغرام؟',
+    'staff.telegram.unlinkBody':
+      'تُرفض ضغطاته في مجموعة الموظفين من هذه اللحظة، ويتوقف أي رمز لم يُستخدم بعد. ويمكنه الربط من جديد برمز جديد.',
+    'staff.telegram.unlinkedToast': 'لم يعد {name} مربوطاً بتلغرام.',
+    'staff.telegram.unlinkErrorTitle': 'تعذّر فك الربط',
   },
 });
 

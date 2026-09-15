@@ -113,6 +113,7 @@ describe('AdminFormDialog — adding', () => {
             data: {
               id: 'new-admin',
               telegramUserId: null,
+              telegramLinked: false,
               username: 'lina@example.com',
               hasPassword: true,
               displayName: 'Lina Farah',

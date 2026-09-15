@@ -43,7 +43,19 @@ export function TenantIchancyPanel({
         <CardTitle>{t('tenants.ichancy.title')}</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
-        {ichancy.ok ? (
+        {/*
+         * Fake mode first, and never as a success: `ok: true` beside a made-up float is exactly what
+         * was once read as a live connection. Keyed on the boolean, not the error text, which is
+         * different for tenant zero; the server's sentence is kept underneath as the detail.
+         */}
+        {ichancy.fake ? (
+          <Alert tone="warning" title={t('tenants.ichancy.fakeTitle')}>
+            <p>{t('tenants.ichancy.fakeBody')}</p>
+            {ichancy.error === null ? null : (
+              <p className="mt-1 font-mono text-xs break-words">{ichancy.error}</p>
+            )}
+          </Alert>
+        ) : ichancy.ok ? (
           <Alert tone="success" title={t('tenants.ichancy.answeredTitle')}>
             {t('tenants.ichancy.answeredBody')}
           </Alert>
@@ -94,7 +106,7 @@ export function TenantIchancyPanel({
           <DetailRow label={t('tenants.ichancy.float')}>
             {ichancy.floatMinor === null ? (
               <span className="text-[var(--muted-foreground)]">
-                {t('tenants.ichancy.floatUnread')}
+                {ichancy.fake ? t('tenants.ichancy.floatFake') : t('tenants.ichancy.floatUnread')}
               </span>
             ) : (
               <span className="inline-flex flex-wrap items-center justify-end gap-2">

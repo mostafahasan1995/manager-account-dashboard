@@ -21,7 +21,13 @@ import type {
   PlayerDebitStatus,
   PlayerImportSummary,
   ReconciliationBreak,
+  BoundChatHealth,
+  StaffTelegramLinkCode,
+  TelegramBindLink,
+  TelegramChatPurpose,
   Tenant,
+  TenantChatRejectionReason,
+  TenantDiscoveredChat,
   TenantFinanceRow,
   TenantProvisioning,
   TenantHealth,
@@ -53,9 +59,11 @@ import {
   mockLoadedUsdt,
   mockShamCashOk,
   mockTenants,
+  mockTenantChats,
   mockDiscoveredChats,
   mockTelegramDestinations,
   mockWithdrawals,
+  type MockTenantChat,
   type PlatformDefaults,
 } from './fixtures';
 
@@ -196,6 +204,20 @@ export interface MockState {
    * configured.
    */
   discoveredChats: DiscoveredChat[];
+  /**
+   * The deployment's ICHANCY_FAKE. False in every fixture; a test flips it to see each screen say
+   * "fake mode" instead of reporting a made-up answer as a real one.
+   */
+  ichancyFake: boolean;
+  /** Each operator's OWN chat directory, keyed by tenant id — the staff and feed group picker. */
+  tenantChats: Record<string, MockTenantChat[]>;
+  /**
+   * The live "Add bot to group" link per operator and purpose. Only the latest one works, exactly as
+   * issuing a new link revokes the previous one on the backend.
+   */
+  bindLinks: Record<string, Partial<Record<TelegramChatPurpose, { nonce: string; expiresAt: string }>>>;
+  /** The live one-time Telegram link code per staff account. Only the latest one works. */
+  staffLinkCodes: Record<string, { code: string; expiresAt: string }>;
   /** Ledger side of the agent float, so a float sync produces a believable delta. */
   agentFloatLedgerMinor: bigint;
   agentFloatIchancyMinor: bigint;
@@ -294,6 +316,10 @@ function seed(): MockState {
     },
     telegramDestinations: clone(mockTelegramDestinations),
     discoveredChats: clone(mockDiscoveredChats),
+    ichancyFake: false,
+    tenantChats: clone(mockTenantChats),
+    bindLinks: {},
+    staffLinkCodes: {},
     agentFloatLedgerMinor: 450_000_000n,
     agentFloatIchancyMinor: 443_750_000n,
   };
@@ -671,11 +697,13 @@ export function importPlayers(limit: number): PlayerImportSummary {
  * outage stay written, and the summary says how far it got.
  */
 export function importPlayersForTenant(tenant: Tenant): PlayerImportSummary {
-  if (tenant.id === TENANT_IDS.zero) return importPlayers(2000);
+  // The platform route always says which mode answered; the operator-side route does not.
+  const ichancyFake = db.ichancyFake;
+  if (tenant.id === TENANT_IDS.zero) return { ...importPlayers(2000), ichancyFake };
 
   const startedAt = nowIso();
   const ops = operatorOps(tenant.id);
-  if (ops.ichancyError !== null) {
+  if (ops.ichancyError !== null && !ichancyFake) {
     return {
       scanned: 0,
       created: 0,
@@ -683,12 +711,21 @@ export function importPlayersForTenant(tenant: Tenant): PlayerImportSummary {
       error: ops.ichancyError,
       startedAt,
       finishedAt: nowIso(),
+      ichancyFake,
     };
   }
 
   const created = 2;
   if (tenant.counts !== undefined) tenant.counts.players += created;
-  return { scanned: 3, created, existing: 1, error: null, startedAt, finishedAt: nowIso() };
+  return {
+    scanned: 3,
+    created,
+    existing: 1,
+    error: null,
+    startedAt,
+    finishedAt: nowIso(),
+    ichancyFake,
+  };
 }
 
 // ── Withdrawals (player cash-out) ──────────────────────────────────────────────────────────────
@@ -1055,6 +1092,8 @@ export function createAdmin(body: Record<string, unknown>): AdminUser {
     // Always null: a staff account is a username and a password. The real server writes the column
     // as null here too and refuses a telegramUserId in the body outright.
     telegramUserId: null,
+    // Nothing is linked until the person sends a link code to the bot.
+    telegramLinked: false,
     // Lower-cased like the server does, so the mock cannot accept a pair of usernames the real
     // unique index would treat as one.
     username: optionalStr(body.username)?.toLowerCase() ?? null,
@@ -1169,11 +1208,10 @@ export function createTenant(body: Record<string, unknown>): {
     // Always SUSPENDED: the agent id cannot be verified from a form.
     status: 'SUSPENDED',
     hasWebhookPath: true,
-    // The platform admin making the request — the account this bot reports to on Telegram.
-    // Falls back to '' only for a console-only admin with no Telegram id, which the real backend
-    // instead refuses outright (TENANT_ADMIN_CHAT_UNRESOLVED) — not worth reproducing here since
-    // every mock `currentAdmin` fixture has a real Telegram id.
-    adminChatId: optionalStr(body.adminChatId) ?? db.currentAdmin.telegramUserId ?? '',
+    // NO default since 2026-09-15: absent is "no staff group yet", and the operator stays suspended
+    // until one is bound. The real backend verifies a named chat with Telegram first; a brand-new
+    // operator has no chat directory in this mock to verify against, so a typed id is taken as given.
+    adminChatId: optionalStr(body.adminChatId),
     // The one optional field with no default: no feed chat until somebody sets one.
     feedChatId: optionalStr(body.feedChatId),
     botUsername: null,
@@ -1187,6 +1225,7 @@ export function createTenant(body: Record<string, unknown>): {
     agentFloatLowWatermarkMinor:
       optionalStr(body.agentFloatLowWatermarkMinor) ?? defaults.agentFloatLowWatermarkMinor,
     depositExpiryMinutes: num(body.depositExpiryMinutes, defaults.depositExpiryMinutes),
+    ichancyFake: db.ichancyFake,
     createdAt: nowIso(),
     updatedAt: nowIso(),
     counts: { players: 0, deposits: 0 },
@@ -1216,8 +1255,12 @@ export function createTenant(body: Record<string, unknown>): {
     menuScopes: ['default', 'all_private_chats'],
     menuError: null,
     activated: false,
+    // The staff group is checked before any sign-in, exactly as the backend orders it — so a create
+    // that named no group reports THAT, which is the console's ordinary create.
     activationError:
-      'The mock API cannot sign in to Ichancy, so the agent was not verified. Activate the operator once its credentials are real.',
+      tenant.adminChatId === null
+        ? STAFF_GROUP_REQUIRED_MESSAGE
+        : 'The mock API cannot sign in to Ichancy, so the agent was not verified. Activate the operator once its credentials are real.',
     paymentMethodsCreated: DEFAULT_RAIL_COUNT,
     paymentMethodsError: null,
     // Every seeded rail points at a placeholder until somebody enters a real account.
@@ -1227,6 +1270,7 @@ export function createTenant(body: Record<string, unknown>): {
     playersImported: 0,
     playersImportError:
       'Players were not imported: the operator was not activated. Import them from the operator once it is.',
+    ichancyFake: db.ichancyFake,
   };
 
   return { tenant, provisioning };
@@ -1234,6 +1278,228 @@ export function createTenant(body: Record<string, unknown>): {
 
 /** How many rails `provisionDefaultPaymentMethods` seeds: bank, e-wallet, Sham Cash, Syriatel. */
 const DEFAULT_RAIL_COUNT = 4;
+
+/**
+ * Every TenantView the mock answers goes through here, so the deployment-wide `ichancyFake` a test
+ * flips reaches every operator at once — as it does on the backend, where it is not stored per row.
+ */
+export const tenantView = (tenant: Tenant): Tenant => ({ ...tenant, ichancyFake: db.ichancyFake });
+
+// ── Staff and feed groups ──────────────────────────────────────────────────────────────────────
+
+/** The backend's sentence, verbatim (tenant-admin.constants.ts STAFF_GROUP_REQUIRED_MESSAGE). */
+export const STAFF_GROUP_REQUIRED_MESSAGE =
+  "This operator has no staff group yet, so it cannot be activated: its deposit review cards and alerts would go nowhere. Add its bot to the staff group from the operator's page, then activate it. The operator stays suspended.";
+
+/** The backend's refusal of removing an ACTIVE operator's staff group, verbatim. */
+export const STAFF_GROUP_REMOVAL_REFUSED_MESSAGE =
+  'This operator is active, and an active operator must always have a staff group. Bind another group instead, or suspend the operator before removing this one.';
+
+/** The backend's fake-mode sentence, verbatim (ICHANCY_FAKE_MODE_MESSAGE). */
+export const ICHANCY_FAKE_MODE_MESSAGE =
+  'Ichancy is in fake mode (ICHANCY_FAKE=true): no real connection was made.';
+
+/** The rights the link asks for, in Telegram's `admin=` syntax (telegram-chat.constants.ts). */
+export const BIND_ADMIN_RIGHTS = [
+  'post_messages',
+  'delete_messages',
+  'pin_messages',
+  'manage_chat',
+] as const;
+
+const BIND_LINK_TTL_MINUTES = 15;
+const STAFF_LINK_CODE_TTL_SECONDS = 600;
+
+/** The backend's sentence per reason (chat-binding.errors.ts), each followed by "Nothing was saved." */
+const CHAT_REJECTION_SENTENCES: Record<TenantChatRejectionReason, string> = {
+  NOT_FOUND:
+    'Telegram does not know this chat, or will not show it to this bot. Add the bot to the group first.',
+  PRIVATE_CHAT: 'This is a one-to-one chat. A staff or feed group must be a group.',
+  CHANNEL_NOT_ALLOWED:
+    'This is a channel. A staff or feed group must be a group, where staff can tap the review buttons.',
+  BOT_NOT_MEMBER: 'The bot is not a member of this group. Add it to the group, then try again.',
+  BOT_NOT_ADMIN:
+    'The bot is in this group but is not an administrator. Make it an administrator, then try again.',
+  BOT_CANNOT_POST:
+    'The bot is not allowed to send messages in this group. Allow it to post, then try again.',
+};
+
+export const chatRejectionMessage = (reason: TenantChatRejectionReason): string =>
+  `${CHAT_REJECTION_SENTENCES[reason]} Nothing was saved.`;
+
+const chatFieldOf = (purpose: TelegramChatPurpose): 'adminChatId' | 'feedChatId' =>
+  purpose === 'STAFF' ? 'adminChatId' : 'feedChatId';
+
+/** One operator's directory as the API answers it: `boundAs` computed from the row, never stored. */
+export function tenantChatsView(tenant: Tenant): TenantDiscoveredChat[] {
+  return (db.tenantChats[tenant.id] ?? []).map((row) => {
+    const boundAs: TelegramChatPurpose[] = [
+      ...(tenant.adminChatId === row.chatId ? (['STAFF'] as const) : []),
+      ...(tenant.feedChatId === row.chatId ? (['FEED'] as const) : []),
+    ];
+    return { ...row, boundAs, alreadyBound: boundAs.length > 0 };
+  });
+}
+
+export type MockChatVerdict =
+  | { ok: true; chatId: string }
+  | { ok: false; reason: TenantChatRejectionReason; chatId: string };
+
+/**
+ * What Telegram would say about binding `chatId` for this operator, asked the way the backend asks:
+ * a positive id is a person; a group that became a supergroup is checked at its NEW id; then the
+ * chat type, membership, administrator status and the right to post, as separate facts.
+ *
+ * The directory stands in for Telegram here, which is the one liberty taken: the backend asks
+ * Telegram at that moment and never trusts a sighting. A row the directory has never seen is
+ * NOT_FOUND, which is also what Telegram answers for a group the bot was never added to.
+ */
+export function verifyTenantChat(tenantId: string, chatId: string): MockChatVerdict {
+  if (!chatId.startsWith('-')) return { ok: false, reason: 'PRIVATE_CHAT', chatId };
+
+  const rows = db.tenantChats[tenantId] ?? [];
+  let row = rows.find((candidate) => candidate.chatId === chatId);
+  if (row?.migratedToChatId != null) {
+    const movedTo = row.migratedToChatId;
+    row = rows.find((candidate) => candidate.chatId === movedTo);
+    if (row === undefined) return { ok: false, reason: 'NOT_FOUND', chatId: movedTo };
+  }
+  if (row === undefined) return { ok: false, reason: 'NOT_FOUND', chatId };
+  if (row.chatType === 'CHANNEL') return { ok: false, reason: 'CHANNEL_NOT_ALLOWED', chatId: row.chatId };
+  if (!row.isPresent) return { ok: false, reason: 'BOT_NOT_MEMBER', chatId: row.chatId };
+  if (!row.isAdministrator) return { ok: false, reason: 'BOT_NOT_ADMIN', chatId: row.chatId };
+  if (!row.canPost) return { ok: false, reason: 'BOT_CANNOT_POST', chatId: row.chatId };
+  return { ok: true, chatId: row.chatId };
+}
+
+/** Commits a verified chat. Binding never touches the other purpose's group. */
+export function bindTenantChat(tenant: Tenant, purpose: TelegramChatPurpose, chatId: string): void {
+  tenant[chatFieldOf(purpose)] = chatId;
+  tenant.updatedAt = nowIso();
+}
+
+export function unbindTenantChat(tenant: Tenant, purpose: TelegramChatPurpose): void {
+  tenant[chatFieldOf(purpose)] = null;
+  tenant.updatedAt = nowIso();
+}
+
+const randomToken = (length: number, alphabet: string): string =>
+  Array.from({ length }, () => alphabet[Math.floor(Math.random() * alphabet.length)] ?? 'A').join('');
+
+/**
+ * `POST /:id/telegram/bind-links`. The caller has already refused a missing, closed or bot-less
+ * operator. Issuing revokes the previous link for the same purpose, because only the latest is kept.
+ */
+export function issueBindLink(tenant: Tenant, botUsername: string, purpose: TelegramChatPurpose): TelegramBindLink {
+  const nonce = randomToken(32, 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-');
+  const expiresAt = new Date(Date.now() + BIND_LINK_TTL_MINUTES * 60_000).toISOString();
+  db.bindLinks[tenant.id] = { ...db.bindLinks[tenant.id], [purpose]: { nonce, expiresAt } };
+  return {
+    purpose,
+    url: `https://t.me/${botUsername}?startgroup=${nonce}&admin=${BIND_ADMIN_RIGHTS.join('+')}`,
+    botUsername,
+    expiresAt,
+    adminRights: [...BIND_ADMIN_RIGHTS],
+  };
+}
+
+/**
+ * What happens inside Telegram after the owner follows a bind link: the bot lands in `chat`, and its
+ * `/start@bot <nonce>` binds it — if the link is still live and the chat passes verification. For
+ * tests and the demo, since nothing here can play Telegram's part. Returns whether it bound.
+ */
+export function completeBindLink(
+  tenantId: string,
+  purpose: TelegramChatPurpose,
+  chat: MockTenantChat,
+): boolean {
+  const tenant = db.tenants.find((row) => row.id === tenantId);
+  const link = db.bindLinks[tenantId]?.[purpose];
+  if (tenant === undefined || link === undefined || Date.parse(link.expiresAt) <= Date.now()) {
+    return false;
+  }
+
+  const rows = db.tenantChats[tenantId] ?? [];
+  db.tenantChats[tenantId] = [chat, ...rows.filter((row) => row.chatId !== chat.chatId)];
+
+  const verdict = verifyTenantChat(tenantId, chat.chatId);
+  if (!verdict.ok) return false;
+  // Used up, exactly once.
+  db.bindLinks[tenantId] = { ...db.bindLinks[tenantId], [purpose]: undefined };
+  bindTenantChat(tenant, purpose, verdict.chatId);
+  return true;
+}
+
+/** One bound group in health: the binding, plus the bot's last sighting there. */
+function boundChatHealth(tenantId: string, chatId: string | null): BoundChatHealth {
+  const sighting =
+    chatId === null
+      ? undefined
+      : (db.tenantChats[tenantId] ?? []).find((row) => row.chatId === chatId);
+  return {
+    chatId,
+    title: sighting?.title ?? null,
+    status: sighting?.status ?? null,
+    isPresent: sighting?.isPresent ?? null,
+    isAdministrator: sighting?.isAdministrator ?? null,
+    canPost: sighting?.canPost ?? null,
+    lastSeenAt: sighting?.lastSeenAt ?? null,
+  };
+}
+
+// ── Linking a staff account to Telegram ────────────────────────────────────────────────────────
+
+/** `POST /v1/admin/admins/:id/telegram-link-code`, after the caller's refusals. Revokes the last code. */
+export function issueStaffLinkCode(admin: AdminUser): StaffTelegramLinkCode {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const code = `${randomToken(4, alphabet)}-${randomToken(4, alphabet)}`;
+  const expiresAt = new Date(Date.now() + STAFF_LINK_CODE_TTL_SECONDS * 1_000).toISOString();
+  db.staffLinkCodes[admin.id] = { code, expiresAt };
+  const botUsername = homeTenant()?.botUsername ?? null;
+  return {
+    adminUserId: admin.id,
+    code,
+    command: `/link ${code}`,
+    expiresAt,
+    ttlSeconds: STAFF_LINK_CODE_TTL_SECONDS,
+    botUsername,
+    botUrl: botUsername === null ? null : `https://t.me/${encodeURIComponent(botUsername)}`,
+  };
+}
+
+/**
+ * What the bot does with `/link <code>` in a private chat: the sender's id lands on the account the
+ * code belongs to. For tests and the demo. Returns whether it linked.
+ */
+export function redeemStaffLinkCode(code: string, telegramUserId: string): boolean {
+  const normalised = code.replace('-', '').toUpperCase();
+  const entry = Object.entries(db.staffLinkCodes).find(
+    ([, value]) => value.code.replace('-', '') === normalised && Date.parse(value.expiresAt) > Date.now(),
+  );
+  if (entry === undefined) return false;
+  const [adminId] = entry;
+  const admin = db.admins.find((row) => row.id === adminId);
+  if (admin === undefined || !admin.isActive || admin.telegramLinked) return false;
+  dropStaffLinkCode(adminId);
+  admin.telegramUserId = telegramUserId;
+  admin.telegramLinked = true;
+  return true;
+}
+
+/** `DELETE /v1/admin/admins/:id/telegram-link`. Idempotent, and any live code dies with it. */
+/** A used or revoked code is gone, not flagged: only a live code is ever kept. */
+function dropStaffLinkCode(adminId: string): void {
+  db.staffLinkCodes = Object.fromEntries(
+    Object.entries(db.staffLinkCodes).filter(([id]) => id !== adminId),
+  );
+}
+
+export function unlinkStaffTelegram(admin: AdminUser): AdminUser {
+  dropStaffLinkCode(admin.id);
+  admin.telegramUserId = null;
+  admin.telegramLinked = false;
+  return admin;
+}
 
 // ── The rate that prices a crypto deposit ──────────────────────────────────────────────────────
 
@@ -1526,18 +1792,38 @@ export function tenantHealth(tenant: Tenant): TenantHealth {
       lastErrorMessage: ops.lastErrorMessage,
       lastErrorDate: ops.lastErrorDate,
     },
-    ichancy: {
-      ok: ops.ichancyError === null,
-      baseUrl: tenant.ichancyBaseUrl,
-      username: tenant.ichancyUsername,
-      agentId: tenant.ichancyAgentId,
-      checkedAt: nowIso(),
-      error: ops.ichancyError,
-      floatMinor,
-      belowWatermark:
-        floatMinor !== null &&
-        minorFromString(floatMinor) < minorFromString(tenant.agentFloatLowWatermarkMinor),
-      sharesAgentWith: operatorsSharingAgent(tenant),
+    // Fake mode is NOT a success with a made-up float: `ok` false, the backend's sentence, no float
+    // and no comparison — the shape a real deployment answers under ICHANCY_FAKE.
+    ichancy: db.ichancyFake
+      ? {
+          ok: false,
+          fake: true,
+          baseUrl: tenant.ichancyBaseUrl,
+          username: tenant.ichancyUsername,
+          agentId: tenant.ichancyAgentId,
+          checkedAt: nowIso(),
+          error: ICHANCY_FAKE_MODE_MESSAGE,
+          floatMinor: null,
+          belowWatermark: false,
+          sharesAgentWith: operatorsSharingAgent(tenant),
+        }
+      : {
+          ok: ops.ichancyError === null,
+          fake: false,
+          baseUrl: tenant.ichancyBaseUrl,
+          username: tenant.ichancyUsername,
+          agentId: tenant.ichancyAgentId,
+          checkedAt: nowIso(),
+          error: ops.ichancyError,
+          floatMinor,
+          belowWatermark:
+            floatMinor !== null &&
+            minorFromString(floatMinor) < minorFromString(tenant.agentFloatLowWatermarkMinor),
+          sharesAgentWith: operatorsSharingAgent(tenant),
+        },
+    chats: {
+      staff: boundChatHealth(tenant.id, tenant.adminChatId),
+      feed: boundChatHealth(tenant.id, tenant.feedChatId),
     },
     counts: tenant.counts ?? { players: 0, deposits: 0 },
   };
@@ -1585,12 +1871,27 @@ export function syncAgentFloat(): {
   deltaMinor: string | null;
   breakId: string | null;
   belowWatermark: boolean;
+  ichancyFake: boolean;
 } {
   const delta = db.agentFloatIchancyMinor - db.agentFloatLedgerMinor;
   const tenant = db.tenants[0];
   const watermark = tenant === undefined ? 0n : minorFromString(tenant.agentFloatLowWatermarkMinor);
 
+  // Fake mode reads no wallet and opens no break; the watermark comes from the ledger alone.
+  if (db.ichancyFake) {
+    return {
+      currencyCode: MOCK_CURRENCY,
+      ledgerMinor: db.agentFloatLedgerMinor.toString(),
+      ichancyMinor: null,
+      deltaMinor: null,
+      breakId: null,
+      belowWatermark: db.agentFloatLedgerMinor < watermark,
+      ichancyFake: true,
+    };
+  }
+
   return {
+    ichancyFake: false,
     currencyCode: MOCK_CURRENCY,
     ledgerMinor: db.agentFloatLedgerMinor.toString(),
     ichancyMinor: db.agentFloatIchancyMinor.toString(),

@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { describe, expect, it, vi } from 'vitest';
 
 import { config } from '@/config';
+import { db } from '@/mocks/db';
 import { mockTenants } from '@/mocks/fixtures';
 import { server } from '@/test/msw-server';
 import { renderPlain } from '@/test/utils';
@@ -13,8 +14,16 @@ import { TenantStatusActions } from './tenant-status-actions';
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 const activeTenant = mockTenants[0]!;
+/** Suspended, and — like every operator created since 2026-09-15 — with no staff group yet. */
 const suspendedTenant = mockTenants[2]!;
 const platformAdmin = { auth: { role: 'PLATFORM_ADMIN' as const } };
+
+/** The pilot operator once its staff group is bound, in the mock database and as the panel sees it. */
+function bindPilotStaffGroup() {
+  const row = db.tenants.find((tenant) => tenant.id === suspendedTenant.id)!;
+  row.adminChatId = '-1002233445566';
+  return { ...suspendedTenant, adminChatId: row.adminChatId };
+}
 
 describe('TenantStatusActions', () => {
   it('offers suspend for a live tenant and activate for a stopped one', () => {
@@ -110,8 +119,39 @@ describe('TenantStatusActions', () => {
     );
   });
 
-  it('activates a suspended tenant when Ichancy accepts', async () => {
+  it('refuses to activate an operator with no staff group, and titles the refusal by what it is', async () => {
     const { user } = renderPlain(<TenantStatusActions tenant={suspendedTenant} />, platformAdmin);
+
+    await user.click(screen.getByRole('button', { name: 'Activate' }));
+    // Warned before anything is sent, without taking the decision away from the server.
+    expect(await screen.findByText('No staff group yet')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Activate tenant' }));
+
+    expect(await screen.findByText('Bind the staff group first')).toBeInTheDocument();
+    expect(screen.getByText(/This operator has no staff group yet, so it cannot be activated/)).toBeInTheDocument();
+    expect(screen.queryByText('Ichancy refused the sign-in')).not.toBeInTheDocument();
+    expect(db.tenants.find((row) => row.id === suspendedTenant.id)?.status).toBe('SUSPENDED');
+  });
+
+  it('says an activation in Ichancy fake mode proved nothing', async () => {
+    db.ichancyFake = true;
+    const withGroup = bindPilotStaffGroup();
+    const { user } = renderPlain(<TenantStatusActions tenant={withGroup} />, platformAdmin);
+
+    await user.click(screen.getByRole('button', { name: 'Activate' }));
+    await user.click(await screen.findByRole('button', { name: 'Activate tenant' }));
+
+    await waitFor(() => {
+      expect(toast.success).toHaveBeenCalledWith(
+        'Pilot operator is active',
+        expect.objectContaining({ description: expect.stringContaining('fake mode') }),
+      );
+    });
+  });
+
+  it('activates a suspended tenant when Ichancy accepts', async () => {
+    const withGroup = bindPilotStaffGroup();
+    const { user } = renderPlain(<TenantStatusActions tenant={withGroup} />, platformAdmin);
 
     await user.click(screen.getByRole('button', { name: 'Activate' }));
     await user.click(await screen.findByRole('button', { name: 'Activate tenant' }));

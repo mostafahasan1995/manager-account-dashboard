@@ -51,8 +51,11 @@ export function TenantCreatedAlert({
     {
       key: 'activated',
       ok: provisioning.activated,
+      // An activation the fake adapter answered proves nothing, and must not read as though it did.
       text: provisioning.activated
-        ? t('tenants.created.activated')
+        ? provisioning.ichancyFake
+          ? t('tenants.created.activatedFake')
+          : t('tenants.created.activated')
         : t('tenants.created.notActivated', reason(provisioning.activationError)),
     },
     {
@@ -68,7 +71,9 @@ export function TenantCreatedAlert({
       ok: provisioning.playersImportError === null,
       text:
         provisioning.playersImportError === null
-          ? t('tenants.created.playersImported', { count: provisioning.playersImported })
+          ? provisioning.ichancyFake
+            ? t('tenants.created.playersImportedFake', { count: provisioning.playersImported })
+            : t('tenants.created.playersImported', { count: provisioning.playersImported })
           : t('tenants.created.playersImportError', { error: provisioning.playersImportError }),
     },
   ];
@@ -87,6 +92,13 @@ export function TenantCreatedAlert({
       </ul>
       {provisioning.paymentMethodsNeedAccounts ? (
         <p className="font-medium text-[var(--foreground)]">{t('tenants.created.placeholders')}</p>
+      ) : null}
+      {/* The ordinary create names no staff group, so this is the next step, not a failure. */}
+      {tenant.adminChatId === null ? (
+        <p className="font-medium text-[var(--foreground)]">{t('tenants.created.noStaffGroup')}</p>
+      ) : null}
+      {provisioning.ichancyFake ? (
+        <p className="font-medium text-[var(--foreground)]">{t('tenants.created.fakeNote')}</p>
       ) : null}
       <div className="pt-1">
         <Button variant="secondary" size="sm" onClick={onDismiss}>

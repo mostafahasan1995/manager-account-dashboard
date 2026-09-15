@@ -7,6 +7,11 @@ export const adminUserSchema = z.looseObject({
   id: z.string(),
   /** Null for a manager added with just a username and password — no Telegram account. */
   telegramUserId: z.string().nullable(),
+  /**
+   * Whether a PERSON's Telegram account is linked, so their taps in the staff group count. Read this,
+   * not `telegramUserId !== null`: the agent principal carries a reserved "0" that is not a person.
+   */
+  telegramLinked: z.boolean(),
   username: z.string().nullable(),
   /** Whether a console password is set. Never the password or its hash. */
   hasPassword: z.boolean(),
@@ -100,6 +105,29 @@ export interface SetApprovalLimitBody {
   maxDailyApproval: string;
   secondApprovalAbove?: string;
 }
+
+/**
+ * `POST /v1/admin/admins/:id/telegram-link-code` — the one-time code that links a staff account to
+ * the Telegram account that sends it to the operator's bot (owner decision 4, 2026-09-15).
+ *
+ * The code is in this response and nowhere else, so the console shows it once and never caches it:
+ * whoever holds it can send it from THEIR Telegram and have their taps count as this person's.
+ */
+export const staffTelegramLinkCodeSchema = z.looseObject({
+  adminUserId: z.string(),
+  /** `ABCD-EFGH`. The bot accepts it with or without the hyphen, in any case. */
+  code: z.string(),
+  /** Exactly what to send the bot in a private chat: `/link ABCD-EFGH`. */
+  command: z.string(),
+  expiresAt: isoDateTime,
+  /** The whole lifetime, so a countdown does not have to trust this browser's clock alone. */
+  ttlSeconds: z.number(),
+  /** Without `@`. Null until Telegram has confirmed the operator's bot once. */
+  botUsername: z.string().nullable(),
+  /** `https://t.me/<botUsername>`, which opens the private chat. Null when the username is. */
+  botUrl: z.string().nullable(),
+});
+export type StaffTelegramLinkCode = z.infer<typeof staffTelegramLinkCodeSchema>;
 
 /** A limit version is in force when it has not been closed. */
 export function isCurrentLimit(limit: ApprovalLimit): boolean {

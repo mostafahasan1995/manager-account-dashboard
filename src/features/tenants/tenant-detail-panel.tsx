@@ -7,6 +7,7 @@ import { DetailList, DetailRow } from '@/components/common/page-header';
 import { CardSkeleton, ErrorState } from '@/components/common/states';
 import { TenantStatusBadge } from '@/components/common/status-badge';
 import { TimeAgo } from '@/components/common/time';
+import { Alert } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -217,9 +218,25 @@ function TenantDetails({ tenant }: { tenant: Tenant }) {
         <h3 id="tenant-chats-heading" className="text-sm font-semibold">
           {t('tenants.section.chats')}
         </h3>
+        {/*
+         * No staff group is not a blank cell: it is an operator whose review cards and alerts go
+         * nowhere, and which cannot be activated. Said in red, with the consequence and the place to
+         * fix it, for every role that can open this panel.
+         */}
+        {tenant.adminChatId === null ? (
+          <Alert tone="danger" title={t('tenants.staffGroup.missingTitle')}>
+            {tenant.status === 'ACTIVE'
+              ? t('tenants.staffGroup.missingActiveBody')
+              : t('tenants.staffGroup.missingSuspendedBody')}
+          </Alert>
+        ) : null}
         <DetailList>
           <DetailRow label={t('tenants.field.adminChatId')}>
-            <CopyableValue value={tenant.adminChatId} />
+            {tenant.adminChatId === null ? (
+              <span className="text-[var(--danger)]">{t('tenants.chat.notBound')}</span>
+            ) : (
+              <CopyableValue value={tenant.adminChatId} />
+            )}
           </DetailRow>
           <DetailRow label={t('tenants.field.feedChatId')}>
             {tenant.feedChatId === null ? (

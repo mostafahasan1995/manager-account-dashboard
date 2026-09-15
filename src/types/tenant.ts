@@ -8,6 +8,7 @@ import {
   type DepositMode,
   type WithdrawalMode,
 } from './enums';
+import { discoveredChatSchema, telegramBotChatStatusSchema } from './telegram-destination';
 
 export const tenantSchema = z.looseObject({
   id: z.string(),
@@ -16,7 +17,14 @@ export const tenantSchema = z.looseObject({
   status: tenantStatusSchema,
   /** The webhook path token itself is never returned — only whether one exists. */
   hasWebhookPath: z.boolean(),
-  adminChatId: z.string(),
+  /**
+   * The STAFF GROUP: where review cards and operational alerts go. Null is "not bound yet" (owner
+   * decision, 2026-09-15): a new operator is created without one and stays SUSPENDED until the
+   * platform admin binds it, because an operator taking real deposits with nowhere to send the
+   * review cards is exactly the silent failure this field used to hide.
+   */
+  adminChatId: z.string().nullable(),
+  /** The FEED GROUP, the customer-facing mirror of credited deposits. Null is off, not a fault. */
   feedChatId: z.string().nullable(),
   botUsername: z.string().nullable(),
   ichancyBaseUrl: z.string(),
@@ -44,6 +52,12 @@ export const tenantSchema = z.looseObject({
    * "coming soon" — and absent is the older backend again.
    */
   miniAppUrl: z.string().nullable().optional(),
+  /**
+   * True when the DEPLOYMENT runs with ICHANCY_FAKE — repeated on every operator because the console
+   * reads operators, not deployments. An ACTIVE status reached under it was "verified" by a fixture,
+   * and every screen that reports an Ichancy answer has to say so in words.
+   */
+  ichancyFake: z.boolean(),
   createdAt: isoDateTime,
   updatedAt: isoDateTime,
   counts: z.looseObject({ players: z.number(), deposits: z.number() }).optional(),
@@ -74,8 +88,10 @@ export const tenantListSchema = z.looseObject({ tenants: z.array(tenantSchema) }
  *
  * What the server fills in, per docs/TENANT-OPERATIONS.md:
  * - `slug` — slugify(displayName), de-duplicated with -2, -3 … on collision.
- * - `adminChatId` — the Telegram id of the PLATFORM_ADMIN making the request.
- * - `feedChatId` — no default; absent means the operator has no feed chat.
+ * - `adminChatId` — NO default (2026-09-15): absent means no staff group, and the operator stays
+ *   suspended until one is bound. A chat id sent here is verified with Telegram before anything is
+ *   written (400 TELEGRAM_CHAT_REJECTED).
+ * - `feedChatId` — no default; absent means the operator has no feed chat. Verified the same way.
  * - everything else — the single PlatformDefaults settings row, except `ichancyAgentId`, which
  *   falls back to PlatformDefaults and then to tenant zero's, and is a 400 naming the field when
  *   none of the three exists. Ichancy `signin()` returns only a token pair, so an agent id can
@@ -101,7 +117,13 @@ export interface CreateTenantBody {
   miniAppUrl?: string | null;
 }
 
-/** `slug` and `currencyCode` are absent for a reason: both would rewrite the meaning of old rows. */
+/**
+ * `slug` and `currencyCode` are absent for a reason: both would rewrite the meaning of old rows.
+ *
+ * A CHANGED `adminChatId` or `feedChatId` is a bind, verified with Telegram before anything saves
+ * (400 TELEGRAM_CHAT_REJECTED). There is no way to unset either here: a group is removed with
+ * `DELETE /v1/admin/tenants/:id/telegram/chats/:purpose`, so the form leaves a blank field out.
+ */
 export interface UpdateTenantBody {
   displayName?: string;
   adminChatId?: string;
@@ -167,7 +189,14 @@ export type TenantBotHealth = z.infer<typeof tenantBotHealthSchema>;
  * docs/TENANT-OPERATIONS.md section 3. Showing the coupling is the whole point of the field.
  */
 export const tenantIchancyHealthSchema = z.looseObject({
+  /** False whenever nothing real answered — including fake mode, see `fake`. */
   ok: z.boolean(),
+  /**
+   * True when the deployment runs with ICHANCY_FAKE: NO connection to Ichancy was made, `ok` is
+   * false, `floatMinor` is null and `error` says so. The console keys its fake-mode notice on this
+   * boolean and never on the error text, which differs for tenant zero.
+   */
+  fake: z.boolean(),
   baseUrl: z.string(),
   username: z.string(),
   agentId: z.string(),
@@ -186,13 +215,107 @@ export const tenantHealthCountsSchema = z.looseObject({
 });
 export type TenantHealthCounts = z.infer<typeof tenantHealthCountsSchema>;
 
-/** `GET /health`: bot, webhook, Ichancy agent and float in one call, because they fail together. */
+/**
+ * One bound group in health. `chatId` is the binding; everything else is the bot's LAST SIGHTING in
+ * that group, null when it was never seen there.
+ *
+ * `isPresent: false` is the case this block exists for: the bot was removed from the group. The
+ * binding is kept on purpose — clearing it would turn "somebody kicked the bot" into "no group was
+ * ever set" — so nothing reaches the group until a human adds the bot back or binds another one.
+ */
+export const boundChatHealthSchema = z.looseObject({
+  chatId: z.string().nullable(),
+  title: z.string().nullable(),
+  status: telegramBotChatStatusSchema.nullable(),
+  isPresent: z.boolean().nullable(),
+  isAdministrator: z.boolean().nullable(),
+  canPost: z.boolean().nullable(),
+  lastSeenAt: isoDateTime.nullable(),
+});
+export type BoundChatHealth = z.infer<typeof boundChatHealthSchema>;
+
+export const tenantChatsHealthSchema = z.looseObject({
+  staff: boundChatHealthSchema,
+  feed: boundChatHealthSchema,
+});
+export type TenantChatsHealth = z.infer<typeof tenantChatsHealthSchema>;
+
+/** `GET /health`: bot, webhook, Ichancy agent, groups and float in one call, because they fail together. */
 export const tenantHealthSchema = z.looseObject({
   bot: tenantBotHealthSchema,
   ichancy: tenantIchancyHealthSchema,
+  chats: tenantChatsHealthSchema,
   counts: tenantHealthCountsSchema,
 });
 export type TenantHealth = z.infer<typeof tenantHealthSchema>;
+
+// ── Staff and feed groups ──────────────────────────────────────────────────────────────────────
+
+/**
+ * Which of an operator's two groups a bind is for: `STAFF` is `adminChatId`, `FEED` is `feedChatId`.
+ * The backend's own enum spelling, so a path segment and a body value need no translation.
+ */
+export const TELEGRAM_CHAT_PURPOSES = ['STAFF', 'FEED'] as const;
+export const telegramChatPurposeSchema = z.enum(TELEGRAM_CHAT_PURPOSES);
+export type TelegramChatPurpose = z.infer<typeof telegramChatPurposeSchema>;
+
+/**
+ * `POST /v1/admin/tenants/:id/telegram/bind-links` — the "Add bot to staff group" link.
+ *
+ * `url` carries a one-time nonce and works once, for fifteen minutes, for this operator and this
+ * purpose only. It is a bearer credential for pointing an operator's review cards (player names,
+ * amounts) at a chat, so the console opens it and shows it to the admin who asked, and keeps it
+ * nowhere: not in storage, not in a query cache, not in a log line.
+ */
+export const telegramBindLinkSchema = z.looseObject({
+  purpose: telegramChatPurposeSchema,
+  url: z.string(),
+  botUsername: z.string(),
+  expiresAt: isoDateTime,
+  /** The rights the link asks Telegram to give the bot, as in its `admin=` parameter. */
+  adminRights: z.array(z.string()),
+});
+export type TelegramBindLink = z.infer<typeof telegramBindLinkSchema>;
+
+/**
+ * `GET /v1/admin/tenants/:id/telegram/chats` — one operator's chat directory, named in the path.
+ *
+ * The operator-scoped `/v1/admin/telegram/chats` row, plus what binding a staff group needs. Note that
+ * `alreadyBound` changes meaning here: bound as THIS operator's staff or feed group (`boundAs`), not
+ * "an active destination". `lastChangedBy…` names who last added or removed the bot, so a stranger's
+ * group is recognisable before anybody picks it, and `migratedToChatId` marks the dead id a group left
+ * behind when it became a supergroup.
+ */
+export const tenantDiscoveredChatSchema = discoveredChatSchema.extend({
+  boundAs: z.array(telegramChatPurposeSchema),
+  migratedToChatId: z.string().nullable(),
+  lastChangedByTelegramUserId: z.string().nullable(),
+  lastChangedByUsername: z.string().nullable(),
+});
+export type TenantDiscoveredChat = z.infer<typeof tenantDiscoveredChatSchema>;
+
+/** `PUT /v1/admin/tenants/:id/telegram/chats/:purpose`. A string, like every Telegram id here. */
+export interface BindTenantChatBody {
+  chatId: string;
+}
+
+/**
+ * `details.reason` of 400 TELEGRAM_CHAT_REJECTED on the staff and feed group routes. The destination
+ * reasons, minus the two only a pasted link can produce, plus CHANNEL_NOT_ALLOWED: staff tap review
+ * buttons, and a channel has nobody to tap them.
+ */
+export const TENANT_CHAT_REJECTION_REASONS = [
+  'NOT_FOUND',
+  'PRIVATE_CHAT',
+  'CHANNEL_NOT_ALLOWED',
+  'BOT_NOT_MEMBER',
+  'BOT_NOT_ADMIN',
+  'BOT_CANNOT_POST',
+] as const;
+export type TenantChatRejectionReason = (typeof TENANT_CHAT_REJECTION_REASONS)[number];
+
+/** The refusal of an activation, of removing an active operator's staff group, and of a deposit. */
+export const TENANT_STAFF_GROUP_REQUIRED = 'TENANT_STAFF_GROUP_REQUIRED';
 
 /**
  * `PATCH /ichancy`. The password is write-only in both directions: it is sealed on arrival and
@@ -271,6 +394,13 @@ export const tenantProvisioningSchema = z.looseObject({
    */
   playersImported: z.number().catch(0),
   playersImportError: z.string().nullable().catch(null),
+
+  /**
+   * True under ICHANCY_FAKE: `activated` and `playersImported` were answered by the fake adapter, so
+   * the agent's credentials were never proven and any imported players are made up.
+   * `activationError` keeps its meaning and never carries this notice.
+   */
+  ichancyFake: z.boolean(),
 });
 export type TenantProvisioning = z.infer<typeof tenantProvisioningSchema>;
 

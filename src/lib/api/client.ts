@@ -311,6 +311,10 @@ export const api = {
   patch: <T>(schema: z.ZodType<T>, path: string, options?: Omit<RequestOptions, 'method'>) =>
     request(schema, path, { ...options, method: 'PATCH' }),
 
+  /** A replace of one addressed thing — binding a staff or feed group is the first route to use it. */
+  put: <T>(schema: z.ZodType<T>, path: string, options?: Omit<RequestOptions, 'method'>) =>
+    request(schema, path, { ...options, method: 'PUT' }),
+
   delete: <T>(schema: z.ZodType<T>, path: string, options?: Omit<RequestOptions, 'method'>) =>
     request(schema, path, { ...options, method: 'DELETE' }),
 

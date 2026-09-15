@@ -23,6 +23,7 @@ import type { Tenant } from '@/types';
 import { tenantMessages } from './messages';
 import type { TenantOperatorActions } from './tenant-actions';
 import { TenantBotTokenDialog } from './tenant-bot-token-dialog';
+import { TenantChatHealthAlerts } from './tenant-chat-binding';
 import { TenantIchancyDialog } from './tenant-ichancy-dialog';
 import { TenantIchancyPanel } from './tenant-ichancy-panel';
 import { TenantImportPlayersCard } from './tenant-import-players-card';
@@ -125,11 +126,15 @@ function TenantOperationsBody({ tenant }: { tenant: Tenant }) {
       onSuccess: (summary) => {
         if (summary.error === null) {
           toast.success(t('tenants.import.successTitle', { count: summary.created }), {
-            description: t('tenants.import.summary', {
-              scanned: summary.scanned,
-              created: summary.created,
-              existing: summary.existing,
-            }),
+            // Fake counts are never announced as if Ichancy had been read.
+            description:
+              summary.ichancyFake === true
+                ? t('tenants.import.fakeBody')
+                : t('tenants.import.summary', {
+                    scanned: summary.scanned,
+                    created: summary.created,
+                    existing: summary.existing,
+                  }),
           });
         } else {
           toast.error(t('tenants.import.errorTitle'), { description: summary.error });
@@ -189,6 +194,7 @@ function TenantOperationsBody({ tenant }: { tenant: Tenant }) {
 
       {health === undefined ? null : (
         <div className="space-y-4">
+          <TenantChatHealthAlerts tenant={tenant} chats={health.chats} />
           <TenantSetupChecklist
             tenant={tenant}
             health={health}

@@ -59,6 +59,35 @@ describe('TenantDetailPanel', () => {
     expect(await screen.findByText('no path token')).toBeInTheDocument();
   });
 
+  it('says in red that an operator has no staff group, and what that stops', async () => {
+    renderPlain(
+      <TenantDetailPanel tenantId={TENANT_IDS.suspended} onClose={vi.fn()} onEdit={vi.fn()} />,
+      platformAdmin,
+    );
+
+    expect(await screen.findByText('No staff group yet')).toBeInTheDocument();
+    expect(
+      screen.getByText(/stays suspended and cannot be activated until its staff group is bound/),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Not bound')).toBeInTheDocument();
+  });
+
+  it('warns that an active operator with no staff group refuses new deposits', async () => {
+    server.use(
+      http.get(`${config.apiBaseUrl}/v1/admin/tenants/:id`, () =>
+        envelope({ ...tenantZero, adminChatId: null }),
+      ),
+    );
+
+    renderPlain(
+      <TenantDetailPanel tenantId={TENANT_IDS.zero} onClose={vi.fn()} onEdit={vi.fn()} />,
+      { auth: { role: 'SUPER_ADMIN' } },
+    );
+
+    expect(await screen.findByText('No staff group yet')).toBeInTheDocument();
+    expect(screen.getByText(/every new deposit is refused/)).toBeInTheDocument();
+  });
+
   it('shows the API failure rather than an empty panel', async () => {
     server.use(
       http.get(`${config.apiBaseUrl}/v1/admin/tenants/:id`, () =>

@@ -60,6 +60,7 @@ describe('FloatSyncPanel', () => {
       deltaMinor: null,
       breakId: null,
       belowWatermark: false,
+      ichancyFake: false,
     });
 
     const { user } = render();
@@ -73,6 +74,30 @@ describe('FloatSyncPanel', () => {
     expect(screen.getByText(/Ichancy did not answer/i)).toBeInTheDocument();
   });
 
+  it('says Ichancy is in fake mode instead of calling a skipped read unreadable', async () => {
+    syncReturns({
+      currencyCode: 'NSP',
+      ledgerMinor: '450000000',
+      ichancyMinor: null,
+      deltaMinor: null,
+      breakId: null,
+      belowWatermark: false,
+      ichancyFake: true,
+    });
+
+    const { user } = render();
+
+    await user.click(await screen.findByRole('button', { name: /sync agent float/i }));
+
+    expect(await screen.findByText('Ichancy is in fake mode')).toBeInTheDocument();
+    expect(screen.getByText(/ICHANCY_FAKE=true, so the agent wallet was not read/)).toBeInTheDocument();
+    expect(screen.getByText('Not read (fake mode)')).toBeInTheDocument();
+    expect(screen.getByText('Not compared (fake mode)')).toBeInTheDocument();
+    // Neither of the real-mode "something is broken" readings.
+    expect(screen.queryByText('Ichancy could not be read')).not.toBeInTheDocument();
+    expect(screen.queryByText('Unavailable')).not.toBeInTheDocument();
+  });
+
   it('raises the low watermark as an alert rather than as a footnote', async () => {
     syncReturns({
       currencyCode: 'NSP',
@@ -81,6 +106,7 @@ describe('FloatSyncPanel', () => {
       deltaMinor: '-1000000',
       breakId: null,
       belowWatermark: true,
+      ichancyFake: false,
     });
 
     const { user } = render();

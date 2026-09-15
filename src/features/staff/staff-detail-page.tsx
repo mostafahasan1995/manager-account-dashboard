@@ -23,6 +23,7 @@ import { AdminFormDialog } from './admin-form-dialog';
 import { ApprovalLimitTimeline } from './approval-limit-timeline';
 import { staffMessages } from './messages';
 import { SetLimitDialog } from './set-limit-dialog';
+import { StaffTelegramLink } from './staff-telegram-link';
 
 /**
  * One administrator: who they are, and what they are allowed to release.
@@ -174,6 +175,9 @@ export function StaffDetailPage() {
                 ) : (
                   <CopyableValue value={row.telegramUserId} />
                 )}
+              </DetailRow>
+              <DetailRow label={t('staff.telegram.row')}>
+                <StaffTelegramLink admin={row} />
               </DetailRow>
               <DetailRow label={t('field.username')}>
                 {row.username === null ? (

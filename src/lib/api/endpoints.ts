@@ -59,6 +59,8 @@ import type {
   UpdateTenantBody,
   UpdateTenantBotBody,
   UpdateTenantIchancyBody,
+  BindTenantChatBody,
+  TelegramChatPurpose,
   UpdatePlatformDefaultsBody,
   CreateTelegramDestinationBody,
   UpdateTelegramDestinationBody,
@@ -115,6 +117,9 @@ import {
   tenantListSchema,
   tenantSchema,
   tenantCreatedSchema,
+  tenantDiscoveredChatSchema,
+  telegramBindLinkSchema,
+  staffTelegramLinkCodeSchema,
   platformDefaultsSchema,
   tenantWebhookSchema,
   walletBalanceSchema,
@@ -532,6 +537,18 @@ export const adminsApi = {
   /** Ends a version without replacing it — the admin is left unable to approve anything. */
   endApprovalLimit: (limitId: string) =>
     api.delete(approvalLimitSchema, `/v1/admin/approval-limits/${limitId}`),
+
+  /**
+   * A one-time code that links this staff account to the Telegram account that sends `/link <code>`
+   * to the operator's bot. Asking again revokes the previous code. The server answers `no-store`, and
+   * the console keeps the code in component state only — never in a query cache — for that reason.
+   */
+  issueTelegramLinkCode: (adminUserId: string) =>
+    api.post(staffTelegramLinkCodeSchema, `/v1/admin/admins/${adminUserId}/telegram-link-code`),
+
+  /** Removes the link and any live code. Idempotent; answers the account as it now stands. */
+  unlinkTelegram: (adminUserId: string) =>
+    api.delete(adminUserSchema, `/v1/admin/admins/${adminUserId}/telegram-link`),
 };
 
 // ── The agent float ────────────────────────────────────────────────────────────────────────────
@@ -803,6 +820,33 @@ export const tenantsApi = {
    */
   importPlayers: (id: string) =>
     api.post(playerImportSummarySchema, `/v1/admin/tenants/${id}/import-players`),
+
+  /**
+   * The "Add bot to staff group" link: one use, fifteen minutes, this operator and this purpose only.
+   * Issuing one revokes the previous link for the same purpose. The nonce is inside `url`.
+   */
+  issueBindLink: (id: string, purpose: TelegramChatPurpose) =>
+    api.post(telegramBindLinkSchema, `/v1/admin/tenants/${id}/telegram/bind-links`, {
+      body: { purpose },
+    }),
+
+  /**
+   * The groups this operator's bot was seen in, NAMED IN THE PATH — unlike `telegramChatsApi.list`,
+   * which answers for whichever operator the switcher points at. The operator page must never show
+   * another operator's groups, so it only ever reads this one.
+   */
+  chats: (id: string, signal?: AbortSignal) =>
+    api.get(z.array(tenantDiscoveredChatSchema), `/v1/admin/tenants/${id}/telegram/chats`, {
+      ...(signal === undefined ? {} : { signal }),
+    }),
+
+  /** Verified with Telegram before it is saved; 400 TELEGRAM_CHAT_REJECTED names the reason. */
+  bindChat: (id: string, purpose: TelegramChatPurpose, body: BindTenantChatBody) =>
+    api.put(tenantSchema, `/v1/admin/tenants/${id}/telegram/chats/${purpose}`, { body }),
+
+  /** The staff group of an ACTIVE operator is refused with TENANT_STAFF_GROUP_REQUIRED. */
+  unbindChat: (id: string, purpose: TelegramChatPurpose) =>
+    api.delete(tenantSchema, `/v1/admin/tenants/${id}/telegram/chats/${purpose}`),
 };
 
 /**

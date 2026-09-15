@@ -1284,7 +1284,7 @@ repository each piece of work lands in.
 | **Size**                            | L                                                                |
 | **Repo**                            | backend (`Telegram-mini-app`) **and** console                    |
 | **Blocked by**                      | —                                                                |
-| **Needs a decision from the owner** | **Yes** — which binding method, and who may change a chat        |
+| **Needs a decision from the owner** | Decided 2026-09-15 — see the decision record below               |
 
 **Problem.**
 An operator's bot publishes into Telegram groups. There are exactly **two**, and they already exist
@@ -1335,7 +1335,52 @@ _Console:_
   `PATCH /v1/admin/tenants/:id`, which is `@AdminAuth(AdminRole.PLATFORM_ADMIN)`. A tenant's own
   `SUPER_ADMIN` cannot see or change the group their own bot posts into.
 
-**The decision (ask the owner first).**
+**Decision record (owner, final, 2026-09-15).** This supersedes the options below, which are kept as
+the history of the question. The contract is `docs/API-CONTRACT.md`, Tenants → "Staff and feed
+groups", "GET /:id/health — chats" and Admin directory → "Linking a staff account to Telegram".
+
+1. **An operator may be created with no staff group, and stays SUSPENDED until one is bound.**
+   Creation no longer defaults `adminChatId` to the creating admin's Telegram id (a person's private
+   chat is never a staff group); `TenantView.adminChatId` is `string | null`. `POST /:id/activate`
+   refuses with 422 `TENANT_STAFF_GROUP_REQUIRED` while it is null, so provisioning reports
+   `activated: false` for such a create. Starting a deposit for a legacy ACTIVE row with no group is
+   refused with the same code.
+2. **Primary binding path: an "Add bot to staff group" button.** It asks
+   `POST /v1/admin/tenants/:id/telegram/bind-links { purpose }` for a one-time
+   `https://t.me/<bot>?startgroup=<nonce>&admin=post_messages+delete_messages+pin_messages+manage_chat`
+   link (15 minutes, one use). Telegram sends `/start@<bot> <nonce>` in the group the owner picks; the
+   backend matches the nonce to the operator and purpose, verifies the chat (group or supergroup, bot
+   present, administrator, can post), binds it, confirms in the group and posts review cards for
+   deposits already waiting. **Fallback:** groups the bot joined any other way appear in
+   `GET /v1/admin/tenants/:id/telegram/chats` and are bound with `PUT …/telegram/chats/:purpose`,
+   verified the same way. The option (a) `/bind_admin` command and the `POST …/chats/test` route
+   below were NOT built.
+3. **Only the PLATFORM_ADMIN binds or changes a staff or feed group** (decision 2 below: platform, not
+   the operator's SUPER_ADMIN). Every route is on `/v1/admin/tenants`.
+4. **Staff who approve in the group link their Telegram with a one-time code.** The console shows a
+   code (`POST /v1/admin/admins/:id/telegram-link-code`); the staff member sends `/link <code>` to the
+   operator's bot in a private chat; the backend stores that update's `from.id`. One use, 10 minutes,
+   rate limited, audited; `DELETE /v1/admin/admins/:id/telegram-link` unlinks. `AdminUserView` gains
+   `telegramLinked`. `telegramUserId` stays refused on create and update.
+5. **The feed group uses the same link and picker**, with `purpose: FEED`.
+6. **Decision 3 below (more than two chats): no.** Exactly two, as the schema has.
+
+Also decided with it: `GET /:id/health` reports Ichancy in fake mode as `ok: false, fake: true` (and
+every Ichancy-derived result carries `ichancyFake`), because an `ok: true` beside a made-up float was
+taken for a real connection.
+
+Console built (branch `feat/staff-group`): nullable `adminChatId` with a red "no staff group" warning
+on the operator panel; "Staff group" and "Feed group" checklist steps whose action is the link button
+plus a picker of that operator's discovered chats that re-reads every few seconds while open; a
+"bot removed from the group" alert from `health.chats`; fake-mode notices on the Ichancy panel,
+checklist, created alert, activation toast, import card and float sync; "Link Telegram" / "Unlink" on
+the staff record; en and ar for all of it; MSW handlers and tests for every route.
+
+Acceptance criteria below that no longer apply as written: 3 and 9's "test message" (not built), and
+8 was already true in the backend (`report-schedule.cron.ts` reads the operator's own chats). The
+evidence quoted under "Backend" is from before the multi-tenant rewrite and is stale.
+
+**The decision (ask the owner first).** _(Historical — answered above.)_
 
 1. **How a chat gets bound.** Two options, and the recommendation is to build both — they solve
    different halves:

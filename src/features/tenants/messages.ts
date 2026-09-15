@@ -337,9 +337,9 @@ export const tenantMessages = defineMessages({
       'Every field in here is left out of the request when it is blank, and the platform resolves it. Open this only for an operator that has to differ from the defaults — each field says what it would otherwise get.',
     'tenants.create.suspendedTitle': 'This tenant will be created suspended',
     'tenants.create.suspendedBody':
-      'Nothing on this form can prove the agent id belongs to the Ichancy username, and a correct username paired with the wrong agent id registers real players under another operator. So a new tenant lands suspended and serves nobody until you activate it — which is the moment the backend actually signs in to Ichancy and finds out.',
+      'Nothing on this form can prove the agent id belongs to the Ichancy username, and a correct username paired with the wrong agent id registers real players under another operator. So a new tenant lands suspended and serves nobody until you activate it — which is the moment the backend actually signs in to Ichancy and finds out. It also needs its staff group: activation is refused until the bot is in the group where review cards go.',
     'tenants.create.successTitle': '{name} created',
-    'tenants.create.successBody': 'It is suspended until you activate it.',
+    'tenants.create.successBody': 'It is suspended until its staff group is bound and you activate it.',
     'tenants.create.errorTitle': 'Could not create the tenant',
 
     // ── Edit ─────────────────────────────────────────────────────────────────────────────────
@@ -359,7 +359,7 @@ export const tenantMessages = defineMessages({
     'tenants.hint.botToken':
       'Stored write-only. It is never returned again, here or anywhere else.',
     'tenants.hint.feedChatId':
-      'Leaving this empty keeps the current one: the API has no way to unset a feed chat.',
+      'Leaving this empty keeps the current one. A new id is checked with Telegram first; to remove the feed group, use the setup checklist.',
     'tenants.hint.expiryRange': '{min} to {max}.',
     'tenants.hint.minorUnits': 'Minor units — 150000 means 1,500.00',
     'tenants.hint.minorPreview': '= {preview}',
@@ -378,7 +378,7 @@ export const tenantMessages = defineMessages({
     'tenants.default.slug':
       'Left blank: made from the display name — “Northern branch” becomes northern-branch, with -2 added if that one is taken. Permanent either way: it appears in every log line.',
     'tenants.default.adminChatId':
-      'Left blank: your own Telegram id, since you are the platform admin creating this operator.',
+      'Left blank: no staff group. The operator stays suspended until you add its bot to the staff group from the operator’s page. An id typed here is checked with Telegram before the operator is created.',
     'tenants.default.feedChatId':
       'Left blank: no feed chat. This is the one optional field with no platform default, and it can be set later.',
     'tenants.default.ichancyBaseUrl': 'Left blank: the platform default Ichancy URL.',
@@ -446,6 +446,133 @@ export const tenantMessages = defineMessages({
       other: '{count} players imported from Ichancy',
     },
     'tenants.import.failedTitle': 'Could not import players',
+    'tenants.import.fakeTitle': 'Fake mode: these are not real players',
+    'tenants.import.fakeBody':
+      'Ichancy is in fake mode on this deployment (ICHANCY_FAKE=true), so the import read made-up accounts and no real connection was made.',
+
+    // ── Ichancy in fake mode ─────────────────────────────────────────────────────────────────
+    'tenants.ichancy.fakeTitle': 'Ichancy is in fake mode',
+    'tenants.ichancy.fakeBody':
+      'This deployment runs with ICHANCY_FAKE=true. No real connection to Ichancy was made: sign-ins, the float and imported players are all made up, so nothing here proves these credentials work.',
+    'tenants.ichancy.floatFake': 'not read (fake mode)',
+    'tenants.checklist.agentFake':
+      'Ichancy is in fake mode on this deployment (ICHANCY_FAKE=true): no real sign-in was made, so this agent cannot be verified here.',
+    'tenants.created.activatedFake':
+      'Activated in fake mode: Ichancy was not contacted, so the agent’s credentials are unproven.',
+    'tenants.created.playersImportedFake':
+      'Players imported in fake mode: {count}, made up rather than read from Ichancy.',
+    'tenants.created.fakeNote':
+      'Ichancy runs in fake mode on this deployment (ICHANCY_FAKE=true): no real connection was made while creating this operator.',
+    'tenants.activate.successBodyFake':
+      'Activated in fake mode: Ichancy was not contacted (ICHANCY_FAKE=true), so these credentials are unproven.',
+
+    // ── The staff group and the feed group ───────────────────────────────────────────────────
+    'tenants.chat.notBound': 'Not bound',
+    'tenants.staffGroup.missingTitle': 'No staff group yet',
+    'tenants.staffGroup.missingSuspendedBody':
+      'This operator stays suspended and cannot be activated until its staff group is bound: its deposit review cards and alerts would go nowhere. Use “Add bot to staff group” in the setup checklist below.',
+    'tenants.staffGroup.missingActiveBody':
+      'This operator is active but has no staff group, so every new deposit is refused and no review card or alert reaches Telegram. Bind the staff group from the setup checklist below.',
+    'tenants.chats.staffRemovedTitle': 'The bot was removed from the staff group {name}',
+    'tenants.chats.staffRemovedBody':
+      'The group is still bound, but nothing reaches it: no review cards and no alerts. Add the bot back to the group as an administrator, or bind another group.',
+    'tenants.chats.staffNotAdminTitle': 'The bot can no longer work the staff group {name}',
+    'tenants.chats.staffNotAdminBody':
+      'Telegram last reported the bot there as not an administrator, or not allowed to post. Make it an administrator that can post again.',
+    'tenants.chats.feedRemovedTitle': 'The bot was removed from the feed group {name}',
+    'tenants.chats.feedRemovedBody':
+      'The group is still bound, but credited deposits are no longer mirrored there. Add the bot back, or bind another group.',
+
+    'tenants.checklist.stateOptional': 'optional',
+    'tenants.checklist.staffGroup': 'Staff group bound',
+    'tenants.checklist.staffGroupDone': 'Review cards and alerts go to {name}.',
+    'tenants.checklist.staffGroupTodo':
+      'Where review cards and alerts go. Until it is bound the operator stays suspended and cannot be activated. Add the bot to your staff group with the button below: Telegram asks which group, and the bot binds it and says so in the group.',
+    'tenants.checklist.staffGroupRemoved':
+      'The bot was removed from {name}. Nothing reaches the group until the bot is added back or another group is bound.',
+    'tenants.checklist.feedGroup': 'Feed group',
+    'tenants.checklist.feedGroupDone': 'Credited deposits are mirrored to {name}.',
+    'tenants.checklist.feedGroupOff':
+      'Optional: a group where credited deposits are mirrored. Off until you bind one.',
+    'tenants.checklist.feedGroupRemoved':
+      'The bot was removed from {name}, so credited deposits are no longer mirrored there.',
+    'tenants.checklist.activeNeedsStaffGroup':
+      'A new operator lands suspended and answers nobody. Bind the staff group first: “{action}” is refused until it is.',
+
+    'tenants.bind.addStaff': 'Add bot to staff group',
+    'tenants.bind.addFeed': 'Add bot to feed group',
+    'tenants.bind.another': 'Bind another group',
+    'tenants.bind.openedTitle': 'Finish in Telegram',
+    'tenants.bind.openedBody':
+      'Telegram opened in a new tab. Pick the group and keep the administrator rights it asks for. The bot binds the group and says so there; this page notices within a few seconds.',
+    'tenants.bind.timeLeft': 'The link works once. Time left:',
+    'tenants.bind.openAgain': 'Open the link again',
+    'tenants.bind.boundTitle': 'Bound',
+    'tenants.bind.boundStaff': '{name} is now the staff group.',
+    'tenants.bind.boundFeed': '{name} is now the feed group.',
+    'tenants.bind.done': 'Done',
+    'tenants.bind.linkErrorTitle': 'Could not create the link',
+    'tenants.bind.pickerToggle': 'Pick from groups the bot is in',
+    'tenants.bind.pickerHide': 'Hide the list',
+    'tenants.bind.pickerTitle': 'Groups this operator’s bot is in',
+    'tenants.bind.pickerHint':
+      'A group the bot was added to some other way shows up here. Check the title and who added the bot before you pick: the group will receive player names and amounts. Telegram checks the group again before anything is saved.',
+    'tenants.bind.pickerLoading': 'Looking for groups this bot is in…',
+    'tenants.bind.pickerError': 'Could not load the groups this bot is in.',
+    'tenants.bind.pickerEmptyTitle': 'The bot is not in any group yet',
+    'tenants.bind.pickerEmptyBody':
+      'Add the bot to the group in Telegram and make it an administrator. It appears here as soon as Telegram tells the server; this list checks again every few seconds while it is open.',
+    'tenants.bind.laptopHint':
+      'Telegram reaches this server only over public https. On a laptop without a tunnel neither the link nor this list can complete; type the group id in “Edit settings” instead, which Telegram still checks.',
+    'tenants.bind.use': 'Use this group',
+    'tenants.bind.private': 'Private group',
+    'tenants.bind.addedBy': 'Bot added by @{username}',
+    'tenants.bind.addedById': 'Bot added by Telegram user {id}',
+    'tenants.bind.boundAsStaff': 'Staff group',
+    'tenants.bind.boundAsFeed': 'Feed group',
+    'tenants.bind.migrated': 'Became a supergroup: use the new one',
+    'tenants.bind.channel': 'Channel: cannot be a staff or feed group',
+    'tenants.bind.status.CREATOR': 'The bot owns this chat',
+    'tenants.bind.status.ADMINISTRATOR': 'The bot is an administrator',
+    'tenants.bind.status.MEMBER': 'The bot is a member but not an administrator: promote it',
+    'tenants.bind.status.RESTRICTED': 'The bot is restricted here and may not be able to post',
+    'tenants.bind.status.LEFT': 'The bot has left this chat',
+    'tenants.bind.status.KICKED': 'The bot was removed from this chat',
+    'tenants.bind.boundStaffToast': '{name} is now the staff group',
+    'tenants.bind.boundFeedToast': '{name} is now the feed group',
+    'tenants.bind.refusedTitle': 'Telegram refused this group. Nothing was saved.',
+    'tenants.bind.errorTitle': 'Could not bind the group',
+    'tenants.bind.reason.NOT_FOUND':
+      'Telegram does not know this chat, or will not show it to this bot. Add the bot to the group first.',
+    'tenants.bind.reason.PRIVATE_CHAT':
+      'This is a one-to-one chat. A staff or feed group must be a group.',
+    'tenants.bind.reason.CHANNEL_NOT_ALLOWED':
+      'This is a channel. A staff or feed group must be a group, where staff can tap the review buttons.',
+    'tenants.bind.reason.BOT_NOT_MEMBER':
+      'The bot is not a member of this group. Add it to the group, then try again.',
+    'tenants.bind.reason.BOT_NOT_ADMIN':
+      'The bot is in this group but is not an administrator. Make it an administrator, then try again.',
+    'tenants.bind.reason.BOT_CANNOT_POST':
+      'The bot is not allowed to send messages in this group. Allow it to post, then try again.',
+    'tenants.bind.remove': 'Remove group',
+    'tenants.bind.removeStaffTitle': 'Remove the staff group from {name}?',
+    'tenants.bind.removeFeedTitle': 'Remove the feed group from {name}?',
+    'tenants.bind.removeStaffBody':
+      'Review cards and alerts stop reaching Telegram. An active operator must keep a staff group, so this is refused unless the operator is suspended.',
+    'tenants.bind.removeFeedBody':
+      'Credited deposits stop being mirrored to that group. You can bind a feed group again at any time.',
+    'tenants.bind.removeLabel': 'Remove',
+    'tenants.bind.removedToast': 'Group removed',
+    'tenants.bind.removeErrorTitle': 'Could not remove the group',
+
+    'tenants.hint.adminChatId':
+      'Changing it binds a different staff group, checked with Telegram first. Leaving it empty keeps the current one; to pick from groups or remove one, use the setup checklist.',
+    'tenants.activate.noStaffGroupTitle': 'No staff group yet',
+    'tenants.activate.noStaffGroupBody':
+      'This operator has no staff group, so activation will be refused. Bind the staff group from the setup checklist first.',
+    'tenants.activate.refusedStaffGroupTitle': 'Bind the staff group first',
+    'tenants.created.noStaffGroup':
+      'No staff group yet: open the operator, use “Add bot to staff group”, then activate it.',
   },
 
   ar: {
@@ -784,9 +911,9 @@ export const tenantMessages = defineMessages({
       'كل حقل هنا يُحذف من الطلب إن تُرك فارغاً، وتتولى المنصّة تحديد قيمته. لا تفتح هذا القسم إلا لمشغّل يجب أن يختلف عن القيم الافتراضية — وكل حقل يذكر ما سيحصل عليه لو تُرك.',
     'tenants.create.suspendedTitle': 'سيُنشأ هذا المشغّل موقوفاً',
     'tenants.create.suspendedBody':
-      'لا شيء في هذه الاستمارة يثبت أن معرّف الوكيل يخص اسم المستخدم على Ichancy، واسم مستخدم صحيح مع معرّف وكيل خاطئ يسجّل لاعبين حقيقيين تحت مشغّل آخر. لذلك يُنشأ المشغّل الجديد موقوفاً ولا يخدم أحداً حتى تفعّله — وعندها فقط يسجّل الخادم الدخول فعلياً إلى Ichancy ويتبيّن الأمر.',
+      'لا شيء في هذه الاستمارة يثبت أن معرّف الوكيل يخص اسم المستخدم على Ichancy، واسم مستخدم صحيح مع معرّف وكيل خاطئ يسجّل لاعبين حقيقيين تحت مشغّل آخر. لذلك يُنشأ المشغّل الجديد موقوفاً ولا يخدم أحداً حتى تفعّله — وعندها فقط يسجّل الخادم الدخول فعلياً إلى Ichancy ويتبيّن الأمر. ويحتاج أيضاً إلى مجموعة موظفيه: يُرفض التفعيل حتى يكون البوت في المجموعة التي تصل إليها بطاقات المراجعة.',
     'tenants.create.successTitle': 'تم إنشاء {name}',
-    'tenants.create.successBody': 'يبقى موقوفاً حتى تفعّله.',
+    'tenants.create.successBody': 'يبقى موقوفاً حتى تُربط مجموعة موظفيه وتفعّله.',
     'tenants.create.errorTitle': 'تعذّر إنشاء المشغّل',
 
     'tenants.edit.title': 'تعديل {name}',
@@ -803,7 +930,7 @@ export const tenantMessages = defineMessages({
 
     'tenants.hint.botToken': 'يُحفظ للكتابة فقط. لا يُعاد إظهاره مرة أخرى، لا هنا ولا في أي مكان.',
     'tenants.hint.feedChatId':
-      'ترك الحقل فارغاً يبقي القناة الحالية: الخادم لا يوفّر طريقة لإزالتها.',
+      'ترك الحقل فارغاً يبقي الحالية. ويتحقق Telegram من أي معرّف جديد أولاً؛ ولإزالة مجموعة الإشعارات استخدم قائمة خطوات الإعداد.',
     'tenants.hint.expiryRange': 'من {min} إلى {max}.',
     'tenants.hint.minorUnits': 'وحدات صغرى — 150000 تعني 1,500.00',
     'tenants.hint.minorPreview': '= {preview}',
@@ -821,7 +948,7 @@ export const tenantMessages = defineMessages({
     'tenants.default.slug':
       'إن تُرك فارغاً: يُشتق من الاسم الظاهر — «الفرع الشمالي» يصبح northern-branch، ويُضاف ‎-2‎ إن كان مأخوذاً. وهو دائم في الحالتين: يظهر في كل سطر سجل.',
     'tenants.default.adminChatId':
-      'إن تُرك فارغاً: معرّف حسابك على Telegram، فأنت مدير المنصّة الذي ينشئ هذا المشغّل.',
+      'إن تُرك فارغاً: لا توجد مجموعة موظفين. يبقى المشغّل موقوفاً حتى تضيف بوته إلى مجموعة الموظفين من صفحة المشغّل. والمعرّف المكتوب هنا يتحقق منه Telegram قبل إنشاء المشغّل.',
     'tenants.default.feedChatId':
       'إن تُرك فارغاً: لا توجد قناة إشعارات. هذا هو الحقل الاختياري الوحيد بلا قيمة افتراضية على المنصّة، ويمكن ضبطه لاحقاً.',
     'tenants.default.ichancyBaseUrl': 'إن تُرك فارغاً: رابط Ichancy الافتراضي للمنصّة.',
@@ -893,5 +1020,130 @@ export const tenantMessages = defineMessages({
       other: 'استُورِد {count} لاعب من Ichancy',
     },
     'tenants.import.failedTitle': 'تعذّر استيراد اللاعبين',
+    'tenants.import.fakeTitle': 'الوضع الوهمي: هؤلاء ليسوا لاعبين حقيقيين',
+    'tenants.import.fakeBody':
+      'يعمل Ichancy في الوضع الوهمي على هذا الخادم (ICHANCY_FAKE=true)، فقرأ الاستيراد حسابات مختلقة ولم يُجرَ أي اتصال حقيقي.',
+
+    'tenants.ichancy.fakeTitle': 'Ichancy في الوضع الوهمي',
+    'tenants.ichancy.fakeBody':
+      'يعمل هذا الخادم مع ICHANCY_FAKE=true. لم يُجرَ أي اتصال حقيقي بـ Ichancy: تسجيلات الدخول والرصيد واللاعبون المستوردون كلها مختلقة، فلا شيء هنا يثبت أن هذه البيانات تعمل.',
+    'tenants.ichancy.floatFake': 'لم يُقرأ (وضع وهمي)',
+    'tenants.checklist.agentFake':
+      'يعمل Ichancy في الوضع الوهمي على هذا الخادم (ICHANCY_FAKE=true): لم يُجرَ تسجيل دخول حقيقي، فلا يمكن التحقق من هذا الوكيل هنا.',
+    'tenants.created.activatedFake':
+      'فُعِّل في الوضع الوهمي: لم يُتصل بـ Ichancy، فبيانات الوكيل غير مثبتة.',
+    'tenants.created.playersImportedFake':
+      'لاعبون مستوردون في الوضع الوهمي: {count}، مختلقون وليسوا من Ichancy.',
+    'tenants.created.fakeNote':
+      'يعمل Ichancy في الوضع الوهمي على هذا الخادم (ICHANCY_FAKE=true): لم يُجرَ أي اتصال حقيقي أثناء إنشاء هذا المشغّل.',
+    'tenants.activate.successBodyFake':
+      'فُعِّل في الوضع الوهمي: لم يُتصل بـ Ichancy (ICHANCY_FAKE=true)، فهذه البيانات غير مثبتة.',
+
+    'tenants.chat.notBound': 'غير مربوطة',
+    'tenants.staffGroup.missingTitle': 'لا توجد مجموعة موظفين بعد',
+    'tenants.staffGroup.missingSuspendedBody':
+      'يبقى هذا المشغّل موقوفاً ولا يمكن تفعيله حتى تُربط مجموعة موظفيه: بطاقات مراجعة الإيداعات والتنبيهات لن تصل إلى أي مكان. استخدم «إضافة البوت إلى مجموعة الموظفين» في قائمة خطوات الإعداد أدناه.',
+    'tenants.staffGroup.missingActiveBody':
+      'هذا المشغّل نشط لكن بلا مجموعة موظفين، لذلك يُرفض كل إيداع جديد ولا تصل أي بطاقة مراجعة أو تنبيه إلى Telegram. اربط مجموعة الموظفين من قائمة خطوات الإعداد أدناه.',
+    'tenants.chats.staffRemovedTitle': 'أُزيل البوت من مجموعة الموظفين {name}',
+    'tenants.chats.staffRemovedBody':
+      'ما زالت المجموعة مربوطة، لكن لا شيء يصل إليها: لا بطاقات مراجعة ولا تنبيهات. أعد البوت إلى المجموعة مشرفاً، أو اربط مجموعة أخرى.',
+    'tenants.chats.staffNotAdminTitle': 'لم يعد البوت قادراً على العمل في مجموعة الموظفين {name}',
+    'tenants.chats.staffNotAdminBody':
+      'آخر ما أبلغ به Telegram أن البوت هناك ليس مشرفاً، أو غير مسموح له بالنشر. اجعله مشرفاً يستطيع النشر من جديد.',
+    'tenants.chats.feedRemovedTitle': 'أُزيل البوت من مجموعة الإشعارات {name}',
+    'tenants.chats.feedRemovedBody':
+      'ما زالت المجموعة مربوطة، لكن الإيداعات المضافة لم تعد تُنسخ إليها. أعد البوت، أو اربط مجموعة أخرى.',
+
+    'tenants.checklist.stateOptional': 'اختيارية',
+    'tenants.checklist.staffGroup': 'ربط مجموعة الموظفين',
+    'tenants.checklist.staffGroupDone': 'تصل بطاقات المراجعة والتنبيهات إلى {name}.',
+    'tenants.checklist.staffGroupTodo':
+      'هي المكان الذي تصل إليه بطاقات المراجعة والتنبيهات. وحتى تُربط يبقى المشغّل موقوفاً ولا يمكن تفعيله. أضف البوت إلى مجموعة موظفيك بالزر أدناه: يسألك Telegram عن المجموعة، ويربطها البوت ويعلن ذلك فيها.',
+    'tenants.checklist.staffGroupRemoved':
+      'أُزيل البوت من {name}. لا يصل شيء إلى المجموعة حتى يُعاد البوت إليها أو تُربط مجموعة أخرى.',
+    'tenants.checklist.feedGroup': 'مجموعة الإشعارات',
+    'tenants.checklist.feedGroupDone': 'تُنسخ الإيداعات المضافة إلى {name}.',
+    'tenants.checklist.feedGroupOff':
+      'اختيارية: مجموعة تُنسخ إليها الإيداعات المضافة. متوقفة حتى تربط واحدة.',
+    'tenants.checklist.feedGroupRemoved':
+      'أُزيل البوت من {name}، فلم تعد الإيداعات المضافة تُنسخ إليها.',
+    'tenants.checklist.activeNeedsStaffGroup':
+      'المشغّل الجديد يُنشأ موقوفاً ولا يردّ على أحد. اربط مجموعة الموظفين أولاً: «{action}» مرفوض حتى تفعل.',
+
+    'tenants.bind.addStaff': 'إضافة البوت إلى مجموعة الموظفين',
+    'tenants.bind.addFeed': 'إضافة البوت إلى مجموعة الإشعارات',
+    'tenants.bind.another': 'ربط مجموعة أخرى',
+    'tenants.bind.openedTitle': 'أكمل في Telegram',
+    'tenants.bind.openedBody':
+      'فُتح Telegram في لسان جديد. اختر المجموعة وأبقِ صلاحيات الإشراف التي يطلبها. يربط البوت المجموعة ويعلن ذلك فيها، وتلاحظ هذه الصفحة ذلك خلال ثوانٍ.',
+    'tenants.bind.timeLeft': 'يعمل الرابط مرة واحدة. الوقت المتبقي:',
+    'tenants.bind.openAgain': 'افتح الرابط مرة أخرى',
+    'tenants.bind.boundTitle': 'تم الربط',
+    'tenants.bind.boundStaff': 'أصبحت {name} مجموعة الموظفين.',
+    'tenants.bind.boundFeed': 'أصبحت {name} مجموعة الإشعارات.',
+    'tenants.bind.done': 'تم',
+    'tenants.bind.linkErrorTitle': 'تعذّر إنشاء الرابط',
+    'tenants.bind.pickerToggle': 'اختر من المجموعات التي فيها البوت',
+    'tenants.bind.pickerHide': 'إخفاء القائمة',
+    'tenants.bind.pickerTitle': 'المجموعات التي فيها بوت هذا المشغّل',
+    'tenants.bind.pickerHint':
+      'تظهر هنا المجموعة التي أُضيف إليها البوت بأي طريقة أخرى. تحقق من الاسم ومن أضاف البوت قبل الاختيار: ستصل إلى المجموعة أسماء اللاعبين ومبالغهم. ويتحقق Telegram من المجموعة مجدداً قبل حفظ أي شيء.',
+    'tenants.bind.pickerLoading': 'جارٍ البحث عن المجموعات التي فيها هذا البوت…',
+    'tenants.bind.pickerError': 'تعذّر تحميل المجموعات التي فيها هذا البوت.',
+    'tenants.bind.pickerEmptyTitle': 'البوت ليس في أي مجموعة بعد',
+    'tenants.bind.pickerEmptyBody':
+      'أضف البوت إلى المجموعة في Telegram واجعله مشرفاً. تظهر هنا فور إبلاغ Telegram للخادم؛ وتتحقق هذه القائمة من جديد كل بضع ثوانٍ ما دامت مفتوحة.',
+    'tenants.bind.laptopHint':
+      'لا يصل Telegram إلى هذا الخادم إلا عبر https عام. على حاسوب محمول بلا نفق لا يكتمل الرابط ولا هذه القائمة؛ اكتب معرّف المجموعة في «تعديل الإعدادات» بدلاً من ذلك، ويتحقق منه Telegram كذلك.',
+    'tenants.bind.use': 'استخدم هذه المجموعة',
+    'tenants.bind.private': 'مجموعة خاصة',
+    'tenants.bind.addedBy': 'أضاف البوت ‎@{username}',
+    'tenants.bind.addedById': 'أضاف البوت مستخدم Telegram رقم {id}',
+    'tenants.bind.boundAsStaff': 'مجموعة الموظفين',
+    'tenants.bind.boundAsFeed': 'مجموعة الإشعارات',
+    'tenants.bind.migrated': 'تحوّلت إلى مجموعة كبرى: استخدم الجديدة',
+    'tenants.bind.channel': 'قناة: لا تصلح مجموعة موظفين أو إشعارات',
+    'tenants.bind.status.CREATOR': 'البوت هو مالك هذه المحادثة',
+    'tenants.bind.status.ADMINISTRATOR': 'البوت مشرف هنا',
+    'tenants.bind.status.MEMBER': 'البوت عضو وليس مشرفاً: رقِّه',
+    'tenants.bind.status.RESTRICTED': 'البوت مقيّد هنا وقد لا يستطيع النشر',
+    'tenants.bind.status.LEFT': 'غادر البوت هذه المحادثة',
+    'tenants.bind.status.KICKED': 'أُزيل البوت من هذه المحادثة',
+    'tenants.bind.boundStaffToast': 'أصبحت {name} مجموعة الموظفين',
+    'tenants.bind.boundFeedToast': 'أصبحت {name} مجموعة الإشعارات',
+    'tenants.bind.refusedTitle': 'رفض Telegram هذه المجموعة. لم يُحفظ شيء.',
+    'tenants.bind.errorTitle': 'تعذّر ربط المجموعة',
+    'tenants.bind.reason.NOT_FOUND':
+      'لا يعرف Telegram هذه المحادثة، أو لا يُظهرها لهذا البوت. أضف البوت إلى المجموعة أولاً.',
+    'tenants.bind.reason.PRIVATE_CHAT':
+      'هذه محادثة فردية. يجب أن تكون مجموعة الموظفين أو الإشعارات مجموعةً.',
+    'tenants.bind.reason.CHANNEL_NOT_ALLOWED':
+      'هذه قناة. يجب أن تكون مجموعة الموظفين أو الإشعارات مجموعةً يستطيع فيها الموظفون الضغط على أزرار المراجعة.',
+    'tenants.bind.reason.BOT_NOT_MEMBER':
+      'البوت ليس عضواً في هذه المجموعة. أضفه إليها، ثم حاول مجدداً.',
+    'tenants.bind.reason.BOT_NOT_ADMIN':
+      'البوت في هذه المجموعة لكنه ليس مشرفاً. اجعله مشرفاً، ثم حاول مجدداً.',
+    'tenants.bind.reason.BOT_CANNOT_POST':
+      'البوت غير مسموح له بإرسال الرسائل في هذه المجموعة. اسمح له بالنشر، ثم حاول مجدداً.',
+    'tenants.bind.remove': 'إزالة المجموعة',
+    'tenants.bind.removeStaffTitle': 'إزالة مجموعة الموظفين من {name}؟',
+    'tenants.bind.removeFeedTitle': 'إزالة مجموعة الإشعارات من {name}؟',
+    'tenants.bind.removeStaffBody':
+      'تتوقف بطاقات المراجعة والتنبيهات عن الوصول إلى Telegram. يجب أن يحتفظ المشغّل النشط بمجموعة موظفين، لذلك يُرفض هذا ما لم يكن المشغّل موقوفاً.',
+    'tenants.bind.removeFeedBody':
+      'تتوقف الإيداعات المضافة عن النسخ إلى تلك المجموعة. يمكنك ربط مجموعة إشعارات من جديد في أي وقت.',
+    'tenants.bind.removeLabel': 'إزالة',
+    'tenants.bind.removedToast': 'أُزيلت المجموعة',
+    'tenants.bind.removeErrorTitle': 'تعذّرت إزالة المجموعة',
+
+    'tenants.hint.adminChatId':
+      'تغييره يربط مجموعة موظفين أخرى بعد أن يتحقق منها Telegram. تركه فارغاً يبقي الحالية؛ وللاختيار من المجموعات أو لإزالة واحدة استخدم قائمة خطوات الإعداد.',
+    'tenants.activate.noStaffGroupTitle': 'لا توجد مجموعة موظفين بعد',
+    'tenants.activate.noStaffGroupBody':
+      'هذا المشغّل بلا مجموعة موظفين، لذلك سيُرفض التفعيل. اربط مجموعة الموظفين من قائمة خطوات الإعداد أولاً.',
+    'tenants.activate.refusedStaffGroupTitle': 'اربط مجموعة الموظفين أولاً',
+    'tenants.created.noStaffGroup':
+      'لا توجد مجموعة موظفين بعد: افتح المشغّل واستخدم «إضافة البوت إلى مجموعة الموظفين»، ثم فعّله.',
   },
 });

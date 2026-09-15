@@ -32,9 +32,11 @@ export function FloatSyncPanel() {
     sync.mutate(undefined, {
       onSuccess: (outcome) => {
         toast.success(
-          outcome.ichancyMinor === null
-            ? t('recon.float.syncedNoIchancy')
-            : t('recon.float.synced'),
+          outcome.ichancyFake
+            ? t('recon.float.syncedFake')
+            : outcome.ichancyMinor === null
+              ? t('recon.float.syncedNoIchancy')
+              : t('recon.float.synced'),
         );
       },
       onError: (error) => {
@@ -67,7 +69,16 @@ export function FloatSyncPanel() {
 
             {result === undefined ? null : (
               <>
-                {result.ichancyMinor === null ? (
+                {/*
+                 * In fake mode a null wallet is not a finding: nothing was read on purpose. Saying
+                 * "Ichancy could not be read" there would send somebody chasing an outage that does
+                 * not exist, so fake mode gets its own notice and the danger alert stays for real mode.
+                 */}
+                {result.ichancyFake ? (
+                  <Alert tone="warning" title={t('recon.float.fakeTitle')}>
+                    {t('recon.float.fakeBody')}
+                  </Alert>
+                ) : result.ichancyMinor === null ? (
                   <Alert tone="danger" title={t('recon.float.unreadableTitle')}>
                     {t('recon.float.unreadableBody')}
                   </Alert>
@@ -84,14 +95,22 @@ export function FloatSyncPanel() {
                     <MinorAmount minor={result.ledgerMinor} currency={result.currencyCode} />
                   </DetailRow>
                   <DetailRow label={t('recon.float.ichancy')}>
-                    {result.ichancyMinor === null ? (
+                    {result.ichancyFake ? (
+                      <span className="text-[var(--muted-foreground)]">
+                        {t('recon.float.notReadFake')}
+                      </span>
+                    ) : result.ichancyMinor === null ? (
                       <span className="text-[var(--danger)]">{t('recon.float.unavailable')}</span>
                     ) : (
                       <MinorAmount minor={result.ichancyMinor} currency={result.currencyCode} />
                     )}
                   </DetailRow>
                   <DetailRow label={t('recon.field.delta')}>
-                    {result.deltaMinor === null ? (
+                    {result.ichancyFake ? (
+                      <span className="text-[var(--muted-foreground)]">
+                        {t('recon.float.notComparedFake')}
+                      </span>
+                    ) : result.deltaMinor === null ? (
                       <span className="text-[var(--danger)]">{t('recon.float.notComparable')}</span>
                     ) : (
                       <MinorAmount

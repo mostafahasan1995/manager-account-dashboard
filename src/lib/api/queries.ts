@@ -58,6 +58,7 @@ import type {
   UpdateTenantBody,
   UpdateTenantBotBody,
   UpdateTenantIchancyBody,
+  TelegramChatPurpose,
   UpdatePlatformDefaultsBody,
   SetExchangeRateBody,
   SetShamCashApiBody,
@@ -102,6 +103,7 @@ import {
   paymentMethodKeys,
   playerKeys,
   reconciliationKeys,
+  tenantChatKeys,
   tenantHealthKeys,
   tenantKeys,
   exchangeRateKeys,
@@ -943,11 +945,16 @@ export function useAdmins(query: AdminListQuery) {
   });
 }
 
-export function useAdmin(id: string | undefined) {
+/**
+ * One staff account. `refetchIntervalMs` is for the Telegram link dialog alone: the link happens
+ * when the person sends the code to the bot, which nothing pushes to the console.
+ */
+export function useAdmin(id: string | undefined, options?: { refetchIntervalMs?: number | false }) {
   return useQuery({
     queryKey: adminKeys.detail(id ?? ''),
     queryFn: () => adminsApi.byId(id ?? ''),
     enabled: id !== undefined && id.length > 0,
+    refetchInterval: options?.refetchIntervalMs ?? false,
   });
 }
 
@@ -999,6 +1006,23 @@ function useAdminMutation<TVariables, TData>(
 
 export const useCreateAdmin = () =>
   useAdminMutation((body: CreateAdminBody) => adminsApi.create(body));
+
+/**
+ * Asks for a one-time Telegram link code. A MUTATION, not a query, on purpose: every call revokes the
+ * previous code and writes an audit row, so nothing — a re-render, a refocus, a retry — may repeat it
+ * behind the admin's back, and the code must not sit in a cache another screen could read.
+ * Invalidates nothing: no row changed until the staff member sends the code.
+ */
+export function useIssueStaffTelegramLinkCode() {
+  return useMutation({
+    mutationFn: (adminUserId: string) => adminsApi.issueTelegramLinkCode(adminUserId),
+    retry: false,
+  });
+}
+
+/** Removes a staff account's Telegram link; the directory re-reads so the badge flips at once. */
+export const useUnlinkStaffTelegram = () =>
+  useAdminMutation((adminUserId: string) => adminsApi.unlinkTelegram(adminUserId));
 
 export const useUpdateAdmin = () =>
   useAdminMutation((input: { id: string; body: UpdateAdminBody }) =>
@@ -1122,11 +1146,20 @@ export function useTenants(options?: { enabled?: boolean }) {
   });
 }
 
-export function useTenant(id: string | undefined) {
+/**
+ * One operator, re-read by id.
+ *
+ * `refetchIntervalMs` exists for exactly one caller: the staff and feed group step while it waits for
+ * Telegram. A bind made through the "Add bot to group" link happens inside Telegram and is never
+ * pushed to the console, so the only way to see `adminChatId` arrive is to ask again — every few
+ * seconds while that step is open, and never otherwise (see "WHY THE TIMERS WERE CUT" above).
+ */
+export function useTenant(id: string | undefined, options?: { refetchIntervalMs?: number | false }) {
   return useQuery({
     queryKey: tenantKeys.detail(id ?? ''),
     queryFn: () => tenantsApi.byId(id ?? ''),
     enabled: id !== undefined && id.length > 0,
+    refetchInterval: options?.refetchIntervalMs ?? false,
   });
 }
 
@@ -1266,6 +1299,73 @@ export function useImportTenantPlayers() {
     },
   });
 }
+
+// ── Staff and feed groups (PLATFORM_ADMIN) ─────────────────────────────────────────────────────
+
+/** How often the group step re-reads while it is open and waiting for Telegram. */
+export const TENANT_CHAT_POLL_MS = 3_000;
+
+/**
+ * The groups ONE operator's bot was seen in, keyed by that operator.
+ *
+ * Fetched only while the picker is open, and polled while it is: a group appears the moment Telegram
+ * tells the backend the bot was added, and nothing tells the console. Closed, it costs nothing.
+ */
+export function useTenantDiscoveredChats(
+  tenantId: string,
+  options: { enabled: boolean; refetchIntervalMs?: number | false },
+) {
+  return useQuery({
+    queryKey: tenantChatKeys.list(tenantId),
+    queryFn: ({ signal }) => tenantsApi.chats(tenantId, signal),
+    enabled: options.enabled && tenantId.length > 0,
+    refetchInterval: options.enabled ? (options.refetchIntervalMs ?? false) : false,
+  });
+}
+
+/**
+ * Issues an "Add bot to group" link. `retry: false` and no cache: each call revokes the previous
+ * link, and the URL carries a one-time nonce that belongs in the tab it opens and nowhere else.
+ */
+export function useIssueTenantBindLink() {
+  return useMutation({
+    mutationFn: (input: { id: string; purpose: TelegramChatPurpose }) =>
+      tenantsApi.issueBindLink(input.id, input.purpose),
+    retry: false,
+  });
+}
+
+/**
+ * Binding or removing a group changes the operator row, what health reports about its chats, and the
+ * `boundAs` of the directory rows — so all three are re-read, for that operator only. `onSettled`,
+ * not `onSuccess`: a refusal can still mean the directory's snapshot was stale.
+ */
+function useTenantChatMutation<TVariables extends { id: string }, TData>(
+  mutationFn: (variables: TVariables) => Promise<TData>,
+) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn,
+    retry: false,
+    onSettled: async (_data, _error, variables: TVariables) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: tenantKeys.all }),
+        queryClient.invalidateQueries({ queryKey: tenantHealthKeys.detail(variables.id) }),
+        queryClient.invalidateQueries({ queryKey: tenantChatKeys.list(variables.id) }),
+      ]);
+    },
+  });
+}
+
+export const useBindTenantChat = () =>
+  useTenantChatMutation((input: { id: string; purpose: TelegramChatPurpose; chatId: string }) =>
+    tenantsApi.bindChat(input.id, input.purpose, { chatId: input.chatId }),
+  );
+
+export const useUnbindTenantChat = () =>
+  useTenantChatMutation((input: { id: string; purpose: TelegramChatPurpose }) =>
+    tenantsApi.unbindChat(input.id, input.purpose),
+  );
 
 // ── Platform finance overview (PLATFORM_ADMIN) ─────────────────────────────────────────────────
 

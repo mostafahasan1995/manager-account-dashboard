@@ -6,10 +6,10 @@ import { Can } from '@/components/common/can';
 import { ConfirmDialog } from '@/components/common/confirm-dialog';
 import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import { errorMessage } from '@/lib/api/errors';
+import { errorMessage, isApiError } from '@/lib/api/errors';
 import { useActivateTenant, useSuspendTenant } from '@/lib/api/queries';
 import { useT } from '@/lib/i18n/use-translation';
-import type { Tenant } from '@/types';
+import { TENANT_STAFF_GROUP_REQUIRED, type Tenant } from '@/types';
 
 import { tenantMessages } from './messages';
 
@@ -31,7 +31,7 @@ export function TenantStatusActions({ tenant }: { tenant: Tenant }) {
   const suspend = useSuspendTenant();
   const [activateOpen, setActivateOpen] = useState(false);
   const [suspendOpen, setSuspendOpen] = useState(false);
-  const [activateError, setActivateError] = useState<string | null>(null);
+  const [activateError, setActivateError] = useState<unknown>(null);
   const t = useT(tenantMessages);
 
   const runActivate = async () => {
@@ -39,15 +39,23 @@ export function TenantStatusActions({ tenant }: { tenant: Tenant }) {
     try {
       const updated = await activate.mutateAsync(tenant.id);
       toast.success(t('tenants.activate.successTitle', { name: updated.displayName }), {
-        description: t('tenants.activate.successBody'),
+        description: updated.ichancyFake
+          ? t('tenants.activate.successBodyFake')
+          : t('tenants.activate.successBody'),
       });
       setActivateOpen(false);
     } catch (error) {
-      const message = errorMessage(error);
-      setActivateError(message);
-      toast.error(t('tenants.activate.errorTitle'), { description: message });
+      setActivateError(error);
+      toast.error(t('tenants.activate.errorTitle'), { description: errorMessage(error) });
     }
   };
+
+  // Titled by what the server refused, since "Ichancy refused the sign-in" is wrong for a refusal
+  // that happened before any sign-in was attempted.
+  const refusedTitle =
+    isApiError(activateError) && activateError.code === TENANT_STAFF_GROUP_REQUIRED
+      ? t('tenants.activate.refusedStaffGroupTitle')
+      : t('tenants.activate.refusedTitle');
 
   const runSuspend = async () => {
     try {
@@ -99,9 +107,18 @@ export function TenantStatusActions({ tenant }: { tenant: Tenant }) {
         loading={activate.isPending}
         onConfirm={() => void runActivate()}
       >
+        {/*
+         * Warned, not disabled: the server decides, and a group bound in Telegram a second ago may not
+         * have reached this screen yet. The refusal below says the same thing if it still holds.
+         */}
+        {tenant.adminChatId === null && activateError === null ? (
+          <Alert tone="warning" title={t('tenants.activate.noStaffGroupTitle')}>
+            {t('tenants.activate.noStaffGroupBody')}
+          </Alert>
+        ) : null}
         {activateError === null ? null : (
-          <Alert tone="danger" title={t('tenants.activate.refusedTitle')}>
-            {activateError}
+          <Alert tone="danger" title={refusedTitle}>
+            {errorMessage(activateError)}
           </Alert>
         )}
       </ConfirmDialog>

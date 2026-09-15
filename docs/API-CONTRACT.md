@@ -636,11 +636,20 @@ GET    /v1/admin/admins/:id
 POST   /v1/admin/admins        { displayName, role, username, password }
 PATCH  /v1/admin/admins/:id    { displayName?, role?, isActive?, username?, password? }
 DELETE /v1/admin/admins/:id    (deactivates)
+
+POST   /v1/admin/admins/:id/telegram-link-code  -> StaffTelegramLinkCodeView   (200, no-store)
+DELETE /v1/admin/admins/:id/telegram-link       -> AdminUserView
 ```
 
-`AdminUserView`: `id, telegramUserId, username, hasPassword, displayName, role, isActive,
-lastLoginAt, createdAt`.
-Known errors: `ADMIN_SELF_MODIFICATION`, `ADMIN_LAST_SUPER_ADMIN`, `ADMIN_ALREADY_EXISTS`.
+`AdminUserView`: `id, telegramUserId, telegramLinked, username, hasPassword, displayName, role,
+isActive, lastLoginAt, createdAt`.
+Known errors: `ADMIN_SELF_MODIFICATION`, `ADMIN_LAST_SUPER_ADMIN`, `ADMIN_ALREADY_EXISTS`,
+`ADMIN_TELEGRAM_LINK_FORBIDDEN`, `ADMIN_TELEGRAM_ALREADY_LINKED`, `ADMIN_TELEGRAM_LINK_NOT_ALLOWED`.
+
+`telegramLinked` (2026-09-15) is whether a PERSON's Telegram account is linked to this staff account,
+which is what makes their Approve and Reject taps in the staff group count. It is `false` for a null
+`telegramUserId` and also for the agent principal's reserved `"0"`, which is not a person. The
+console reads this field, never `telegramUserId !== null`.
 
 - A staff account **is** a username and a password (2026-09-05). Both are required on create, and
   `telegramUserId` is **refused outright** — the pipe runs `forbidNonWhitelisted`, so a client
@@ -651,8 +660,48 @@ Known errors: `ADMIN_SELF_MODIFICATION`, `ADMIN_LAST_SUPER_ADMIN`, `ADMIN_ALREAD
   **blank-means-unchanged** — omit the field to leave the existing password alone. It is never
   readable back; `hasPassword` is the only thing the view says about it.
 - `telegramUserId` on the view is `null` for every account created since the change, and non-null
-  only for admins made before it plus each operator's agent principal. It is what still lets those
-  rows work the Telegram bot (`/queue`, `/float`, the approve buttons); it is not a login.
+  only for admins made before it, each operator's agent principal, and accounts linked with a code
+  (below). It is what lets those rows work the Telegram bot (`/queue`, `/float`, the approve
+  buttons); it is not a login.
+
+#### Linking a staff account to Telegram — one-time code (owner decision 4, 2026-09-15)
+
+A staff member who approves in the staff group needs their Telegram id on their staff account,
+because every tap is checked against the TAPPER's id, never the chat. A typed id proves nothing, so
+`telegramUserId` stays refused on create and update, and this is the only way it is set:
+
+1. The console asks `POST /v1/admin/admins/:id/telegram-link-code` and shows the code once.
+2. The staff member opens the operator's bot in a PRIVATE chat, from the Telegram account that will
+   approve, and sends exactly `/link <code>` as a new message.
+3. The backend stores that update's `from.id` on the staff account. The console sees
+   `telegramLinked: true` on the next read.
+
+`StaffTelegramLinkCodeView`: `adminUserId, code, command, expiresAt, ttlSeconds, botUsername,
+botUrl`.
+
+- `code` is 8 characters grouped for reading, `ABCD-EFGH`; `/link` accepts it with or without the
+  hyphen, in any case. `command` is exactly what to send: `/link ABCD-EFGH`.
+- One use, `ttlSeconds` = 600 (10 minutes, until `expiresAt`). Asking again revokes the previous
+  code. The answer carries `Cache-Control: no-store`; the code is in this body and nowhere else.
+- `botUsername` (without `@`) and `botUrl` (`https://t.me/<botUsername>`, which opens the private
+  chat) are null until Telegram has confirmed the operator's bot once.
+- Who may ask: the staff member for their own account, or platform staff (a `PLATFORM_ADMIN` working
+  in tenant zero, reaching the operator through `X-Tenant-Id`). Nobody else, a `SUPER_ADMIN`
+  included: whoever sees a code can send it from their own Telegram and act as that person. 403
+  `ADMIN_TELEGRAM_LINK_FORBIDDEN`. Throttled per admin (10 a minute).
+- 409 `ADMIN_TELEGRAM_ALREADY_LINKED`: remove the link first; a code never replaces one silently.
+- 422 `ADMIN_TELEGRAM_LINK_NOT_ALLOWED` with `details.reason`: `PLATFORM` (tenant zero has no bot),
+  `OPERATOR_CLOSED`, `AGENT_PRINCIPAL`, `INACTIVE`. 404 `ADMIN_NOT_FOUND` for another operator's id.
+
+What the bot does with `/link` (no HTTP, but staff will ask): a code posted in a GROUP is revoked and
+the group is told never to post one there; an EDITED `/link` is never redeemed (the bot answers
+"send it as a new message"); 5 attempts per sender per operator per 15 minutes.
+
+`DELETE /v1/admin/admins/:id/telegram-link` removes the link and revokes any live code. Idempotent:
+an unlinked account comes back unchanged. Who may: the staff member, a `SUPER_ADMIN` of the operator,
+or platform staff; a `PLATFORM_ADMIN` row only by someone who could grant that role. 403
+`ADMIN_TELEGRAM_LINK_FORBIDDEN`, 422 `ADMIN_TELEGRAM_LINK_NOT_ALLOWED` (`AGENT_PRINCIPAL`). A tap in
+the group is refused from the moment it returns.
 
 ### Approval limits — `/v1/admin`
 
@@ -704,10 +753,16 @@ POST /v1/admin/reconciliation/breaks/:id/assign          -> BreakView
 POST /v1/admin/reconciliation/breaks/:id/resolve  { status: RESOLVED|WRITTEN_OFF|FALSE_POSITIVE, note }
 POST /v1/admin/reconciliation/breaks/:id/correct-float { note } -> { ledgerTransactionId, deltaMinor }
 POST /v1/admin/reconciliation/agent-float/sync           -> { currencyCode, ledgerMinor, ichancyMinor,
-                                                              deltaMinor, breakId, belowWatermark }
+                                                              deltaMinor, breakId, belowWatermark,
+                                                              ichancyFake }
 GET  /v1/admin/reconciliation/rail-ageing                -> { generatedAt, rows[], staleAccountCodes[] }
 POST /v1/admin/reconciliation/invariants/run             -> { ok, checkedAt, violations[], truncated }
 ```
+
+`ichancyFake` (always present) is true when the deployment runs with `ICHANCY_FAKE=true`. Then the
+wallet was NOT read: `ichancyMinor`, `deltaMinor` and `breakId` are null, `belowWatermark` comes from
+the ledger alone, and no break is opened. The console shows a fake-mode notice there instead of its
+"Ichancy could not be read" alert, which a null `ichancyMinor` means in real mode.
 
 `BreakView`: `id, category, status, severity, currencyCode, expected|actual|delta: {minor, amount},
 depositRequestId, playerId, ledgerAccountId, ichancyCallId, detail, dedupeKey, detectedAt,
@@ -729,27 +784,35 @@ detail }`.
 ```
 GET   /v1/admin/tenants          -> { tenants: TenantView[] }   <- note the wrapper object
 GET   /v1/admin/tenants/:id
-POST  /v1/admin/tenants          -> 201, always lands SUSPENDED
+POST  /v1/admin/tenants          -> 201, lands SUSPENDED until its staff group is bound
 PATCH /v1/admin/tenants/:id      { displayName?, adminChatId?, feedChatId?,
                                    dualApprovalThresholdMinor?, agentFloatLowWatermarkMinor?,
                                    depositExpiryMinutes? }
-POST  /v1/admin/tenants/:id/activate     (verifies the Ichancy agent with a real signin)
+POST  /v1/admin/tenants/:id/activate     (refused without a staff group; then a real Ichancy signin)
 POST  /v1/admin/tenants/:id/suspend
 
 POST   /v1/admin/tenants/:id/webhook     -> TenantWebhookView   (tells Telegram where to deliver)
 DELETE /v1/admin/tenants/:id/webhook     -> TenantWebhookView   (stops delivery; keeps serving)
 POST   /v1/admin/tenants/:id/bot-setup   -> { commandsSet, scopes[] }
-GET    /v1/admin/tenants/:id/health      -> { bot, ichancy, counts }
+GET    /v1/admin/tenants/:id/health      -> { bot, ichancy, chats, counts }
 PATCH  /v1/admin/tenants/:id/ichancy     { ichancyBaseUrl?, ichancyUsername?, ichancyPassword?,
                                            ichancyAgentId? }  -> TenantView
 PATCH  /v1/admin/tenants/:id/bot         { botToken }          -> TenantView
 POST  /v1/admin/tenants/:id/import-players -> PlayerImportSummary   (the "old players", again)
+
+POST   /v1/admin/tenants/:id/telegram/bind-links      { purpose }  -> TelegramBindLinkView (200)
+GET    /v1/admin/tenants/:id/telegram/chats                         -> TenantDiscoveredChatView[]
+PUT    /v1/admin/tenants/:id/telegram/chats/:purpose  { chatId }   -> TenantView
+DELETE /v1/admin/tenants/:id/telegram/chats/:purpose               -> TenantView
 ```
 
 `POST /:id/import-players` runs the same Ichancy import creation runs — for an operator created
 before it existed, or one whose first run met an outage. `{ scanned, created, existing, error,
-startedAt, finishedAt }`; idempotent, and an Ichancy failure is reported in `error` rather than
-thrown. `PLATFORM_ADMIN`, like every route on this surface.
+startedAt, finishedAt, ichancyFake }`; idempotent, and an Ichancy failure is reported in `error`
+rather than thrown. `PLATFORM_ADMIN`, like every route on this surface. `ichancyFake` is always
+present on this route and true under `ICHANCY_FAKE`: every count is then of made-up players. (The
+operator-side `POST /v1/admin/players/import` answers the same shape without `ichancyFake`, so the
+console reads the field as optional.)
 
 The six operational routes above were documented only in `docs/TENANT-OPERATIONS.md` §6 until
 2026-08-25, while the console had been calling them for some time. Their behaviour is argued there
@@ -772,22 +835,37 @@ default: `{ slug?, adminChatId?, feedChatId?, ichancyBaseUrl?, ichancyAgentId?, 
 dualApprovalThresholdMinor?, agentFloatLowWatermarkMinor?, depositExpiryMinutes? }`.
 
 What fills them in: `slug` ← `slugify(displayName)`, de-duplicated with `-2`, `-3`, … on collision;
-`adminChatId` ← the Telegram id of the PLATFORM_ADMIN making the request; `feedChatId` ← nothing, it
-stays optional with no default; everything else ← the single **PlatformDefaults** settings row
-(DB-backed, seeded from the deployment's env values on first run, read through one service).
+`adminChatId` ← NOTHING (changed 2026-09-15): the operator is created with no staff group, answers
+`adminChatId: null`, and stays SUSPENDED until one is bound (see "Staff and feed groups" below). It is
+no longer the creating admin's Telegram id: that is a person's private chat, never a staff group. A
+chat named in the request is verified with Telegram before the row is written (400
+`TELEGRAM_CHAT_REJECTED`), and an explicit `"0"` is 400 `VALIDATION_FAILED`. `feedChatId` ← nothing,
+it stays optional with no default and is verified the same way when sent; everything else ← the
+single **PlatformDefaults** settings row (DB-backed, seeded from the deployment's env values on first
+run, read through one service).
 
 `ichancyAgentId` is the exception: supplied → PlatformDefaults → tenant zero's `ichancyAgentId` →
 **400 naming the field**. Ichancy `signin()` returns only a token pair, so an agent id can never be
 derived from the credentials — there is no lookup. Two tenants sharing an agent id is allowed and is
 how a second operator gets tested.
 
-The response is the same `TenantView` as before, with **every field populated**: the defaults are
-resolved server-side and visible in it, which is what the console's detail panel reads after create.
+The response is the same `TenantView` as before, with every defaulted field resolved server-side
+and visible in it, which is what the console's detail panel reads after create. `adminChatId` and
+`feedChatId` are the two that may be null: nothing defaults them.
 
-`TenantView`: `id, slug, displayName, status, hasWebhookPath, adminChatId, feedChatId, botUsername,
-ichancyBaseUrl, ichancyUsername, ichancyAgentId, currencyCode, dualApprovalThresholdMinor,
-agentFloatLowWatermarkMinor, depositExpiryMinutes, withdrawalMode: 'AUTO'|'MANUAL',
-miniAppUrl: string | null, createdAt, updatedAt, counts?: {players, deposits}`.
+`TenantView`: `id, slug, displayName, status, hasWebhookPath, adminChatId: string | null,
+feedChatId: string | null, botUsername, ichancyBaseUrl, ichancyUsername, ichancyAgentId,
+currencyCode, dualApprovalThresholdMinor, agentFloatLowWatermarkMinor, depositExpiryMinutes,
+withdrawalMode: 'AUTO'|'MANUAL', miniAppUrl: string | null, ichancyFake: boolean, createdAt,
+updatedAt, counts?: {players, deposits}`.
+
+`adminChatId` is the STAFF GROUP (review cards and operational alerts), `feedChatId` the FEED GROUP.
+Null is "not bound" (stored as 0). While `adminChatId` is null nothing the operator sends to staff
+reaches Telegram, activation is refused, and the console says so in red.
+
+`ichancyFake` (always present, 2026-09-15) is deployment-wide — `ICHANCY_FAKE=true` — and repeated on
+every operator, because the console reads operators, not deployments. When true, an ACTIVE status was
+"verified" by the fake adapter, and the console must say that no real Ichancy connection was made.
 
 `withdrawalMode` and `miniAppUrl` are the same two settings `/v1/admin/bot-menu/settings` serves
 from inside the operator, seen from the platform side. Both are accepted on create and on update
@@ -796,10 +874,127 @@ console parses them as optional, because a backend older than the withdrawal mod
 neither, and reads an absent mode as `MANUAL`.
 
 `slug` and `currencyCode` are immutable after creation. Secrets are never returned; the webhook path
-is reported only as `hasWebhookPath`. A new tenant lands SUSPENDED on purpose — nothing can verify
-from a form that the agent id is the right one, so activating is a second, deliberate act.
+is reported only as `hasWebhookPath`. A new tenant lands SUSPENDED, and provisioning's activation step
+(below) is refused while no staff group is bound — which, since create no longer defaults one, is
+every create that names no `adminChatId`. It stays SUSPENDED until the platform admin binds its staff
+group and activates it.
 
 `TenantStatus`: `ACTIVE SUSPENDED CLOSED`.
+
+`PATCH /:id` with a CHANGED `adminChatId` or `feedChatId` is a bind, not a column edit: it is verified
+with Telegram first (same checks and same 400 `TELEGRAM_CHAT_REJECTED` as the chat routes below), only
+when the value really differs from what is stored, and nothing is written if a check refuses. An
+unchanged value sent back by the edit form verifies nothing. `"0"` is 400 `VALIDATION_FAILED`: a group
+is removed with `DELETE /v1/admin/tenants/:id/telegram/chats/:purpose`, never by PATCH.
+
+`POST /:id/activate` refusals, in the order they are checked: 422 `TENANT_CLOSED`, 422
+`TENANT_STAFF_GROUP_REQUIRED` (no staff group; checked before any sign-in, the operator stays
+SUSPENDED), 422 `TENANT_ICHANCY_UNCONFIGURED`, 422 `ICHANCY_SIGNIN_FAILED`, 503
+`TENANT_ICHANCY_UNAVAILABLE`. The console shows the message verbatim and titles the first by its
+code.
+
+#### GET /:id/health — `chats`, and Ichancy in fake mode
+
+```
+health = { bot, ichancy, chats: { staff: BoundChatHealth, feed: BoundChatHealth }, counts }
+BoundChatHealth = { chatId: string|null, title, status, isPresent, isAdministrator, canPost,
+                    lastSeenAt }   // every field but chatId: the bot's last sighting, null if none
+```
+
+`chats.staff.chatId` is the bound staff group (null = not bound). `isPresent: false` means **the bot
+was removed from that group**: the binding is kept, nothing reaches the group, and a human acts (add
+the bot back as an administrator, or bind another group). No Telegram call is made for this block;
+it is the chat directory, kept current by Telegram's own `my_chat_member` updates.
+
+`ichancy.fake: boolean` is always present. When true (`ICHANCY_FAKE=true`): `ok` is **false**,
+`error` is exactly `Ichancy is in fake mode (ICHANCY_FAKE=true): no real connection was made.`,
+`floatMinor` null, `belowWatermark` false, `checkedAt` the time of the request; `baseUrl`,
+`username`, `agentId` and `sharesAgentWith` stay real. No Ichancy call is made and nothing is cached.
+Tenant zero in fake mode keeps its own error ("Tenant zero is the platform, not an operator…") with
+`fake: true`, so the console keys on `fake`, never on the error text. In real mode nothing changed.
+
+#### Staff and feed groups — `/v1/admin/tenants/:id/telegram` (owner decisions 1, 2, 3, 5 — 2026-09-15)
+
+`PLATFORM_ADMIN` only, like the rest of this surface, and the operator is named in the path: only the
+platform binds or changes an operator's groups. `:purpose` and `purpose` are `STAFF` (the staff
+group, `adminChatId`) or `FEED` (the feed group, `feedChatId`).
+
+**The primary path — "Add bot to staff group".** `POST /:id/telegram/bind-links { purpose }` answers
+
+`TelegramBindLinkView`: `purpose, url, botUsername, expiresAt, adminRights[]`
+
+`url` is `https://t.me/<botUsername>?startgroup=<nonce>&admin=post_messages+delete_messages+pin_messages+manage_chat`
+(`adminRights` lists the same rights). The console opens it in a new tab; Telegram asks which group to
+add the bot to, as an administrator with those rights, and then sends `/start@<bot> <nonce>` in that
+group. The backend matches the nonce to this operator and purpose, verifies the chat with Telegram
+(group or supergroup, bot present, administrator, able to post), binds it, posts a short confirmation
+in the group, and — for the staff group — queues review cards for deposits already waiting.
+
+- One use, for 15 minutes (`expiresAt`). Issuing a new link for the same purpose revokes the previous
+  one. The nonce is in `url` only: never logged, never in an audit row; treat the URL as a credential.
+- Opening a fresh link in the group that is ALREADY bound writes nothing, does not use the link up,
+  and the bot replies "This group is already the staff group of <name>. Nothing changed."
+- A bind that fails verification leaves nothing bound and the bot explains in the group.
+- Refusals: 404 `TENANT_NOT_FOUND`, 422 `TENANT_PLATFORM_LOCKED` (tenant zero), 422 `TENANT_CLOSED`,
+  422 `TENANT_BOT_UNAVAILABLE` (the bot has no known @username yet: replace its token).
+- The result is not pushed to the console. The console polls `GET /:id` and `GET /:id/telegram/chats`
+  every few seconds while the step is open, and sees `adminChatId` become non-null.
+- Telegram only reaches the webhook over public https, so on a laptop without a tunnel neither the
+  link nor discovery can complete; a typed id through `PUT` (below) still works, as that call is
+  outgoing.
+
+**The fallback — groups the bot was seen in.** `GET /:id/telegram/chats` answers this operator's
+chat directory, most recent first, removals included. Groups the bot joins any other way (not through
+a link) are recorded here, for a SUSPENDED operator too.
+
+`TenantDiscoveredChatView`: the `DiscoveredChatView` of `/v1/admin/telegram/chats` (`chatId, chatType,
+title, username, status, isAdministrator, isPresent, canPost, alreadyBound, firstSeenAt, lastSeenAt`)
+plus `boundAs: ('STAFF'|'FEED')[], migratedToChatId: string|null, lastChangedByTelegramUserId:
+string|null, lastChangedByUsername: string|null`.
+
+- Here `alreadyBound` means "bound as this operator's staff or feed group" (`boundAs` non-empty), NOT
+  "an active destination".
+- `lastChangedBy…` is who last added, promoted or removed the bot, so a stranger's group is
+  recognisable before anybody picks it. Anyone can add a public bot to their own group, and picking
+  the wrong row would leak player names and amounts into it.
+- `migratedToChatId` non-null: the group became a supergroup; this row is the dead id and should not
+  be picked (binding it binds the new id). Stored ids move automatically on migration.
+
+`PUT /:id/telegram/chats/:purpose { chatId }` binds a picked row's `chatId` (or an id typed on a
+laptop) and answers the `TenantView`. Being in the list is never permission: the chat is verified with
+Telegram at that moment, outside any transaction, and a refusal is audited and answered
+
+**400 `TELEGRAM_CHAT_REJECTED`**, `details: { reason, purpose, field, chatId, detail }`, message ending
+"Nothing was saved.":
+
+| `reason`              | Meaning                                                                        |
+| --------------------- | ------------------------------------------------------------------------------ |
+| `NOT_FOUND`           | Telegram does not know the chat or will not show it to this bot                 |
+| `PRIVATE_CHAT`        | A one-to-one chat; a staff or feed group must be a group                        |
+| `CHANNEL_NOT_ALLOWED` | A channel; staff must be able to tap the review buttons, so it must be a group  |
+| `BOT_NOT_MEMBER`      | Add the bot to the group                                                        |
+| `BOT_NOT_ADMIN`       | Make the bot an administrator                                                   |
+| `BOT_CANNOT_POST`     | The bot is restricted from sending messages                                     |
+
+`field` names the request field that carried the chat (`chatId`, `adminChatId`, `feedChatId`), `chatId`
+the id finally checked (a supergroup's when the group had moved), `detail` Telegram's own words or
+null. Telegram being unreachable is 503 `TENANT_TELEGRAM_UNREACHABLE`; `"0"` is 400
+`VALIDATION_FAILED`. Also 404 `TENANT_NOT_FOUND`, 422 `TENANT_PLATFORM_LOCKED`, 422 `TENANT_CLOSED`.
+
+`DELETE /:id/telegram/chats/:purpose` removes a group and answers the `TenantView`. The STAFF group of
+an ACTIVE operator is refused with 422 `TENANT_STAFF_GROUP_REQUIRED` ("an active operator must always
+have a staff group"): bind another group instead, or suspend first.
+
+**`TENANT_STAFF_GROUP_REQUIRED` (422)** is answered in three places: `POST /:id/activate` (and so
+provisioning's `activationError`) while no staff group is bound; `DELETE /:id/telegram/chats/STAFF` on
+an ACTIVE operator; and starting a deposit (`POST /v1/deposits`, the bot's deposit buttons) for an
+operator that is ACTIVE with no staff group — a row that predates the rule. The player-facing message
+there is the same "Deposits are paused for this cashier right now…" as `TENANT_NOT_ACTIVE`, with
+`details: { status: 'ACTIVE' }`; the code tells the console and the logs the real cause. No data
+migration suspended such rows.
+
+A fresh dev install (`npm run seed`) creates its bootstrap operator SUSPENDED with `adminChatId: null`;
+it becomes ACTIVE only once a staff group is bound and it is activated.
 
 ### The crypto rate — `/v1/admin/exchange-rates`
 
@@ -1171,8 +1366,18 @@ provisioning = { webhookRegistered, webhookUrl, webhookError,
                  menusPushed, menuScopes[], menuError,
                  activated, activationError,
                  paymentMethodsCreated, paymentMethodsError, paymentMethodsNeedAccounts,
-                 playersImported, playersImportError }
+                 playersImported, playersImportError, ichancyFake }
 ```
+
+`ichancyFake` (always present) is true under `ICHANCY_FAKE`: `activated` and `playersImported` were
+answered by the fake adapter, so the agent's credentials were never proven and any imported players
+are made up. `activationError` keeps its meaning (null means activation succeeded) and never carries
+the fake notice.
+
+Activation is refused, and `activated: false` with `activationError` "This operator has no staff group
+yet, so it cannot be activated…", for every create that names no `adminChatId` — which is the
+console's default create. That is expected, not a failure to chase: bind the staff group, then
+activate.
 
 `playersImported` / `playersImportError` report the import of the operator's existing Ichancy
 players (the "old players"), which runs only after activation succeeded — an operator that did not
@@ -1308,6 +1513,11 @@ about to ask, and a row that quietly disappears says nothing.
 `GET` is readable by the same roles as the destination list (`SUPER_ADMIN`, `FINANCE_ADMIN`,
 `REVIEWER`, `PLATFORM_ADMIN`). There is no write route: rows are created by the worker while
 handling a Telegram update, never by a client.
+
+This route follows the console's operator switcher. The operator page's staff and feed group picker
+does NOT use it: it reads `GET /v1/admin/tenants/:id/telegram/chats`, which names the operator in the
+path, so a platform admin looking at operator X never sees operator Y's groups (see "Staff and feed
+groups" under Tenants).
 
 ### Reports to Telegram — `/v1/admin/reports`
 

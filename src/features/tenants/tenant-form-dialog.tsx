@@ -17,7 +17,6 @@ import {
 } from '@/components/ui/dialog';
 import { Input, baseField } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { errorMessage } from '@/lib/api/errors';
 import { useCreateTenant, useUpdateTenant } from '@/lib/api/queries';
 import {
   useEnumLabel,
@@ -36,6 +35,7 @@ import {
   withdrawalModeSchema,
 } from '@/types/enums';
 
+import { useChatRejectionSentence } from './chat-rejection';
 import { tenantMessages } from './messages';
 
 /**
@@ -45,9 +45,10 @@ import { tenantMessages } from './messages';
  *
  * ── FOUR FIELDS, AND A DISCLOSURE FOR THE REST ────────────────────────────────────────────────
  * `POST /v1/admin/tenants` requires a display name, a bot token and the Ichancy login. Every other
- * value has a server-side default — the slug from the display name, the admin chat from whoever is
- * signed in, the rest from the platform settings row — so the form asks for four things and puts
- * the nine that have defaults behind "Advanced", each labelled with what it gets when left blank.
+ * value has a server-side default — the slug from the display name, the rest from the platform
+ * settings row — or is legitimately empty: the staff and feed groups, which are bound from the
+ * operator's page after it exists (owner decision, 2026-09-15). So the form asks for four things and
+ * puts the rest behind "Advanced", each labelled with what it gets when left blank.
  *
  * An omitted optional field is ABSENT from the request body, never `""` and never `null`: an empty
  * string is a value, and a backend that stores it has silently overwritten the default it was
@@ -175,7 +176,9 @@ const ADVANCED_FIELDS = [
 const editSchemaFor = (t: TenantTranslator) =>
   z.object({
     displayName: z.string().trim().min(1, t('tenants.validation.displayName')),
-    adminChatId: z.string().regex(CHAT_ID_RE, t('tenants.validation.chatId')),
+    // Optional since an operator may have no staff group: blank keeps what is stored (PATCH cannot
+    // unset a group; the checklist removes one), and a typed id is a bind the server verifies.
+    adminChatId: optionalChatIdFieldFor(t),
     feedChatId: optionalChatIdFieldFor(t),
     dualApprovalThresholdMinor: minorFieldFor(t),
     agentFloatLowWatermarkMinor: minorFieldFor(t),
@@ -225,6 +228,7 @@ function CreateTenantForm({
 }) {
   const createTenant = useCreateTenant();
   const t = useT(tenantMessages);
+  const rejectionSentence = useChatRejectionSentence();
   const schema = useMemo(() => createSchemaFor(t), [t]);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const {
@@ -272,7 +276,7 @@ function CreateTenantForm({
         });
         onSaved(created);
       } catch (error) {
-        toast.error(t('tenants.create.errorTitle'), { description: errorMessage(error) });
+        toast.error(t('tenants.create.errorTitle'), { description: rejectionSentence(error) });
       }
     },
     (fieldErrors) => {
@@ -506,6 +510,7 @@ function EditTenantForm({
 }) {
   const updateTenant = useUpdateTenant();
   const t = useT(tenantMessages);
+  const rejectionSentence = useChatRejectionSentence();
   const schema = useMemo(() => editSchemaFor(t), [t]);
   const {
     register,
@@ -516,7 +521,7 @@ function EditTenantForm({
     resolver: zodResolver(schema),
     defaultValues: {
       displayName: tenant.displayName,
-      adminChatId: tenant.adminChatId,
+      adminChatId: tenant.adminChatId ?? '',
       feedChatId: tenant.feedChatId ?? '',
       dualApprovalThresholdMinor: tenant.dualApprovalThresholdMinor,
       agentFloatLowWatermarkMinor: tenant.agentFloatLowWatermarkMinor,
@@ -541,7 +546,7 @@ function EditTenantForm({
       });
       onSaved(updated);
     } catch (error) {
-      toast.error(t('tenants.edit.errorTitle'), { description: errorMessage(error) });
+      toast.error(t('tenants.edit.errorTitle'), { description: rejectionSentence(error) });
     }
   });
 
@@ -593,6 +598,7 @@ function EditTenantForm({
           label={t('tenants.field.adminChatId')}
           registration={register('adminChatId')}
           error={errors.adminChatId?.message}
+          hint={t('tenants.hint.adminChatId')}
           className="font-mono"
         />
         <TextField
@@ -949,12 +955,15 @@ function toCreateBody(values: CreateFormValues): CreateTenantBody {
  * sent only when it differs from what the row holds.
  */
 function toUpdateBody(values: EditFormValues, tenant: Tenant): UpdateTenantBody {
+  const adminChatId = values.adminChatId.trim();
   const feedChatId = values.feedChatId.trim();
   const miniAppUrl = values.miniAppUrl.trim();
   const hadMiniAppUrl = (tenant.miniAppUrl ?? null) !== null;
   return {
     displayName: values.displayName.trim(),
-    adminChatId: values.adminChatId.trim(),
+    // Blank is "leave the group alone": an operator with no staff group sends nothing, and PATCH has
+    // no spelling for removing one. An unchanged id goes back as before and verifies nothing.
+    ...(adminChatId === '' ? {} : { adminChatId }),
     ...(feedChatId === '' ? {} : { feedChatId }),
     dualApprovalThresholdMinor: values.dualApprovalThresholdMinor.trim(),
     agentFloatLowWatermarkMinor: values.agentFloatLowWatermarkMinor.trim(),

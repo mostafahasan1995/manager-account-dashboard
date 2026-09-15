@@ -135,6 +135,12 @@ export const reconMessages = defineMessages({
     'recon.float.above': 'Above',
     'recon.float.noBreak': 'No break was raised by this sync.',
     'recon.float.openBreak': 'Open the break this raised',
+    'recon.float.syncedFake': 'Float sync ran in fake mode: Ichancy was not read',
+    'recon.float.fakeTitle': 'Ichancy is in fake mode',
+    'recon.float.fakeBody':
+      'This deployment runs with ICHANCY_FAKE=true, so the agent wallet was not read and nothing was compared. No break was opened; the watermark below comes from the ledger alone.',
+    'recon.float.notReadFake': 'Not read (fake mode)',
+    'recon.float.notComparedFake': 'Not compared (fake mode)',
 
     // ── The ledger's own invariants ──────────────────────────────────────────────────────────
     'recon.ledger.title': 'Ledger invariant checks',
@@ -295,6 +301,12 @@ export const reconMessages = defineMessages({
     'recon.float.above': 'فوق الحد',
     'recon.float.noBreak': 'لم تفتح هذه المزامنة أي فرق.',
     'recon.float.openBreak': 'افتح الفرق الناتج عنها',
+    'recon.float.syncedFake': 'تمت المزامنة في الوضع الوهمي: لم يُقرأ Ichancy',
+    'recon.float.fakeTitle': 'Ichancy في الوضع الوهمي',
+    'recon.float.fakeBody':
+      'يعمل هذا الخادم مع ICHANCY_FAKE=true، فلم تُقرأ محفظة الوكيل ولم تُجرَ أي مقارنة. لم يُفتح أي فرق؛ والحد الأدنى أدناه محسوب من الدفتر وحده.',
+    'recon.float.notReadFake': 'لم يُقرأ (وضع وهمي)',
+    'recon.float.notComparedFake': 'لم تُجرَ المقارنة (وضع وهمي)',
 
     'recon.ledger.title': 'فحوصات قواعد الدفتر',
     'recon.ledger.description':

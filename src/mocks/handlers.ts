@@ -78,6 +78,18 @@ import {
   syncAgentFloat,
   tenantHealth,
   updateTenantIchancy,
+  STAFF_GROUP_REMOVAL_REFUSED_MESSAGE,
+  STAFF_GROUP_REQUIRED_MESSAGE,
+  bindTenantChat,
+  chatRejectionMessage,
+  issueBindLink,
+  issueStaffLinkCode,
+  tenantChatsView,
+  tenantView,
+  unbindTenantChat,
+  unlinkStaffTelegram,
+  verifyTenantChat,
+  type MockChatVerdict,
 } from './db';
 import {
   MOCK_AGENT_PASSWORD,
@@ -177,6 +189,41 @@ const refusedFor = (request: Request, capability: Capability, message: string) =
   const role = callerRole(request);
   return role !== null && !can(role, capability) ? fail(403, 'INSUFFICIENT_ROLE', message) : null;
 };
+
+/**
+ * The staff and feed group routes are PLATFORM_ADMIN only on the backend (owner decision 3). A token
+ * with no role is a test client, as everywhere else in this file.
+ */
+const platformOnly = (request: Request) => {
+  const role = callerRole(request);
+  return role !== null && role !== 'PLATFORM_ADMIN'
+    ? fail(403, 'INSUFFICIENT_ROLE', 'This endpoint is for platform administrators.')
+    : null;
+};
+
+const chatPurposeOf = (value: unknown): 'STAFF' | 'FEED' | null =>
+  value === 'STAFF' || value === 'FEED' ? value : null;
+
+const tenantClosed = () =>
+  fail(
+    422,
+    'TENANT_CLOSED',
+    'This operator is closed. A closed operator keeps its records but no group can be bound to it.',
+  );
+
+/** 400 TELEGRAM_CHAT_REJECTED, in the backend's `details` shape and with its sentence per reason. */
+const chatRejected = (
+  verdict: Extract<MockChatVerdict, { ok: false }>,
+  purpose: 'STAFF' | 'FEED',
+  field: string,
+) =>
+  fail(400, 'TELEGRAM_CHAT_REJECTED', chatRejectionMessage(verdict.reason), {
+    reason: verdict.reason,
+    purpose,
+    field,
+    chatId: verdict.chatId,
+    detail: null,
+  });
 
 /** A Telegram user id: a positive 64-bit integer, which crosses the wire as a decimal string. */
 const TELEGRAM_USER_ID_PATTERN = /^[1-9]\d{0,19}$/;
@@ -1924,6 +1971,62 @@ export const handlers: HttpHandler[] = [
     return ok(admin);
   }),
 
+  /**
+   * A one-time Telegram link code. The staff member for their own account, or platform staff — never
+   * a SUPER_ADMIN for someone else: whoever sees the code can send it from their own Telegram.
+   * "Self" is `db.currentAdmin`, the mock session's identity.
+   */
+  http.post(url('/v1/admin/admins/:id/telegram-link-code'), ({ params, request }) => {
+    const adminId = String(params.id);
+    const role = callerRole(request);
+    if (role !== null && role !== 'PLATFORM_ADMIN' && adminId !== db.currentAdmin.id) {
+      return fail(
+        403,
+        'ADMIN_TELEGRAM_LINK_FORBIDDEN',
+        'Only the staff member themselves, or a platform admin, can get a Telegram link code for an account.',
+      );
+    }
+    const admin = db.admins.find((row) => row.id === adminId);
+    if (admin === undefined) return fail(404, 'ADMIN_NOT_FOUND', 'Administrator not found.');
+    if (!admin.isActive) {
+      return fail(
+        422,
+        'ADMIN_TELEGRAM_LINK_NOT_ALLOWED',
+        'This staff account is deactivated. Reactivate it before linking it to Telegram.',
+        { reason: 'INACTIVE' },
+      );
+    }
+    if (admin.telegramLinked) {
+      return fail(
+        409,
+        'ADMIN_TELEGRAM_ALREADY_LINKED',
+        'This staff account is already linked to a Telegram account. Remove that link first.',
+      );
+    }
+    return ok(issueStaffLinkCode(admin));
+  }),
+
+  /** The staff member, a SUPER_ADMIN of the operator, or platform staff. Idempotent. */
+  http.delete(url('/v1/admin/admins/:id/telegram-link'), ({ params, request }) => {
+    const adminId = String(params.id);
+    const role = callerRole(request);
+    if (
+      role !== null &&
+      role !== 'PLATFORM_ADMIN' &&
+      role !== 'SUPER_ADMIN' &&
+      adminId !== db.currentAdmin.id
+    ) {
+      return fail(
+        403,
+        'ADMIN_TELEGRAM_LINK_FORBIDDEN',
+        "Only the staff member, a super admin of this operator or a platform admin can remove an account's Telegram link.",
+      );
+    }
+    const admin = db.admins.find((row) => row.id === adminId);
+    if (admin === undefined) return fail(404, 'ADMIN_NOT_FOUND', 'Administrator not found.');
+    return ok(unlinkStaffTelegram(admin));
+  }),
+
   // ── Reconciliation ───────────────────────────────────────────────────────────────────────────
   http.get(url('/v1/admin/reconciliation/breaks'), ({ request }) => {
     const statuses = listParam(request, 'status');
@@ -2001,11 +2104,13 @@ export const handlers: HttpHandler[] = [
   ),
 
   // ── Tenants ──────────────────────────────────────────────────────────────────────────────────
-  http.get(url('/v1/admin/tenants'), () => ok({ tenants: db.tenants })),
+  http.get(url('/v1/admin/tenants'), () => ok({ tenants: db.tenants.map(tenantView) })),
 
   http.get(url('/v1/admin/tenants/:id'), ({ params }) => {
     const tenant = db.tenants.find((row) => row.id === String(params.id));
-    return tenant === undefined ? fail(404, 'TENANT_NOT_FOUND', 'Tenant not found.') : ok(tenant);
+    return tenant === undefined
+      ? fail(404, 'TENANT_NOT_FOUND', 'Tenant not found.')
+      : ok(tenantView(tenant));
   }),
 
   /**
@@ -2035,23 +2140,52 @@ export const handlers: HttpHandler[] = [
 
     const { tenant, provisioning } = createTenant(body);
     // Flattened, exactly as the backend answers it: `{ ...TenantView, provisioning }`.
-    return ok({ ...tenant, provisioning }, {}, 201);
+    return ok({ ...tenantView(tenant), provisioning }, {}, 201);
   }),
 
+  /**
+   * A CHANGED staff or feed chat is a bind: verified first, and nothing is written when either is
+   * refused. An unchanged one — the edit form sends the chat back on every save — verifies nothing.
+   */
   http.patch(url('/v1/admin/tenants/:id'), async ({ params, request }) => {
     const tenant = db.tenants.find((row) => row.id === String(params.id));
     if (tenant === undefined) return fail(404, 'TENANT_NOT_FOUND', 'Tenant not found.');
-    Object.assign(tenant, await request.json(), { updatedAt: nowIso() });
-    return ok(tenant);
+
+    const body = (await request.json()) as Record<string, unknown>;
+    const verified: Partial<Record<'adminChatId' | 'feedChatId', string>> = {};
+    for (const [field, purpose] of [
+      ['adminChatId', 'STAFF'],
+      ['feedChatId', 'FEED'],
+    ] as const) {
+      const next = body[field];
+      if (typeof next !== 'string' || next === tenant[field]) continue;
+      if (next === '0') {
+        return fail(400, 'VALIDATION_FAILED', 'The request payload is invalid.', {
+          fields: [
+            `${field} must be a real Telegram chat id: 0 is no chat. Remove a group with DELETE /v1/admin/tenants/:id/telegram/chats/${purpose}`,
+          ],
+        });
+      }
+      const verdict = verifyTenantChat(tenant.id, next);
+      if (!verdict.ok) return chatRejected(verdict, purpose, field);
+      verified[field] = verdict.chatId;
+    }
+
+    Object.assign(tenant, body, verified, { updatedAt: nowIso() });
+    return ok(tenantView(tenant));
   }),
 
   http.post(url('/v1/admin/tenants/:id/activate'), ({ params }) => {
     const tenant = db.tenants.find((row) => row.id === String(params.id));
     if (tenant === undefined) return fail(404, 'TENANT_NOT_FOUND', 'Tenant not found.');
+    // Checked before any sign-in, as the backend does: the answer does not depend on credentials.
+    if (tenant.status !== 'ACTIVE' && tenant.adminChatId === null) {
+      return fail(422, 'TENANT_STAFF_GROUP_REQUIRED', STAFF_GROUP_REQUIRED_MESSAGE);
+    }
     tenant.status = 'ACTIVE';
     tenant.botUsername = tenant.botUsername ?? `${tenant.slug.replace(/-/g, '_')}_bot`;
     tenant.updatedAt = nowIso();
-    return ok(tenant);
+    return ok(tenantView(tenant));
   }),
 
   http.post(url('/v1/admin/tenants/:id/suspend'), ({ params }) => {
@@ -2059,7 +2193,7 @@ export const handlers: HttpHandler[] = [
     if (tenant === undefined) return fail(404, 'TENANT_NOT_FOUND', 'Tenant not found.');
     tenant.status = 'SUSPENDED';
     tenant.updatedAt = nowIso();
-    return ok(tenant);
+    return ok(tenantView(tenant));
   }),
 
   // ── Operator operations ──────────────────────────────────────────────────────────────────────
@@ -2111,7 +2245,7 @@ export const handlers: HttpHandler[] = [
     }
 
     updateTenantIchancy(tenant, body);
-    return ok(tenant);
+    return ok(tenantView(tenant));
   }),
 
   http.patch(url('/v1/admin/tenants/:id/bot'), async ({ params, request }) => {
@@ -2127,7 +2261,7 @@ export const handlers: HttpHandler[] = [
     }
 
     replaceTenantBot(tenant, botToken);
-    return ok(tenant);
+    return ok(tenantView(tenant));
   }),
 
   /** The platform pulling an operator's existing players in. PLATFORM_ADMIN, like every tenant route. */
@@ -2140,6 +2274,85 @@ export const handlers: HttpHandler[] = [
     return tenant === undefined
       ? fail(404, 'TENANT_NOT_FOUND', 'Tenant not found.')
       : ok(importPlayersForTenant(tenant));
+  }),
+
+  // ── Staff and feed groups (PLATFORM_ADMIN) ───────────────────────────────────────────────────
+
+  http.post(url('/v1/admin/tenants/:id/telegram/bind-links'), async ({ params, request }) => {
+    const refused = platformOnly(request);
+    if (refused !== null) return refused;
+    const tenant = db.tenants.find((row) => row.id === String(params.id));
+    if (tenant === undefined) return fail(404, 'TENANT_NOT_FOUND', 'Tenant not found.');
+
+    const body = (await request.json().catch(() => ({}))) as { purpose?: unknown };
+    const purpose = chatPurposeOf(body.purpose);
+    if (purpose === null) {
+      return fail(400, 'VALIDATION_FAILED', 'The request payload is invalid.', {
+        fields: ['purpose must be STAFF or FEED'],
+      });
+    }
+    if (tenant.status === 'CLOSED') return tenantClosed();
+    if (tenant.botUsername === null) {
+      return fail(
+        422,
+        'TENANT_BOT_UNAVAILABLE',
+        "This operator's bot has no known @username yet, so no link can be built. Replace its bot token from the dashboard so Telegram confirms the bot, then try again.",
+      );
+    }
+    return ok(issueBindLink(tenant, tenant.botUsername, purpose));
+  }),
+
+  http.get(url('/v1/admin/tenants/:id/telegram/chats'), ({ params, request }) => {
+    const refused = platformOnly(request);
+    if (refused !== null) return refused;
+    const tenant = db.tenants.find((row) => row.id === String(params.id));
+    return tenant === undefined
+      ? fail(404, 'TENANT_NOT_FOUND', 'Tenant not found.')
+      : ok(tenantChatsView(tenant));
+  }),
+
+  http.put(url('/v1/admin/tenants/:id/telegram/chats/:purpose'), async ({ params, request }) => {
+    const refused = platformOnly(request);
+    if (refused !== null) return refused;
+    const tenant = db.tenants.find((row) => row.id === String(params.id));
+    if (tenant === undefined) return fail(404, 'TENANT_NOT_FOUND', 'Tenant not found.');
+    const purpose = chatPurposeOf(params.purpose);
+    const body = (await request.json().catch(() => ({}))) as { chatId?: unknown };
+    const chatId = typeof body.chatId === 'string' ? body.chatId.trim() : '';
+    if (purpose === null || !/^-?\d{1,19}$/.test(chatId) || chatId === '0') {
+      return fail(400, 'VALIDATION_FAILED', 'The request payload is invalid.', {
+        fields: [
+          purpose === null
+            ? 'purpose must be STAFF or FEED'
+            : 'chatId must be a real Telegram chat id: 0 is no chat',
+        ],
+      });
+    }
+    if (tenant.status === 'CLOSED') return tenantClosed();
+
+    const verdict = verifyTenantChat(tenant.id, chatId);
+    if (!verdict.ok) return chatRejected(verdict, purpose, 'chatId');
+    bindTenantChat(tenant, purpose, verdict.chatId);
+    return ok(tenantView(tenant));
+  }),
+
+  http.delete(url('/v1/admin/tenants/:id/telegram/chats/:purpose'), ({ params, request }) => {
+    const refused = platformOnly(request);
+    if (refused !== null) return refused;
+    const tenant = db.tenants.find((row) => row.id === String(params.id));
+    if (tenant === undefined) return fail(404, 'TENANT_NOT_FOUND', 'Tenant not found.');
+    const purpose = chatPurposeOf(params.purpose);
+    if (purpose === null) {
+      return fail(400, 'VALIDATION_FAILED', 'The request payload is invalid.', {
+        fields: ['purpose must be STAFF or FEED'],
+      });
+    }
+    if (tenant.status === 'CLOSED') return tenantClosed();
+    if (purpose === 'STAFF' && tenant.status === 'ACTIVE') {
+      return fail(422, 'TENANT_STAFF_GROUP_REQUIRED', STAFF_GROUP_REMOVAL_REFUSED_MESSAGE);
+    }
+    unbindTenantChat(tenant, purpose);
+    return ok(tenantView(tenant));
   }),
   // ---- Telegram destinations -----------------------------------------------------------------
   //

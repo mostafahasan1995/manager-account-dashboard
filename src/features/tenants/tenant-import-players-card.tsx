@@ -49,6 +49,11 @@ export function TenantImportPlayersCard({
           <p className="text-xs text-[var(--muted-foreground)]">{t('tenants.import.notRun')}</p>
         ) : (
           <>
+            {summary.ichancyFake === true ? (
+              <Alert tone="warning" title={t('tenants.import.fakeTitle')}>
+                {t('tenants.import.fakeBody')}
+              </Alert>
+            ) : null}
             {summary.error === null ? (
               <Alert tone="success" title={t('tenants.import.doneTitle')}>
                 {t('tenants.import.summary', counts)}
