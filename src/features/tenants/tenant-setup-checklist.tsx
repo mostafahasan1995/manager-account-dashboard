@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { useT } from '@/lib/i18n/use-translation';
 import { cn } from '@/lib/utils';
 import type { Tenant, TenantHealth } from '@/types';
+import { isPlatformTenant } from '@/types/tenant';
 
 import { tenantMessages } from './messages';
 import type { TenantOperatorActions } from './tenant-actions';
@@ -32,6 +33,11 @@ import { TenantChatBinding } from './tenant-chat-binding';
  * ── WHY THE FEED GROUP IS "OPTIONAL" RATHER THAN "TODO" ───────────────────────────────────────────
  * An operator with no feed group is fully set up. Counting it as a missing step would keep "every step
  * is done" out of reach forever, and teach people to ignore the count.
+ *
+ * ── WHY TENANT ZERO HAS NEITHER GROUP STEP ────────────────────────────────────────────────────────
+ * Tenant zero is the platform itself, not an operator. It has no staff or feed group, and the backend
+ * refuses every link, bind and removal for it (422 TENANT_PLATFORM_LOCKED), so both steps would offer
+ * buttons that can only fail. They are left out; the panel's chat section says why, in one line.
  */
 export function TenantSetupChecklist({
   tenant,
@@ -55,8 +61,9 @@ export function TenantSetupChecklist({
   const feedSighting = sightingFor(tenant.feedChatId, health.chats.feed);
   const feedName = feedSighting?.title ?? tenant.feedChatId ?? '';
   const feedRemoved = feedSighting?.isPresent === false;
+  const platform = isPlatformTenant(tenant);
 
-  const steps: ChecklistStep[] = [
+  const allSteps: ChecklistStep[] = [
     {
       key: 'bot-token',
       title: t('tenants.checklist.botToken'),
@@ -163,12 +170,13 @@ export function TenantSetupChecklist({
       body:
         tenant.status === 'ACTIVE'
           ? t('tenants.checklist.activeDone')
-          : tenant.adminChatId === null
+          : tenant.adminChatId === null && !platform
             ? t('tenants.checklist.activeNeedsStaffGroup', { action: t('tenants.activate.action') })
             : t('tenants.checklist.activeTodo', { action: t('tenants.activate.action') }),
       action: null,
     },
   ];
+  const steps = platform ? allSteps.filter((step) => !GROUP_STEP_KEYS.has(step.key)) : allSteps;
 
   const remaining = steps.filter((step) => step.state === 'todo').length;
 
@@ -192,6 +200,9 @@ export function TenantSetupChecklist({
     </Card>
   );
 }
+
+/** The steps an operator has and the platform does not. */
+const GROUP_STEP_KEYS: ReadonlySet<string> = new Set(['staff-group', 'feed-group']);
 
 type StepState = 'done' | 'todo' | 'unknown' | 'optional';
 

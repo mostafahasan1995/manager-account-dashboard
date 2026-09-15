@@ -78,8 +78,10 @@ import {
   syncAgentFloat,
   tenantHealth,
   updateTenantIchancy,
+  AGENT_PRINCIPAL_LINK_MESSAGE,
   STAFF_GROUP_REMOVAL_REFUSED_MESSAGE,
   STAFF_GROUP_REQUIRED_MESSAGE,
+  TENANT_PLATFORM_LOCKED_MESSAGE,
   bindTenantChat,
   chatRejectionMessage,
   issueBindLink,
@@ -119,6 +121,7 @@ import {
 import { platformStatsView, tenantStatsView } from './stats';
 import { mockNetworkForAddress, mockWalletBalance } from './wallet-balance';
 import { STATS_PERIODS, type StatsPeriodKey } from '@/types/stats';
+import { isAgentPrincipal } from '@/types/admin';
 
 /**
  * The mock backend.
@@ -210,6 +213,13 @@ const tenantClosed = () =>
     'TENANT_CLOSED',
     'This operator is closed. A closed operator keeps its records but no group can be bound to it.',
   );
+
+/**
+ * Tenant zero is the platform, not an operator: issuing a link, binding (PUT, or PATCH with a changed
+ * chat) and removing a group are all refused, checked after "not found" and before "closed", as the
+ * backend does. Reading its chat directory is not refused there, so it is not here either.
+ */
+const platformLocked = () => fail(422, 'TENANT_PLATFORM_LOCKED', TENANT_PLATFORM_LOCKED_MESSAGE);
 
 /** 400 TELEGRAM_CHAT_REJECTED, in the backend's `details` shape and with its sentence per reason. */
 const chatRejected = (
@@ -1988,6 +1998,12 @@ export const handlers: HttpHandler[] = [
     }
     const admin = db.admins.find((row) => row.id === adminId);
     if (admin === undefined) return fail(404, 'ADMIN_NOT_FOUND', 'Administrator not found.');
+    // Before "inactive", as the backend checks it: the reserved "0" is never a person.
+    if (isAgentPrincipal(admin)) {
+      return fail(422, 'ADMIN_TELEGRAM_LINK_NOT_ALLOWED', AGENT_PRINCIPAL_LINK_MESSAGE, {
+        reason: 'AGENT_PRINCIPAL',
+      });
+    }
     if (!admin.isActive) {
       return fail(
         422,
@@ -2006,7 +2022,11 @@ export const handlers: HttpHandler[] = [
     return ok(issueStaffLinkCode(admin));
   }),
 
-  /** The staff member, a SUPER_ADMIN of the operator, or platform staff. Idempotent. */
+  /**
+   * The staff member, a SUPER_ADMIN of the operator, or platform staff. Idempotent. A PLATFORM_ADMIN
+   * row only by someone who could grant that role: a platform admin with no tenant override. The agent
+   * principal never, whoever asks.
+   */
   http.delete(url('/v1/admin/admins/:id/telegram-link'), ({ params, request }) => {
     const adminId = String(params.id);
     const role = callerRole(request);
@@ -2024,6 +2044,23 @@ export const handlers: HttpHandler[] = [
     }
     const admin = db.admins.find((row) => row.id === adminId);
     if (admin === undefined) return fail(404, 'ADMIN_NOT_FOUND', 'Administrator not found.');
+    if (
+      role !== null &&
+      adminId !== db.currentAdmin.id &&
+      admin.role === 'PLATFORM_ADMIN' &&
+      (role !== 'PLATFORM_ADMIN' || requestedTenant(request) !== null)
+    ) {
+      return fail(
+        403,
+        'ADMIN_TELEGRAM_LINK_FORBIDDEN',
+        'Only platform staff working in the platform itself can change a platform admin.',
+      );
+    }
+    if (isAgentPrincipal(admin)) {
+      return fail(422, 'ADMIN_TELEGRAM_LINK_NOT_ALLOWED', AGENT_PRINCIPAL_LINK_MESSAGE, {
+        reason: 'AGENT_PRINCIPAL',
+      });
+    }
     return ok(unlinkStaffTelegram(admin));
   }),
 
@@ -2166,6 +2203,7 @@ export const handlers: HttpHandler[] = [
           ],
         });
       }
+      if (tenant.id === TENANT_ZERO_ID) return platformLocked();
       const verdict = verifyTenantChat(tenant.id, next);
       if (!verdict.ok) return chatRejected(verdict, purpose, field);
       verified[field] = verdict.chatId;
@@ -2291,6 +2329,7 @@ export const handlers: HttpHandler[] = [
         fields: ['purpose must be STAFF or FEED'],
       });
     }
+    if (tenant.id === TENANT_ZERO_ID) return platformLocked();
     if (tenant.status === 'CLOSED') return tenantClosed();
     if (tenant.botUsername === null) {
       return fail(
@@ -2328,6 +2367,7 @@ export const handlers: HttpHandler[] = [
         ],
       });
     }
+    if (tenant.id === TENANT_ZERO_ID) return platformLocked();
     if (tenant.status === 'CLOSED') return tenantClosed();
 
     const verdict = verifyTenantChat(tenant.id, chatId);
@@ -2347,6 +2387,7 @@ export const handlers: HttpHandler[] = [
         fields: ['purpose must be STAFF or FEED'],
       });
     }
+    if (tenant.id === TENANT_ZERO_ID) return platformLocked();
     if (tenant.status === 'CLOSED') return tenantClosed();
     if (purpose === 'STAFF' && tenant.status === 'ACTIVE') {
       return fail(422, 'TENANT_STAFF_GROUP_REQUIRED', STAFF_GROUP_REMOVAL_REFUSED_MESSAGE);

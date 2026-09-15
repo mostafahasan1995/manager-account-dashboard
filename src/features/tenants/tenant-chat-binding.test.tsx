@@ -1,9 +1,14 @@
+import type { QueryClient } from '@tanstack/react-query';
 import { screen, waitFor, within } from '@testing-library/react';
+import { HttpResponse, http } from 'msw';
 import { toast } from 'sonner';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { config } from '@/config';
+import { TENANT_CHAT_POLL_MS } from '@/lib/api/queries';
 import { completeBindLink, db } from '@/mocks/db';
 import { TENANT_IDS, mockTenantChats, mockTenants } from '@/mocks/fixtures';
+import { server } from '@/test/msw-server';
 import { renderPlain } from '@/test/utils';
 
 import { TenantOperations } from './tenant-operations';
@@ -27,11 +32,34 @@ const ACROSS_A_POLL = { timeout: 9000 };
 
 afterEach(() => {
   vi.restoreAllMocks();
+  server.events.removeAllListeners('request:start');
 });
 
 const staffStep = async () => {
   const title = await screen.findByText('Staff group bound');
   return within(title.closest('li')!);
+};
+
+const sleep = (ms: number) =>
+  new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+
+/** Bind links still held in TanStack's mutation cache. Each URL carries a one-time nonce. */
+const heldBindLinks = (queryClient: QueryClient) =>
+  queryClient
+    .getMutationCache()
+    .getAll()
+    .filter((mutation) => JSON.stringify(mutation.state.data ?? null).includes('startgroup='));
+
+/** The pilot operator once Telegram has confirmed its bot, so a link can be issued for it. */
+const renderPilotWithBot = () => {
+  db.tenants.find((row) => row.id === pilot.id)!.botUsername = 'pilot_cashier_bot';
+  vi.spyOn(window, 'open').mockReturnValue(null);
+  return renderPlain(
+    <TenantOperations tenant={{ ...pilot, botUsername: 'pilot_cashier_bot' }} />,
+    platformAdmin,
+  );
 };
 
 describe('the staff group step', () => {
@@ -134,7 +162,9 @@ describe('the staff group step', () => {
     expect(
       await screen.findByText('The bot was removed from the staff group Northern staff'),
     ).toBeInTheDocument();
-    expect(screen.getByText(/The group is still bound, but nothing reaches it/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/The group is still bound, but nothing reaches it/),
+    ).toBeInTheDocument();
     const step = await staffStep();
     expect(step.getByText('still to do')).toBeInTheDocument();
     expect(step.getByText(/The bot was removed from Northern staff\./)).toBeInTheDocument();
@@ -150,6 +180,130 @@ describe('the staff group step', () => {
   });
 });
 
+describe('a link that is out', () => {
+  it('stops re-reading the operator once the link expires, and offers a new link', async () => {
+    // A link with three seconds to live, so the test can watch it run out.
+    server.use(
+      http.post(`${config.apiBaseUrl}/v1/admin/tenants/:id/telegram/bind-links`, () =>
+        HttpResponse.json({
+          success: true,
+          data: {
+            purpose: 'STAFF',
+            url: 'https://t.me/pilot_cashier_bot?startgroup=ShortLivedNonce1234&admin=post_messages',
+            botUsername: 'pilot_cashier_bot',
+            expiresAt: new Date(Date.now() + 3_000).toISOString(),
+            adminRights: ['post_messages'],
+          },
+          error: null,
+          meta: { correlationId: 'test', timestamp: '' },
+        }),
+      ),
+    );
+    let reads = 0;
+    server.events.on('request:start', ({ request }) => {
+      const path = new URL(request.url).pathname;
+      if (request.method === 'GET' && path.endsWith(`/v1/admin/tenants/${pilot.id}`)) reads += 1;
+    });
+    const { user } = renderPilotWithBot();
+
+    const step = await staffStep();
+    await user.click(step.getByRole('button', { name: 'Add bot to staff group' }));
+    expect(await step.findByText('Finish in Telegram')).toBeInTheDocument();
+
+    expect(await step.findByText('The link expired', {}, ACROSS_A_POLL)).toBeInTheDocument();
+    expect(step.queryByText('Finish in Telegram')).not.toBeInTheDocument();
+    expect(step.queryByRole('link', { name: 'Open the link again' })).not.toBeInTheDocument();
+    expect(step.getByRole('button', { name: 'Get a new link' })).toBeInTheDocument();
+
+    // The one read made at expiry settles; after it, a whole poll interval passes with no read.
+    await sleep(500);
+    const settled = reads;
+    await sleep(TENANT_CHAT_POLL_MS + 1_000);
+    expect(reads).toBe(settled);
+  }, 20_000);
+
+  it('can be dismissed while it is out, and the link leaves memory at once', async () => {
+    const { user, queryClient } = renderPilotWithBot();
+
+    const step = await staffStep();
+    await user.click(step.getByRole('button', { name: 'Add bot to staff group' }));
+    expect(await step.findByText('Finish in Telegram')).toBeInTheDocument();
+    expect(heldBindLinks(queryClient)).toHaveLength(1);
+
+    await user.click(step.getByRole('button', { name: 'Dismiss' }));
+
+    expect(step.queryByText('Finish in Telegram')).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(heldBindLinks(queryClient)).toHaveLength(0);
+    });
+  });
+
+  it('leaves memory when the step goes away, not five minutes later', async () => {
+    const { user, queryClient, unmount } = renderPilotWithBot();
+
+    const step = await staffStep();
+    await user.click(step.getByRole('button', { name: 'Add bot to staff group' }));
+    expect(await step.findByText('Finish in Telegram')).toBeInTheDocument();
+    expect(heldBindLinks(queryClient)).toHaveLength(1);
+
+    unmount();
+
+    await waitFor(() => {
+      expect(heldBindLinks(queryClient)).toHaveLength(0);
+    });
+  });
+
+  it('says it expired in Arabic', async () => {
+    db.tenants.find((row) => row.id === pilot.id)!.botUsername = 'pilot_cashier_bot';
+    vi.spyOn(window, 'open').mockReturnValue(null);
+    server.use(
+      http.post(`${config.apiBaseUrl}/v1/admin/tenants/:id/telegram/bind-links`, () =>
+        HttpResponse.json({
+          success: true,
+          data: {
+            purpose: 'STAFF',
+            url: 'https://t.me/pilot_cashier_bot?startgroup=AlreadyExpired1234&admin=post_messages',
+            botUsername: 'pilot_cashier_bot',
+            expiresAt: new Date(Date.now() - 1_000).toISOString(),
+            adminRights: ['post_messages'],
+          },
+          error: null,
+          meta: { correlationId: 'test', timestamp: '' },
+        }),
+      ),
+    );
+    const { user } = renderPlain(
+      <TenantOperations tenant={{ ...pilot, botUsername: 'pilot_cashier_bot' }} />,
+      { ...platformAdmin, locale: 'ar' },
+    );
+
+    await user.click(
+      await screen.findByRole('button', { name: 'إضافة البوت إلى مجموعة الموظفين' }),
+    );
+
+    expect(await screen.findByText('انتهت صلاحية الرابط')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'اطلب رابطاً جديداً' })).toBeInTheDocument();
+  });
+});
+
+describe('tenant zero, the platform', () => {
+  it('has no staff or feed group step, because every bind for it is refused', async () => {
+    renderPlain(
+      <TenantOperations tenant={{ ...home, adminChatId: null, feedChatId: null }} />,
+      platformAdmin,
+    );
+
+    expect(await screen.findByText('Setup checklist')).toBeInTheDocument();
+    expect(document.querySelector('[data-step="webhook"]')).not.toBeNull();
+    expect(document.querySelector('[data-step="staff-group"]')).toBeNull();
+    expect(document.querySelector('[data-step="feed-group"]')).toBeNull();
+    expect(
+      screen.queryByRole('button', { name: 'Add bot to staff group' }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Add bot to feed group' })).not.toBeInTheDocument();
+  });
+});
+
 describe('Ichancy in fake mode on the operator panel', () => {
   it('says no real connection was made, instead of reporting the agent as answering', async () => {
     db.ichancyFake = true;
@@ -162,7 +316,9 @@ describe('Ichancy in fake mode on the operator panel', () => {
       screen.getByText('Ichancy is in fake mode (ICHANCY_FAKE=true): no real connection was made.'),
     ).toBeInTheDocument();
     expect(screen.getByText('not read (fake mode)')).toBeInTheDocument();
-    expect(screen.getByText(/no real sign-in was made, so this agent cannot be verified/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/no real sign-in was made, so this agent cannot be verified/),
+    ).toBeInTheDocument();
     expect(screen.queryByText('The agent answered')).not.toBeInTheDocument();
     expect(screen.queryByText('Ichancy did not accept this agent')).not.toBeInTheDocument();
   });

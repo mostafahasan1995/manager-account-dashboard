@@ -5,8 +5,10 @@ import { adminsApi, reconciliationApi, tenantsApi } from '@/lib/api/endpoints';
 import { isApiError, type ApiError } from '@/lib/api/errors';
 
 import {
+  AGENT_PRINCIPAL_LINK_MESSAGE,
   ICHANCY_FAKE_MODE_MESSAGE,
   STAFF_GROUP_REQUIRED_MESSAGE,
+  TENANT_PLATFORM_LOCKED_MESSAGE,
   completeBindLink,
   db,
   redeemStaffLinkCode,
@@ -26,6 +28,7 @@ const PILOT_PRIVATE_STAFF = '-1002233445566';
 const PILOT_MEMBER_ONLY = '-1007788990011';
 const PILOT_OLD_GROUP = '-4455667788';
 const PILOT_CHANNEL = '-1005555000222';
+const NORTHERN_STAFF = '-1001111111111';
 
 const caught = (promise: Promise<unknown>): Promise<ApiError> =>
   promise.then(
@@ -39,6 +42,9 @@ const caught = (promise: Promise<unknown>): Promise<ApiError> =>
   );
 
 const pilot = () => db.tenants.find((row) => row.id === TENANT_IDS.suspended)!;
+
+/** An operator's agent principal: its sign-in finds it by the reserved Telegram id "0". */
+const AGENT_PRINCIPAL_ID = 'aaaaaaaa-0000-4000-8000-000000000099';
 
 describe('an operator created without a staff group', () => {
   it('is created with adminChatId null, stays suspended, and says why it was not activated', async () => {
@@ -142,13 +148,15 @@ describe('binding a staff or feed group', () => {
   });
 
   it('binds a feed group without touching the staff group, and health reports both', async () => {
-    const bound = await tenantsApi.bindChat(TENANT_IDS.zero, 'FEED', { chatId: '-1001234567890' });
+    const bound = await tenantsApi.bindChat(TENANT_IDS.second, 'FEED', {
+      chatId: NORTHERN_STAFF,
+    });
 
-    expect(bound.adminChatId).toBe('-1001234567890');
-    expect(bound.feedChatId).toBe('-1001234567890');
-    const health = await tenantsApi.health(TENANT_IDS.zero);
-    expect(health.chats.staff).toMatchObject({ chatId: '-1001234567890', title: 'Cashier ops' });
-    expect(health.chats.feed).toMatchObject({ chatId: '-1001234567890', isPresent: true });
+    expect(bound.adminChatId).toBe(NORTHERN_STAFF);
+    expect(bound.feedChatId).toBe(NORTHERN_STAFF);
+    const health = await tenantsApi.health(TENANT_IDS.second);
+    expect(health.chats.staff).toMatchObject({ chatId: NORTHERN_STAFF, title: 'Northern staff' });
+    expect(health.chats.feed).toMatchObject({ chatId: NORTHERN_STAFF, isPresent: true });
   });
 
   it('verifies a CHANGED chat on PATCH, and leaves an unchanged one alone', async () => {
@@ -167,13 +175,14 @@ describe('binding a staff or feed group', () => {
   });
 
   it('refuses to remove an active operator’s staff group, and removes a feed group', async () => {
-    const error = await caught(tenantsApi.unbindChat(TENANT_IDS.zero, 'STAFF'));
+    const error = await caught(tenantsApi.unbindChat(TENANT_IDS.second, 'STAFF'));
     expect(error.status).toBe(422);
     expect(error.code).toBe('TENANT_STAFF_GROUP_REQUIRED');
 
-    const withoutFeed = await tenantsApi.unbindChat(TENANT_IDS.zero, 'FEED');
+    await tenantsApi.bindChat(TENANT_IDS.second, 'FEED', { chatId: NORTHERN_STAFF });
+    const withoutFeed = await tenantsApi.unbindChat(TENANT_IDS.second, 'FEED');
     expect(withoutFeed.feedChatId).toBeNull();
-    expect(withoutFeed.adminChatId).toBe('-1001234567890');
+    expect(withoutFeed.adminChatId).toBe(NORTHERN_STAFF);
   });
 
   it('reports the bot removed from the bound staff group without clearing the binding', async () => {
@@ -188,6 +197,32 @@ describe('binding a staff or feed group', () => {
       status: 'KICKED',
     });
     expect((await tenantsApi.byId(TENANT_IDS.second)).adminChatId).toBe('-1001111111111');
+  });
+});
+
+describe('tenant zero, the platform', () => {
+  const zero = () => db.tenants.find((row) => row.id === TENANT_IDS.zero)!;
+
+  it.each([
+    ['issuing a link', () => tenantsApi.issueBindLink(TENANT_IDS.zero, 'STAFF')],
+    [
+      'binding a group',
+      () => tenantsApi.bindChat(TENANT_IDS.zero, 'FEED', { chatId: NORTHERN_STAFF }),
+    ],
+    ['removing a group', () => tenantsApi.unbindChat(TENANT_IDS.zero, 'FEED')],
+    [
+      'changing a group by PATCH',
+      () => tenantsApi.update(TENANT_IDS.zero, { feedChatId: '-1001234567890' }),
+    ],
+  ])('refuses %s with 422 TENANT_PLATFORM_LOCKED and changes nothing', async (_what, call) => {
+    const before = { ...zero() };
+
+    const error = await caught(call());
+
+    expect(error.status).toBe(422);
+    expect(error.code).toBe('TENANT_PLATFORM_LOCKED');
+    expect(error.message).toBe(TENANT_PLATFORM_LOCKED_MESSAGE);
+    expect(zero()).toEqual(before);
   });
 });
 
@@ -291,6 +326,30 @@ describe('linking a staff account to Telegram', () => {
     expect(unlinked).toMatchObject({ telegramLinked: false, telegramUserId: null });
   });
 
+  it('refuses a code and an unlink for the agent principal, whose reserved id is not a person', async () => {
+    const agent = {
+      ...db.admins.find((row) => row.id === ADMIN_IDS.superAdmin)!,
+      id: AGENT_PRINCIPAL_ID,
+      telegramUserId: '0',
+      telegramLinked: false,
+      username: null,
+      displayName: 'Main operation agent',
+    };
+    db.admins.push(agent);
+
+    for (const call of [
+      () => adminsApi.issueTelegramLinkCode(AGENT_PRINCIPAL_ID),
+      () => adminsApi.unlinkTelegram(AGENT_PRINCIPAL_ID),
+    ]) {
+      const error = await caught(call());
+      expect(error.status).toBe(422);
+      expect(error.code).toBe('ADMIN_TELEGRAM_LINK_NOT_ALLOWED');
+      expect(error.message).toBe(AGENT_PRINCIPAL_LINK_MESSAGE);
+      expect(error.details).toMatchObject({ reason: 'AGENT_PRINCIPAL' });
+    }
+    expect(agent.telegramUserId).toBe('0');
+  });
+
   it('refuses a deactivated account with the INACTIVE reason', async () => {
     const error = await caught(adminsApi.issueTelegramLinkCode(ADMIN_IDS.deactivated));
 
@@ -307,5 +366,17 @@ describe('linking a staff account to Telegram', () => {
     expect(error.code).toBe('ADMIN_TELEGRAM_LINK_FORBIDDEN');
 
     expect((await adminsApi.unlinkTelegram(ADMIN_IDS.reviewer)).telegramLinked).toBe(false);
+  });
+
+  it('refuses a super admin the unlink of a platform admin, and lets a platform admin do it', async () => {
+    configureApiClient({ getToken: () => 'mock:SUPER_ADMIN:token' });
+
+    const error = await caught(adminsApi.unlinkTelegram(ADMIN_IDS.platformAdmin));
+    expect(error.status).toBe(403);
+    expect(error.code).toBe('ADMIN_TELEGRAM_LINK_FORBIDDEN');
+    expect(db.admins.find((row) => row.id === ADMIN_IDS.platformAdmin)?.telegramLinked).toBe(true);
+
+    configureApiClient({ getToken: () => 'mock:PLATFORM_ADMIN:token' });
+    expect((await adminsApi.unlinkTelegram(ADMIN_IDS.platformAdmin)).telegramLinked).toBe(false);
   });
 });

@@ -339,7 +339,8 @@ export const tenantMessages = defineMessages({
     'tenants.create.suspendedBody':
       'Nothing on this form can prove the agent id belongs to the Ichancy username, and a correct username paired with the wrong agent id registers real players under another operator. So a new tenant lands suspended and serves nobody until you activate it — which is the moment the backend actually signs in to Ichancy and finds out. It also needs its staff group: activation is refused until the bot is in the group where review cards go.',
     'tenants.create.successTitle': '{name} created',
-    'tenants.create.successBody': 'It is suspended until its staff group is bound and you activate it.',
+    'tenants.create.successBody':
+      'It is suspended until its staff group is bound and you activate it.',
     'tenants.create.errorTitle': 'Could not create the tenant',
 
     // ── Edit ─────────────────────────────────────────────────────────────────────────────────
@@ -512,6 +513,13 @@ export const tenantMessages = defineMessages({
     'tenants.bind.boundFeed': '{name} is now the feed group.',
     'tenants.bind.done': 'Done',
     'tenants.bind.linkErrorTitle': 'Could not create the link',
+    'tenants.bind.dismiss': 'Dismiss',
+    'tenants.bind.expiredTitle': 'The link expired',
+    'tenants.bind.expiredBody':
+      'Nothing new was bound before it expired, so this page stopped checking. Get a new link to try again.',
+    'tenants.bind.newLink': 'Get a new link',
+    'tenants.platform.noGroups':
+      'The platform itself has no staff group or feed group: those belong to each operator.',
     'tenants.bind.pickerToggle': 'Pick from groups the bot is in',
     'tenants.bind.pickerHide': 'Hide the list',
     'tenants.bind.pickerTitle': 'Groups this operator’s bot is in',
@@ -1084,6 +1092,13 @@ export const tenantMessages = defineMessages({
     'tenants.bind.boundFeed': 'أصبحت {name} مجموعة الإشعارات.',
     'tenants.bind.done': 'تم',
     'tenants.bind.linkErrorTitle': 'تعذّر إنشاء الرابط',
+    'tenants.bind.dismiss': 'إغلاق',
+    'tenants.bind.expiredTitle': 'انتهت صلاحية الرابط',
+    'tenants.bind.expiredBody':
+      'لم تُربط أي مجموعة جديدة قبل انتهاء صلاحيته، لذلك توقفت هذه الصفحة عن التحقق. اطلب رابطاً جديداً للمحاولة مرة أخرى.',
+    'tenants.bind.newLink': 'اطلب رابطاً جديداً',
+    'tenants.platform.noGroups':
+      'المنصة نفسها ليس لها مجموعة موظفين ولا مجموعة إشعارات: هاتان المجموعتان تخصّان كل مشغّل.',
     'tenants.bind.pickerToggle': 'اختر من المجموعات التي فيها البوت',
     'tenants.bind.pickerHide': 'إخفاء القائمة',
     'tenants.bind.pickerTitle': 'المجموعات التي فيها بوت هذا المشغّل',

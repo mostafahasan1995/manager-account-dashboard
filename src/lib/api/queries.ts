@@ -1010,13 +1010,18 @@ export const useCreateAdmin = () =>
 /**
  * Asks for a one-time Telegram link code. A MUTATION, not a query, on purpose: every call revokes the
  * previous code and writes an audit row, so nothing — a re-render, a refocus, a retry — may repeat it
- * behind the admin's back, and the code must not sit in a cache another screen could read.
- * Invalidates nothing: no row changed until the staff member sends the code.
+ * behind the admin's back. Invalidates nothing: no row changed until the staff member sends the code.
+ *
+ * The code is the mutation's `data`, and TanStack keeps a finished mutation in its MutationCache for
+ * `gcTime` after the last component lets go of it (five minutes by default). `gcTime: 0` removes it
+ * as soon as nothing observes it; the component also calls `reset()` when the dialog closes and on
+ * unmount, so the code is held only while it is on screen.
  */
 export function useIssueStaffTelegramLinkCode() {
   return useMutation({
     mutationFn: (adminUserId: string) => adminsApi.issueTelegramLinkCode(adminUserId),
     retry: false,
+    gcTime: 0,
   });
 }
 
@@ -1154,7 +1159,10 @@ export function useTenants(options?: { enabled?: boolean }) {
  * pushed to the console, so the only way to see `adminChatId` arrive is to ask again — every few
  * seconds while that step is open, and never otherwise (see "WHY THE TIMERS WERE CUT" above).
  */
-export function useTenant(id: string | undefined, options?: { refetchIntervalMs?: number | false }) {
+export function useTenant(
+  id: string | undefined,
+  options?: { refetchIntervalMs?: number | false },
+) {
   return useQuery({
     queryKey: tenantKeys.detail(id ?? ''),
     queryFn: () => tenantsApi.byId(id ?? ''),
@@ -1324,14 +1332,19 @@ export function useTenantDiscoveredChats(
 }
 
 /**
- * Issues an "Add bot to group" link. `retry: false` and no cache: each call revokes the previous
- * link, and the URL carries a one-time nonce that belongs in the tab it opens and nowhere else.
+ * Issues an "Add bot to group" link. `retry: false`: each call revokes the previous link.
+ *
+ * The URL carries a one-time nonce and is the mutation's `data`, which TanStack would otherwise keep
+ * in its MutationCache for five minutes after the step unmounts. `gcTime: 0` removes it as soon as
+ * nothing observes it, and the step calls `reset()` when the link is dismissed and on unmount, so the
+ * URL is held only while the step shows it.
  */
 export function useIssueTenantBindLink() {
   return useMutation({
     mutationFn: (input: { id: string; purpose: TelegramChatPurpose }) =>
       tenantsApi.issueBindLink(input.id, input.purpose),
     retry: false,
+    gcTime: 0,
   });
 }
 

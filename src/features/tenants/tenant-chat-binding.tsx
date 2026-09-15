@@ -42,9 +42,15 @@ import { tenantMessages } from './messages';
  * types a chat id and nobody picks from a list of strangers' groups, which is why it comes first.
  *
  * The result is never pushed to the console, so while a link is out this re-reads the operator every
- * few seconds and stops the moment the bound chat changes. The link itself lives only in this
- * component's state: it is a bearer credential for pointing review cards (player names, amounts) at a
- * chat, so it is not cached, stored or logged, and a remount forgets it.
+ * few seconds, and stops the moment the bound chat changes, the link expires, or the admin dismisses
+ * it. Without the last two it would poll forever: a link nobody uses, or one opened in the group that
+ * is already bound (the backend changes nothing), never changes the row. At `expiresAt` the step
+ * reads the operator once more, so a bind that landed in the final seconds still shows as bound.
+ *
+ * The link is a bearer credential for pointing review cards (player names, amounts) at a chat. It is
+ * held only while the step shows it — in this component's state and the mutation's result, both
+ * dropped on dismiss and on unmount (`reset()`, and `gcTime: 0` on the mutation) — and never stored
+ * or logged. Dismissing does not revoke it: it still works in Telegram until it expires.
  *
  * ── THE LIST IS THE FALLBACK ──────────────────────────────────────────────────────────────────
  * A group the bot joined any other way is in this operator's chat directory — read from
@@ -71,6 +77,8 @@ export function TenantChatBinding({
   const [pending, setPending] = useState<{
     link: TelegramBindLink;
     boundBefore: string | null;
+    /** Past `expiresAt`: the link can no longer bind anything, so nothing is waited for. */
+    expired: boolean;
   } | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [refusal, setRefusal] = useState<unknown>(null);
@@ -81,8 +89,9 @@ export function TenantChatBinding({
   // BEFORE the polling query is declared. Reading is all this does; the query below subscribes.
   const cached = queryClient.getQueryData<Tenant>(tenantKeys.detail(tenant.id)) ?? tenant;
   const landed = pending !== null && chatOf(cached, purpose) !== pending.boundBefore;
+  const waiting = pending !== null && !pending.expired && !landed;
   const live = useTenant(tenant.id, {
-    refetchIntervalMs: (pending !== null && !landed) || pickerOpen ? TENANT_CHAT_POLL_MS : false,
+    refetchIntervalMs: waiting || pickerOpen ? TENANT_CHAT_POLL_MS : false,
   });
   const current = live.data ?? tenant;
   const boundChatId = chatOf(current, purpose);
@@ -90,7 +99,8 @@ export function TenantChatBinding({
 
   // A bind that happened in Telegram also changed what health says about this group.
   useEffect(() => {
-    if (arrived) void queryClient.invalidateQueries({ queryKey: tenantHealthKeys.detail(tenant.id) });
+    if (arrived)
+      void queryClient.invalidateQueries({ queryKey: tenantHealthKeys.detail(tenant.id) });
   }, [arrived, queryClient, tenant.id]);
 
   const chats = useTenantDiscoveredChats(tenant.id, {
@@ -98,13 +108,43 @@ export function TenantChatBinding({
     refetchIntervalMs: TENANT_CHAT_POLL_MS,
   });
 
+  // At `expiresAt` the link stops being worth waiting for. The timer flips the flag, not the render,
+  // and asks for the operator once more so a bind from the last seconds is not reported as expired.
+  const liveLink = pending?.expired === false ? pending.link : null;
+  useEffect(() => {
+    if (liveLink === null) return;
+    const timer = window.setTimeout(() => {
+      setPending((current) =>
+        current !== null && current.link === liveLink ? { ...current, expired: true } : current,
+      );
+      void queryClient.invalidateQueries({ queryKey: tenantKeys.detail(tenant.id) });
+    }, msUntil(liveLink.expiresAt));
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [liveLink, queryClient, tenant.id]);
+
+  // The URL leaves memory with the step, not five minutes later with TanStack's mutation cache.
+  const { reset: resetIssue } = issue;
+  useEffect(
+    () => () => {
+      resetIssue();
+    },
+    [resetIssue],
+  );
+
+  const dismiss = () => {
+    setPending(null);
+    resetIssue();
+  };
+
   const openLink = () => {
     setRefusal(null);
     issue.mutate(
       { id: tenant.id, purpose },
       {
         onSuccess: (link) => {
-          setPending({ link, boundBefore: boundChatId });
+          setPending({ link, boundBefore: boundChatId, expired: false });
           // A popup blocker may refuse a tab opened after a request; the link is also on screen.
           window.open(link.url, '_blank', 'noopener,noreferrer');
         },
@@ -206,14 +246,21 @@ export function TenantChatBinding({
               : t('tenants.bind.boundFeed', { name: boundChatId })}
           </p>
           <div className="pt-2">
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => {
-                setPending(null);
-              }}
-            >
+            <Button variant="secondary" size="sm" onClick={dismiss}>
               {t('tenants.bind.done')}
+            </Button>
+          </div>
+        </Alert>
+      ) : pending.expired ? (
+        <Alert tone="warning" title={t('tenants.bind.expiredTitle')}>
+          <p>{t('tenants.bind.expiredBody')}</p>
+          <div className="flex flex-wrap gap-2 pt-2">
+            <Button variant="secondary" size="sm" loading={issue.isPending} onClick={openLink}>
+              <Send className="size-3.5 rtl:-scale-x-100" />
+              {t('tenants.bind.newLink')}
+            </Button>
+            <Button variant="ghost" size="sm" onClick={dismiss}>
+              {t('tenants.bind.dismiss')}
             </Button>
           </div>
         </Alert>
@@ -235,6 +282,11 @@ export function TenantChatBinding({
               {t('tenants.bind.openAgain')}
             </a>
           </p>
+          <div className="pt-2">
+            <Button variant="ghost" size="sm" onClick={dismiss}>
+              {t('tenants.bind.dismiss')}
+            </Button>
+          </div>
         </Alert>
       )}
 
@@ -290,6 +342,15 @@ export function TenantChatBinding({
 
 function chatOf(tenant: Tenant, purpose: TelegramChatPurpose): string | null {
   return purpose === 'STAFF' ? tenant.adminChatId : tenant.feedChatId;
+}
+
+/** `setTimeout`'s ceiling: a longer delay fires at once. A bind link lives fifteen minutes. */
+const MAX_TIMER_MS = 2_147_483_647;
+
+/** Milliseconds until an ISO instant, never negative. An unreadable instant counts as already past. */
+function msUntil(iso: string): number {
+  const left = Date.parse(iso) - Date.now();
+  return Number.isFinite(left) ? Math.min(Math.max(left, 0), MAX_TIMER_MS) : 0;
 }
 
 function ChatDirectory({

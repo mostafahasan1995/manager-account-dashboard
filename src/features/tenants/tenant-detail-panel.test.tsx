@@ -10,6 +10,7 @@ import { renderPlain } from '@/test/utils';
 import { TenantDetailPanel } from './tenant-detail-panel';
 
 const tenantZero = mockTenants[0]!;
+const northern = mockTenants[1]!;
 const platformAdmin = { auth: { role: 'PLATFORM_ADMIN' as const } };
 
 const envelope = (data: unknown, status = 200) =>
@@ -75,17 +76,63 @@ describe('TenantDetailPanel', () => {
   it('warns that an active operator with no staff group refuses new deposits', async () => {
     server.use(
       http.get(`${config.apiBaseUrl}/v1/admin/tenants/:id`, () =>
-        envelope({ ...tenantZero, adminChatId: null }),
+        envelope({ ...northern, adminChatId: null }),
       ),
     );
+
+    renderPlain(
+      <TenantDetailPanel tenantId={TENANT_IDS.second} onClose={vi.fn()} onEdit={vi.fn()} />,
+      { auth: { role: 'SUPER_ADMIN' } },
+    );
+
+    expect(await screen.findByText('No staff group yet')).toBeInTheDocument();
+    expect(screen.getByText(/every new deposit is refused/)).toBeInTheDocument();
+  });
+
+  // What the backend really answers for tenant zero: ACTIVE, with no staff group and no feed group.
+  const platformAsTheBackendAnswersIt = () => {
+    server.use(
+      http.get(`${config.apiBaseUrl}/v1/admin/tenants/:id`, () =>
+        envelope({ ...tenantZero, adminChatId: null, feedChatId: null }),
+      ),
+    );
+  };
+
+  it('treats tenant zero as the platform: no staff-group warning, one neutral line', async () => {
+    platformAsTheBackendAnswersIt();
 
     renderPlain(
       <TenantDetailPanel tenantId={TENANT_IDS.zero} onClose={vi.fn()} onEdit={vi.fn()} />,
       { auth: { role: 'SUPER_ADMIN' } },
     );
 
-    expect(await screen.findByText('No staff group yet')).toBeInTheDocument();
-    expect(screen.getByText(/every new deposit is refused/)).toBeInTheDocument();
+    expect(
+      await screen.findByText(
+        'The platform itself has no staff group or feed group: those belong to each operator.',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('No staff group yet')).not.toBeInTheDocument();
+    expect(screen.queryByText(/every new deposit is refused/)).not.toBeInTheDocument();
+    expect(screen.queryByText('Not bound')).not.toBeInTheDocument();
+  });
+
+  it('says the platform has no groups in Arabic, and its checklist offers no group step', async () => {
+    platformAsTheBackendAnswersIt();
+
+    renderPlain(
+      <TenantDetailPanel tenantId={TENANT_IDS.zero} onClose={vi.fn()} onEdit={vi.fn()} />,
+      { ...platformAdmin, locale: 'ar' },
+    );
+
+    expect(
+      await screen.findByText(
+        'المنصة نفسها ليس لها مجموعة موظفين ولا مجموعة إشعارات: هاتان المجموعتان تخصّان كل مشغّل.',
+      ),
+    ).toBeInTheDocument();
+    expect(await screen.findByText('قائمة خطوات الإعداد')).toBeInTheDocument();
+    expect(document.querySelector('[data-step="staff-group"]')).toBeNull();
+    expect(document.querySelector('[data-step="feed-group"]')).toBeNull();
+    expect(screen.queryByText('لا توجد مجموعة موظفين بعد')).not.toBeInTheDocument();
   });
 
   it('shows the API failure rather than an empty panel', async () => {

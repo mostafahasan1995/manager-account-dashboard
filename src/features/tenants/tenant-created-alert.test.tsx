@@ -122,7 +122,9 @@ describe('TenantCreatedAlert', () => {
       />,
     );
 
-    expect(screen.getByText(/Not activated: This operator has no staff group yet/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Not activated: This operator has no staff group yet/),
+    ).toBeInTheDocument();
     expect(
       screen.getByText(
         'No staff group yet: open the operator, use “Add bot to staff group”, then activate it.',

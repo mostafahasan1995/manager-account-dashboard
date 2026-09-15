@@ -24,6 +24,17 @@ export const adminUserSchema = z.looseObject({
 export type AdminUser = z.infer<typeof adminUserSchema>;
 
 /**
+ * Whether this row is an operator's agent principal: the account its Ichancy agent credential signs
+ * in as, which carries the reserved Telegram id "0" (the backend treats any id at or below 0 as
+ * reserved). It is not a person, so the backend refuses both a link code and an unlink for it with
+ * 422 `ADMIN_TELEGRAM_LINK_NOT_ALLOWED`, reason `AGENT_PRINCIPAL`.
+ */
+export function isAgentPrincipal(admin: Pick<AdminUser, 'telegramUserId'>): boolean {
+  const id = admin.telegramUserId;
+  return id !== null && /^(0+|-\d+)$/.test(id);
+}
+
+/**
  * The identity returned by a sign-in exchange — shorter than AdminUser on purpose.
  *
  * `telegramUserId` is null for a manager who signed in with POST /v1/admin/auth/credentials rather
@@ -110,8 +121,9 @@ export interface SetApprovalLimitBody {
  * `POST /v1/admin/admins/:id/telegram-link-code` — the one-time code that links a staff account to
  * the Telegram account that sends it to the operator's bot (owner decision 4, 2026-09-15).
  *
- * The code is in this response and nowhere else, so the console shows it once and never caches it:
- * whoever holds it can send it from THEIR Telegram and have their taps count as this person's.
+ * The code is in this response and nowhere else, so the console shows it once and drops it when the
+ * dialog closes or the page unmounts (`reset()`, and `gcTime: 0` on the mutation): whoever holds it
+ * can send it from THEIR Telegram and have their taps count as this person's.
  */
 export const staffTelegramLinkCodeSchema = z.looseObject({
   adminUserId: z.string(),

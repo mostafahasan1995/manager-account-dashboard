@@ -74,6 +74,21 @@ export function tenantDepositMode(tenant: Pick<Tenant, 'depositMode'>): DepositM
   return tenant.depositMode ?? 'MANUAL';
 }
 
+/**
+ * Tenant zero: the platform itself, not an operator (the backend's `TENANT_ZERO_ID`). Keyed on the id,
+ * never the slug, because the id is what the backend compares.
+ */
+export const TENANT_ZERO_ID = '00000000-0000-0000-0000-000000000000';
+
+/**
+ * Whether this row is the platform rather than an operator. The platform has no staff group and no
+ * feed group: it is ACTIVE with `adminChatId` null, and every bind, link and removal for it is 422
+ * `TENANT_PLATFORM_LOCKED`. So none of an operator's group warnings or group steps apply to it.
+ */
+export function isPlatformTenant(tenant: Pick<Tenant, 'id'>): boolean {
+  return tenant.id === TENANT_ZERO_ID;
+}
+
 /** GET /v1/admin/tenants answers `{ tenants: [...] }`, not a bare array. */
 export const tenantListSchema = z.looseObject({ tenants: z.array(tenantSchema) });
 
@@ -264,8 +279,9 @@ export type TelegramChatPurpose = z.infer<typeof telegramChatPurposeSchema>;
  *
  * `url` carries a one-time nonce and works once, for fifteen minutes, for this operator and this
  * purpose only. It is a bearer credential for pointing an operator's review cards (player names,
- * amounts) at a chat, so the console opens it and shows it to the admin who asked, and keeps it
- * nowhere: not in storage, not in a query cache, not in a log line.
+ * amounts) at a chat, so the console opens it and shows it to the admin who asked, and keeps it only
+ * while it is shown: in the component's state and the mutation's result, both dropped when the step
+ * is dismissed or unmounts (`gcTime: 0` on the mutation). Never in storage or a log line.
  */
 export const telegramBindLinkSchema = z.looseObject({
   purpose: telegramChatPurposeSchema,

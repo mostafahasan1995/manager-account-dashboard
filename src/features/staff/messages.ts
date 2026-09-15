@@ -166,7 +166,8 @@ export const staffMessages = defineMessages({
     'staff.telegram.row': 'Telegram link',
     'staff.telegram.linked': 'Linked',
     'staff.telegram.notLinked': 'Not linked',
-    'staff.telegram.linkedHint': 'Their Approve and Reject taps in the staff group count as theirs.',
+    'staff.telegram.linkedHint':
+      'Their Approve and Reject taps in the staff group count as theirs.',
     'staff.telegram.notLinkedHint':
       'Their taps in the staff group are refused until this account is linked.',
     'staff.telegram.link': 'Link Telegram',
@@ -183,7 +184,8 @@ export const staffMessages = defineMessages({
     'staff.telegram.timeLeft': 'Works once. Time left:',
     'staff.telegram.neverInGroup':
       'Never post the code in a group: a code sent in a group is cancelled. An edited message is not read, so fix a typo by sending the command again.',
-    'staff.telegram.waiting': 'Waiting for the code to reach the bot. This page checks every few seconds.',
+    'staff.telegram.waiting':
+      'Waiting for the code to reach the bot. This page checks every few seconds.',
     'staff.telegram.newCode': 'Get a new code',
     'staff.telegram.done': 'Done',
     'staff.telegram.linkedTitle': '{name} is linked to Telegram',

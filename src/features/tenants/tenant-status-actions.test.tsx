@@ -128,7 +128,9 @@ describe('TenantStatusActions', () => {
     await user.click(screen.getByRole('button', { name: 'Activate tenant' }));
 
     expect(await screen.findByText('Bind the staff group first')).toBeInTheDocument();
-    expect(screen.getByText(/This operator has no staff group yet, so it cannot be activated/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/This operator has no staff group yet, so it cannot be activated/),
+    ).toBeInTheDocument();
     expect(screen.queryByText('Ichancy refused the sign-in')).not.toBeInTheDocument();
     expect(db.tenants.find((row) => row.id === suspendedTenant.id)?.status).toBe('SUSPENDED');
   });

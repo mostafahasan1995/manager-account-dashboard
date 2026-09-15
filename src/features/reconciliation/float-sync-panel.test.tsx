@@ -90,7 +90,9 @@ describe('FloatSyncPanel', () => {
     await user.click(await screen.findByRole('button', { name: /sync agent float/i }));
 
     expect(await screen.findByText('Ichancy is in fake mode')).toBeInTheDocument();
-    expect(screen.getByText(/ICHANCY_FAKE=true, so the agent wallet was not read/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/ICHANCY_FAKE=true, so the agent wallet was not read/),
+    ).toBeInTheDocument();
     expect(screen.getByText('Not read (fake mode)')).toBeInTheDocument();
     expect(screen.getByText('Not compared (fake mode)')).toBeInTheDocument();
     // Neither of the real-mode "something is broken" readings.

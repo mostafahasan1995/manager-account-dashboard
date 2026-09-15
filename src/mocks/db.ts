@@ -215,7 +215,10 @@ export interface MockState {
    * The live "Add bot to group" link per operator and purpose. Only the latest one works, exactly as
    * issuing a new link revokes the previous one on the backend.
    */
-  bindLinks: Record<string, Partial<Record<TelegramChatPurpose, { nonce: string; expiresAt: string }>>>;
+  bindLinks: Record<
+    string,
+    Partial<Record<TelegramChatPurpose, { nonce: string; expiresAt: string }>>
+  >;
   /** The live one-time Telegram link code per staff account. Only the latest one works. */
   staffLinkCodes: Record<string, { code: string; expiresAt: string }>;
   /** Ledger side of the agent float, so a float sync produces a believable delta. */
@@ -1295,6 +1298,14 @@ export const STAFF_GROUP_REQUIRED_MESSAGE =
 export const STAFF_GROUP_REMOVAL_REFUSED_MESSAGE =
   'This operator is active, and an active operator must always have a staff group. Bind another group instead, or suspend the operator before removing this one.';
 
+/** The backend's refusal of any group link, bind or removal on tenant zero, verbatim. */
+export const TENANT_PLATFORM_LOCKED_MESSAGE =
+  'Tenant zero is the platform itself, not an operator, and has no staff or feed group.';
+
+/** The backend's AGENT_PRINCIPAL refusal of a link code or an unlink, verbatim. */
+export const AGENT_PRINCIPAL_LINK_MESSAGE =
+  "This is the operator's agent account, which cannot be linked to Telegram. Create a staff account for the person and link that.";
+
 /** The backend's fake-mode sentence, verbatim (ICHANCY_FAKE_MODE_MESSAGE). */
 export const ICHANCY_FAKE_MODE_MESSAGE =
   'Ichancy is in fake mode (ICHANCY_FAKE=true): no real connection was made.';
@@ -1342,8 +1353,7 @@ export function tenantChatsView(tenant: Tenant): TenantDiscoveredChat[] {
 }
 
 export type MockChatVerdict =
-  | { ok: true; chatId: string }
-  | { ok: false; reason: TenantChatRejectionReason; chatId: string };
+  { ok: true; chatId: string } | { ok: false; reason: TenantChatRejectionReason; chatId: string };
 
 /**
  * What Telegram would say about binding `chatId` for this operator, asked the way the backend asks:
@@ -1365,7 +1375,8 @@ export function verifyTenantChat(tenantId: string, chatId: string): MockChatVerd
     if (row === undefined) return { ok: false, reason: 'NOT_FOUND', chatId: movedTo };
   }
   if (row === undefined) return { ok: false, reason: 'NOT_FOUND', chatId };
-  if (row.chatType === 'CHANNEL') return { ok: false, reason: 'CHANNEL_NOT_ALLOWED', chatId: row.chatId };
+  if (row.chatType === 'CHANNEL')
+    return { ok: false, reason: 'CHANNEL_NOT_ALLOWED', chatId: row.chatId };
   if (!row.isPresent) return { ok: false, reason: 'BOT_NOT_MEMBER', chatId: row.chatId };
   if (!row.isAdministrator) return { ok: false, reason: 'BOT_NOT_ADMIN', chatId: row.chatId };
   if (!row.canPost) return { ok: false, reason: 'BOT_CANNOT_POST', chatId: row.chatId };
@@ -1384,13 +1395,19 @@ export function unbindTenantChat(tenant: Tenant, purpose: TelegramChatPurpose): 
 }
 
 const randomToken = (length: number, alphabet: string): string =>
-  Array.from({ length }, () => alphabet[Math.floor(Math.random() * alphabet.length)] ?? 'A').join('');
+  Array.from({ length }, () => alphabet[Math.floor(Math.random() * alphabet.length)] ?? 'A').join(
+    '',
+  );
 
 /**
  * `POST /:id/telegram/bind-links`. The caller has already refused a missing, closed or bot-less
  * operator. Issuing revokes the previous link for the same purpose, because only the latest is kept.
  */
-export function issueBindLink(tenant: Tenant, botUsername: string, purpose: TelegramChatPurpose): TelegramBindLink {
+export function issueBindLink(
+  tenant: Tenant,
+  botUsername: string,
+  purpose: TelegramChatPurpose,
+): TelegramBindLink {
   const nonce = randomToken(32, 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-');
   const expiresAt = new Date(Date.now() + BIND_LINK_TTL_MINUTES * 60_000).toISOString();
   db.bindLinks[tenant.id] = { ...db.bindLinks[tenant.id], [purpose]: { nonce, expiresAt } };
@@ -1474,7 +1491,8 @@ export function issueStaffLinkCode(admin: AdminUser): StaffTelegramLinkCode {
 export function redeemStaffLinkCode(code: string, telegramUserId: string): boolean {
   const normalised = code.replace('-', '').toUpperCase();
   const entry = Object.entries(db.staffLinkCodes).find(
-    ([, value]) => value.code.replace('-', '') === normalised && Date.parse(value.expiresAt) > Date.now(),
+    ([, value]) =>
+      value.code.replace('-', '') === normalised && Date.parse(value.expiresAt) > Date.now(),
   );
   if (entry === undefined) return false;
   const [adminId] = entry;

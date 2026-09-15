@@ -1,4 +1,5 @@
 import { formatMinorToDecimal } from '@/lib/money';
+import { TENANT_ZERO_ID } from '@/types/tenant';
 import type {
   AdminDeposit,
   AdminPlayer,
@@ -44,7 +45,8 @@ export const money = (minor: bigint, currency: string = MOCK_CURRENCY): MoneyVie
   currency,
 });
 
-export const TENANT_ZERO_ID = '00000000-0000-0000-0000-000000000000';
+// One definition of the platform's id, shared with the screens that key on it.
+export { TENANT_ZERO_ID };
 
 const uuid = (n: number, prefix: string): string => {
   const tail = String(n).padStart(12, '0');

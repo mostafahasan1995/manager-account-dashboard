@@ -703,6 +703,11 @@ or platform staff; a `PLATFORM_ADMIN` row only by someone who could grant that r
 `ADMIN_TELEGRAM_LINK_FORBIDDEN`, 422 `ADMIN_TELEGRAM_LINK_NOT_ALLOWED` (`AGENT_PRINCIPAL`). A tap in
 the group is refused from the moment it returns.
 
+The console mirrors these rules: it offers neither "Link Telegram" nor "Unlink" on the agent principal
+(`telegramUserId` `"0"`), and "Unlink" on a `PLATFORM_ADMIN` row only to a `PLATFORM_ADMIN` with no
+tenant override. It keeps a code only while its dialog is open (`gcTime: 0`, reset on close and
+unmount).
+
 ### Approval limits — `/v1/admin`
 
 ```
@@ -919,6 +924,13 @@ Tenant zero in fake mode keeps its own error ("Tenant zero is the platform, not 
 platform binds or changes an operator's groups. `:purpose` and `purpose` are `STAFF` (the staff
 group, `adminChatId`) or `FEED` (the feed group, `feedChatId`).
 
+Tenant zero (`00000000-0000-0000-0000-000000000000`) is the platform itself, not an operator: it is
+ACTIVE with `adminChatId` and `feedChatId` null. Issuing a link, binding (`PUT`, or `PATCH /:id` with a
+changed chat) and removing a group are all refused for it with 422 `TENANT_PLATFORM_LOCKED`, "Tenant
+zero is the platform itself, not an operator, and has no staff or feed group.", checked after 404 and
+before `TENANT_CLOSED`. `GET /:id/telegram/chats` is not refused. The console keys on the id: tenant
+zero gets no missing-staff-group warning and no group steps, only a line saying it has no groups.
+
 **The primary path — "Add bot to staff group".** `POST /:id/telegram/bind-links { purpose }` answers
 
 `TelegramBindLinkView`: `purpose, url, botUsername, expiresAt, adminRights[]`
@@ -937,8 +949,13 @@ in the group, and — for the staff group — queues review cards for deposits a
 - A bind that fails verification leaves nothing bound and the bot explains in the group.
 - Refusals: 404 `TENANT_NOT_FOUND`, 422 `TENANT_PLATFORM_LOCKED` (tenant zero), 422 `TENANT_CLOSED`,
   422 `TENANT_BOT_UNAVAILABLE` (the bot has no known @username yet: replace its token).
-- The result is not pushed to the console. The console polls `GET /:id` and `GET /:id/telegram/chats`
-  every few seconds while the step is open, and sees `adminChatId` become non-null.
+- The result is not pushed to the console. While a link is out the console polls `GET /:id` every few
+  seconds and sees `adminChatId` change; `GET /:id/telegram/chats` is polled only while the list is
+  open. Polling stops when the bind lands, when the admin dismisses the link, or at `expiresAt`: a
+  link nobody uses, or one opened in the group already bound, never changes the row. At `expiresAt`
+  the console reads `GET /:id` once more, then says the link expired and offers a new one.
+- The console keeps the URL only while it is on screen (component state and the mutation result,
+  `gcTime: 0`, reset on dismiss and unmount). Dismissing does not revoke the link.
 - Telegram only reaches the webhook over public https, so on a laptop without a tunnel neither the
   link nor discovery can complete; a typed id through `PUT` (below) still works, as that call is
   outgoing.
@@ -983,7 +1000,8 @@ null. Telegram being unreachable is 503 `TENANT_TELEGRAM_UNREACHABLE`; `"0"` is 
 
 `DELETE /:id/telegram/chats/:purpose` removes a group and answers the `TenantView`. The STAFF group of
 an ACTIVE operator is refused with 422 `TENANT_STAFF_GROUP_REQUIRED` ("an active operator must always
-have a staff group"): bind another group instead, or suspend first.
+have a staff group"): bind another group instead, or suspend first. Also 404 `TENANT_NOT_FOUND`, 422
+`TENANT_PLATFORM_LOCKED` (tenant zero), 422 `TENANT_CLOSED`.
 
 **`TENANT_STAFF_GROUP_REQUIRED` (422)** is answered in three places: `POST /:id/activate` (and so
 provisioning's `activationError`) while no staff group is bound; `DELETE /:id/telegram/chats/STAFF` on

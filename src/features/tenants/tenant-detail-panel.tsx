@@ -22,7 +22,7 @@ import {
 import { useTenant } from '@/lib/api/queries';
 import { useEnumLabel, useT } from '@/lib/i18n/use-translation';
 import type { Tenant } from '@/types';
-import { tenantDepositMode, tenantWithdrawalMode } from '@/types/tenant';
+import { isPlatformTenant, tenantDepositMode, tenantWithdrawalMode } from '@/types/tenant';
 
 import { AddMeAsAdminAction } from './add-me-admin-dialog';
 import { tenantMessages } from './messages';
@@ -116,6 +116,7 @@ function TenantDetails({ tenant }: { tenant: Tenant }) {
   const depositMode = tenantDepositMode(tenant);
   const withdrawalMode = tenantWithdrawalMode(tenant);
   const miniAppUrl = tenant.miniAppUrl ?? null;
+  const platform = isPlatformTenant(tenant);
 
   return (
     <div className="space-y-6">
@@ -222,8 +223,15 @@ function TenantDetails({ tenant }: { tenant: Tenant }) {
          * No staff group is not a blank cell: it is an operator whose review cards and alerts go
          * nowhere, and which cannot be activated. Said in red, with the consequence and the place to
          * fix it, for every role that can open this panel.
+         *
+         * Except for tenant zero. The platform is not an operator: it has no staff group by design,
+         * the backend refuses every bind for it (TENANT_PLATFORM_LOCKED), and it takes no deposits of
+         * its own. A red warning there would be both alarming and impossible to act on, so one
+         * neutral line says what is true instead.
          */}
-        {tenant.adminChatId === null ? (
+        {platform ? (
+          <p className="text-xs text-[var(--muted-foreground)]">{t('tenants.platform.noGroups')}</p>
+        ) : tenant.adminChatId === null ? (
           <Alert tone="danger" title={t('tenants.staffGroup.missingTitle')}>
             {tenant.status === 'ACTIVE'
               ? t('tenants.staffGroup.missingActiveBody')
@@ -232,10 +240,12 @@ function TenantDetails({ tenant }: { tenant: Tenant }) {
         ) : null}
         <DetailList>
           <DetailRow label={t('tenants.field.adminChatId')}>
-            {tenant.adminChatId === null ? (
-              <span className="text-[var(--danger)]">{t('tenants.chat.notBound')}</span>
-            ) : (
+            {tenant.adminChatId !== null ? (
               <CopyableValue value={tenant.adminChatId} />
+            ) : platform ? (
+              <span className="text-[var(--muted-foreground)]">{t('common.none')}</span>
+            ) : (
+              <span className="text-[var(--danger)]">{t('tenants.chat.notBound')}</span>
             )}
           </DetailRow>
           <DetailRow label={t('tenants.field.feedChatId')}>
