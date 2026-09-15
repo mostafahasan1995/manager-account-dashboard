@@ -29,6 +29,15 @@ export default defineConfig({
      * as the one deliberate exception. This suite is that exception: it exists to drive the bundle
      * that actually ships. See the comment on `enableMocksIfRequested`.
      */
-    env: { VITE_ENABLE_MOCKS: 'true', VITE_ALLOW_MOCKS_IN_BUILD: 'true' },
+    /*
+     * VITE_TENANT_HEADER_ENABLED too: the suite asserts the multi-tenant console (no "single-tenant
+     * mode" notice, a working operator picker), and the flag defaults to off. It used to arrive from a
+     * developer's untracked `.env`, so the suite passed locally and failed on a clean CI runner.
+     */
+    env: {
+      VITE_ENABLE_MOCKS: 'true',
+      VITE_ALLOW_MOCKS_IN_BUILD: 'true',
+      VITE_TENANT_HEADER_ENABLED: 'true',
+    },
   },
 });
