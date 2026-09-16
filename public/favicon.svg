@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Cashier Console">
+  <!-- Brand badge: the console's primary indigo (styles.css --primary, oklch(0.52 0.16 258)) with a
+       white "C" for Cashier. Drawn as an arc, not text, so it renders identically without any font, and
+       the solid badge reads on both light and dark browser tabs (no theme media query needed). -->
+  <rect width="32" height="32" rx="7" fill="#3f51b5" />
+  <path d="M21 11 A7 7 0 1 0 21 21" fill="none" stroke="#ffffff" stroke-width="3.2" stroke-linecap="round" />
+</svg>
