@@ -79,6 +79,10 @@ import {
   tenantHealth,
   updateTenantIchancy,
   AGENT_PRINCIPAL_LINK_MESSAGE,
+  PLATFORM_BOT_LOCKED_MESSAGE,
+  PLATFORM_HAS_NO_AGENT_MESSAGE,
+  PLATFORM_LINK_MESSAGE,
+  PLATFORM_SUSPEND_LOCKED_MESSAGE,
   STAFF_GROUP_REMOVAL_REFUSED_MESSAGE,
   STAFF_GROUP_REQUIRED_MESSAGE,
   TENANT_PLATFORM_LOCKED_MESSAGE,
@@ -86,6 +90,7 @@ import {
   chatRejectionMessage,
   issueBindLink,
   issueStaffLinkCode,
+  platformBotUnavailableMessage,
   tenantChatsView,
   tenantView,
   unbindTenantChat,
@@ -220,6 +225,14 @@ const tenantClosed = () =>
  * backend does. Reading its chat directory is not refused there, so it is not here either.
  */
 const platformLocked = () => fail(422, 'TENANT_PLATFORM_LOCKED', TENANT_PLATFORM_LOCKED_MESSAGE);
+
+/**
+ * The other refusal tenant zero gets, from the routes that go through the operator's BOT rather than
+ * checking an id: the webhook pair and the command menus. Its stored token is a placeholder, so the
+ * bot cannot be built at all — 422 TENANT_BOT_UNAVAILABLE, and the console offers none of the three.
+ */
+const platformBotUnavailable = (action: string) =>
+  fail(422, 'TENANT_BOT_UNAVAILABLE', platformBotUnavailableMessage(action));
 
 /** 400 TELEGRAM_CHAT_REJECTED, in the backend's `details` shape and with its sentence per reason. */
 const chatRejected = (
@@ -1996,6 +2009,15 @@ export const handlers: HttpHandler[] = [
         'Only the staff member themselves, or a platform admin, can get a Telegram link code for an account.',
       );
     }
+    // Tenant zero has no bot, so no code is issued there for any row, checked before the row is even
+    // looked up. The mock knows the tenant a request is for only through a platform admin's
+    // X-Tenant-Id; every other role is treated as working in its operator.
+    const effectiveTenantId = requestedTenant(request) ?? TENANT_ZERO_ID;
+    if (role === 'PLATFORM_ADMIN' && effectiveTenantId === TENANT_ZERO_ID) {
+      return fail(422, 'ADMIN_TELEGRAM_LINK_NOT_ALLOWED', PLATFORM_LINK_MESSAGE, {
+        reason: 'PLATFORM',
+      });
+    }
     const admin = db.admins.find((row) => row.id === adminId);
     if (admin === undefined) return fail(404, 'ADMIN_NOT_FOUND', 'Administrator not found.');
     // Before "inactive", as the backend checks it: the reserved "0" is never a person.
@@ -2019,7 +2041,8 @@ export const handlers: HttpHandler[] = [
         'This staff account is already linked to a Telegram account. Remove that link first.',
       );
     }
-    return ok(issueStaffLinkCode(admin));
+    const botUsername = db.tenants.find((row) => row.id === effectiveTenantId)?.botUsername ?? null;
+    return ok(issueStaffLinkCode(admin, botUsername));
   }),
 
   /**
@@ -2229,31 +2252,39 @@ export const handlers: HttpHandler[] = [
   http.post(url('/v1/admin/tenants/:id/suspend'), ({ params }) => {
     const tenant = db.tenants.find((row) => row.id === String(params.id));
     if (tenant === undefined) return fail(404, 'TENANT_NOT_FOUND', 'Tenant not found.');
+    if (tenant.id === TENANT_ZERO_ID) {
+      return fail(422, 'TENANT_PLATFORM_LOCKED', PLATFORM_SUSPEND_LOCKED_MESSAGE);
+    }
     tenant.status = 'SUSPENDED';
     tenant.updatedAt = nowIso();
     return ok(tenantView(tenant));
   }),
 
   // ── Operator operations ──────────────────────────────────────────────────────────────────────
+  //
+  // The three routes below run through the operator's BOT, and tenant zero's stored token is a
+  // placeholder rather than a bot — so they answer 422 TENANT_BOT_UNAVAILABLE for it, not the
+  // TENANT_PLATFORM_LOCKED the id-checked routes answer. Two different codes for two different
+  // reasons, and the console hides all of them for the platform either way.
   http.post(url('/v1/admin/tenants/:id/webhook'), ({ params }) => {
     const tenant = db.tenants.find((row) => row.id === String(params.id));
-    return tenant === undefined
-      ? fail(404, 'TENANT_NOT_FOUND', 'Tenant not found.')
-      : ok(registerWebhook(tenant.id));
+    if (tenant === undefined) return fail(404, 'TENANT_NOT_FOUND', 'Tenant not found.');
+    if (tenant.id === TENANT_ZERO_ID) return platformBotUnavailable('register the webhook');
+    return ok(registerWebhook(tenant.id));
   }),
 
   http.delete(url('/v1/admin/tenants/:id/webhook'), ({ params }) => {
     const tenant = db.tenants.find((row) => row.id === String(params.id));
-    return tenant === undefined
-      ? fail(404, 'TENANT_NOT_FOUND', 'Tenant not found.')
-      : ok(removeWebhook(tenant.id));
+    if (tenant === undefined) return fail(404, 'TENANT_NOT_FOUND', 'Tenant not found.');
+    if (tenant.id === TENANT_ZERO_ID) return platformBotUnavailable('remove the webhook');
+    return ok(removeWebhook(tenant.id));
   }),
 
   http.post(url('/v1/admin/tenants/:id/bot-setup'), ({ params }) => {
     const tenant = db.tenants.find((row) => row.id === String(params.id));
-    return tenant === undefined
-      ? fail(404, 'TENANT_NOT_FOUND', 'Tenant not found.')
-      : ok({ commandsSet: BOT_COMMANDS_PUSHED, scopes: [...BOT_COMMAND_SCOPES] });
+    if (tenant === undefined) return fail(404, 'TENANT_NOT_FOUND', 'Tenant not found.');
+    if (tenant.id === TENANT_ZERO_ID) return platformBotUnavailable('push the command menus');
+    return ok({ commandsSet: BOT_COMMANDS_PUSHED, scopes: [...BOT_COMMAND_SCOPES] });
   }),
 
   http.get(url('/v1/admin/tenants/:id/health'), ({ params }) => {
@@ -2266,6 +2297,10 @@ export const handlers: HttpHandler[] = [
   http.patch(url('/v1/admin/tenants/:id/ichancy'), async ({ params, request }) => {
     const tenant = db.tenants.find((row) => row.id === String(params.id));
     if (tenant === undefined) return fail(404, 'TENANT_NOT_FOUND', 'Tenant not found.');
+
+    if (tenant.id === TENANT_ZERO_ID) {
+      return fail(422, 'TENANT_PLATFORM_LOCKED', PLATFORM_HAS_NO_AGENT_MESSAGE);
+    }
 
     const body = (await request.json()) as Record<string, unknown>;
     const agentId = body.ichancyAgentId;
@@ -2298,6 +2333,9 @@ export const handlers: HttpHandler[] = [
       });
     }
 
+    if (tenant.id === TENANT_ZERO_ID) {
+      return fail(422, 'TENANT_PLATFORM_LOCKED', PLATFORM_BOT_LOCKED_MESSAGE);
+    }
     replaceTenantBot(tenant, botToken);
     return ok(tenantView(tenant));
   }),
@@ -2309,9 +2347,11 @@ export const handlers: HttpHandler[] = [
       return fail(403, 'INSUFFICIENT_ROLE', 'This endpoint is for platform administrators.');
     }
     const tenant = db.tenants.find((row) => row.id === String(params.id));
-    return tenant === undefined
-      ? fail(404, 'TENANT_NOT_FOUND', 'Tenant not found.')
-      : ok(importPlayersForTenant(tenant));
+    if (tenant === undefined) return fail(404, 'TENANT_NOT_FOUND', 'Tenant not found.');
+    if (tenant.id === TENANT_ZERO_ID) {
+      return fail(422, 'TENANT_PLATFORM_LOCKED', PLATFORM_HAS_NO_AGENT_MESSAGE);
+    }
+    return ok(importPlayersForTenant(tenant));
   }),
 
   // ── Staff and feed groups (PLATFORM_ADMIN) ───────────────────────────────────────────────────

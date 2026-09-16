@@ -10,6 +10,7 @@ import { errorMessage, isApiError } from '@/lib/api/errors';
 import { useActivateTenant, useSuspendTenant } from '@/lib/api/queries';
 import { useT } from '@/lib/i18n/use-translation';
 import { TENANT_STAFF_GROUP_REQUIRED, type Tenant } from '@/types';
+import { isPlatformTenant } from '@/types/tenant';
 
 import { tenantMessages } from './messages';
 
@@ -25,6 +26,14 @@ import { tenantMessages } from './messages';
  * The two icons keep their orientation in Arabic. Neither points anywhere: a pause and a play glyph
  * mean stopped and running, the same way they do on any device, and mirroring them would turn a
  * symbol an operator recognises instantly into one they have to read.
+ *
+ * ── WHY THE PLATFORM LOSES SUSPEND AND KEEPS ACTIVATE ─────────────────────────────────────────
+ * Suspending tenant zero is refused (422 TENANT_PLATFORM_LOCKED: it would lock every platform admin
+ * out of sign-in), so that button is not offered for it. Activating it is NOT refused — the backend
+ * answers an already-serving operator as it is, 200 — so the rule is written as "no Suspend here",
+ * not "no status buttons here". In practice tenant zero is always ACTIVE and therefore shows
+ * neither; the day the API says otherwise, the console offers the one call that would still work
+ * rather than a footer with nothing in it and no way to fix the row.
  */
 export function TenantStatusActions({ tenant }: { tenant: Tenant }) {
   const activate = useActivateTenant();
@@ -69,10 +78,17 @@ export function TenantStatusActions({ tenant }: { tenant: Tenant }) {
     }
   };
 
+  const active = tenant.status === 'ACTIVE';
+  const maySuspend = active && !isPlatformTenant(tenant);
+  const mayActivate = !active;
+  // The platform while it is serving: nothing here can be done to it, so nothing is drawn — not an
+  // empty row of buttons, and not a disabled one inviting a click the server would refuse.
+  if (!maySuspend && !mayActivate) return null;
+
   return (
     <Can capability="tenants.manage">
       <div className="flex flex-wrap gap-2">
-        {tenant.status === 'ACTIVE' ? (
+        {maySuspend ? (
           <Button
             variant="danger"
             size="sm"
@@ -83,7 +99,8 @@ export function TenantStatusActions({ tenant }: { tenant: Tenant }) {
             <PauseCircle className="size-4" />
             {t('tenants.suspend.action')}
           </Button>
-        ) : (
+        ) : null}
+        {mayActivate ? (
           <Button
             variant="success"
             size="sm"
@@ -95,7 +112,7 @@ export function TenantStatusActions({ tenant }: { tenant: Tenant }) {
             <PlayCircle className="size-4" />
             {t('tenants.activate.action')}
           </Button>
-        )}
+        ) : null}
       </div>
 
       <ConfirmDialog

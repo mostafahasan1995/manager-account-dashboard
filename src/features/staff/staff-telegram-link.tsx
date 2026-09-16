@@ -16,6 +16,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { config } from '@/config';
 import { errorMessage } from '@/lib/api/errors';
 import {
   TENANT_CHAT_POLL_MS,
@@ -23,7 +24,7 @@ import {
   useIssueStaffTelegramLinkCode,
   useUnlinkStaffTelegram,
 } from '@/lib/api/queries';
-import { mayGrantRole } from '@/lib/auth/permissions';
+import { mayGrantRole, worksInTenantZero } from '@/lib/auth/permissions';
 import { useAuth } from '@/lib/auth/use-auth';
 import { useT } from '@/lib/i18n/use-translation';
 import { isAgentPrincipal, type AdminUser } from '@/types/admin';
@@ -44,6 +45,12 @@ import { staffMessages } from './messages';
  * reserved Telegram id "0" is how its sign-in finds it, not a link (422 AGENT_PRINCIPAL). Hiding is
  * a courtesy; the server enforces all of it.
  *
+ * ── NOTHING TO LINK IN TENANT ZERO ────────────────────────────────────────────────────────────
+ * Tenant zero is the platform and has no bot, so while the console works in it the backend refuses a
+ * code for every account (422 PLATFORM) and "Link Telegram" is not offered. "Unlink" is not refused
+ * there and stays. An unlinked row would then read "taps are refused until linked" with no way to
+ * link, so it says why instead.
+ *
  * ── WHY THE CODE LIVES IN A MUTATION, AND DIES WITH THE DIALOG ────────────────────────────────
  * Each request revokes the previous code, and the code is a credential for ten minutes. So it is
  * asked for only by a click, never re-fetched by a re-render, and `reset()` drops it from memory the
@@ -53,7 +60,7 @@ import { staffMessages } from './messages';
  */
 export function StaffTelegramLink({ admin }: { admin: AdminUser }) {
   const t = useT(staffMessages);
-  const { admin: me, role, can, tenantId } = useAuth();
+  const { admin: me, role, can, tenantId, session } = useAuth();
   const issue = useIssueStaffTelegramLinkCode();
   const unlink = useUnlinkStaffTelegram();
   const [open, setOpen] = useState(false);
@@ -62,7 +69,17 @@ export function StaffTelegramLink({ admin }: { admin: AdminUser }) {
 
   const isSelf = me?.id === admin.id;
   const agentPrincipal = isAgentPrincipal(admin);
-  const mayLink = !admin.telegramLinked && !agentPrincipal && (isSelf || role === 'PLATFORM_ADMIN');
+  const inPlatform = worksInTenantZero({
+    role,
+    homeTenantId: session?.tenantId,
+    tenantOverride: tenantId,
+    headerEnabled: config.tenantHeaderEnabled,
+  });
+  const mayLink =
+    !admin.telegramLinked &&
+    !agentPrincipal &&
+    !inPlatform &&
+    (isSelf || role === 'PLATFORM_ADMIN');
   const mayUnlink =
     admin.telegramLinked &&
     !agentPrincipal &&
@@ -144,7 +161,11 @@ export function StaffTelegramLink({ admin }: { admin: AdminUser }) {
         ) : null}
       </span>
       <span className="text-xs text-[var(--muted-foreground)]">
-        {admin.telegramLinked ? t('staff.telegram.linkedHint') : t('staff.telegram.notLinkedHint')}
+        {admin.telegramLinked
+          ? t('staff.telegram.linkedHint')
+          : inPlatform
+            ? t('staff.telegram.platformHint')
+            : t('staff.telegram.notLinkedHint')}
       </span>
 
       <Dialog open={open} onOpenChange={close}>

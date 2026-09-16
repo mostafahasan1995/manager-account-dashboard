@@ -202,7 +202,8 @@ describe('the player administration hooks', () => {
     expect(invalidated(own, playerKeys.list({}))).toBe(true);
     expect(invalidated(own, tenantKeys.list())).toBe(false);
 
-    const platform = await fire(useImportTenantPlayers, TENANT_IDS.zero);
+    // An operator: the platform itself has no Ichancy agent, and that route refuses tenant zero.
+    const platform = await fire(useImportTenantPlayers, TENANT_IDS.second);
     expect(invalidated(platform, playerKeys.list({}))).toBe(true);
     expect(invalidated(platform, tenantKeys.list())).toBe(true);
   });

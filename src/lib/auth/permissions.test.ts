@@ -1,8 +1,16 @@
 import { describe, expect, it } from 'vitest';
 
 import { ADMIN_ROLES } from '@/types/enums';
+import { TENANT_ZERO_ID } from '@/types/tenant';
 
-import { CAPABILITIES, CAPABILITY_LABELS, can, canAny, capabilitiesOf } from './permissions';
+import {
+  CAPABILITIES,
+  CAPABILITY_LABELS,
+  can,
+  canAny,
+  capabilitiesOf,
+  worksInTenantZero,
+} from './permissions';
 
 /**
  * This table is a mirror of the backend's role constants, so these tests are really a transcription
@@ -184,6 +192,63 @@ describe('PLATFORM_ADMIN holds the new capabilities too, as the superset it is',
     expect(can('PLATFORM_ADMIN', 'withdrawals.read')).toBe(true);
     expect(can('PLATFORM_ADMIN', 'withdrawals.decide')).toBe(true);
     expect(can('PLATFORM_ADMIN', 'botSettings.write')).toBe(true);
+  });
+});
+
+/**
+ * Which tenant the BACKEND will read this console's requests in — the question every "is this
+ * refused for the platform" rule turns on. Getting it wrong in the safe direction shows a button the
+ * server refuses; getting it wrong in the other direction hides one that would have worked.
+ */
+describe('worksInTenantZero', () => {
+  const AN_OPERATOR = '11111111-0000-4000-8000-000000000002';
+  const platformAdmin = (over: { tenantOverride?: string | null; headerEnabled?: boolean }) =>
+    worksInTenantZero({
+      role: 'PLATFORM_ADMIN',
+      homeTenantId: TENANT_ZERO_ID,
+      tenantOverride: over.tenantOverride ?? null,
+      headerEnabled: over.headerEnabled ?? true,
+    });
+
+  it('is where a platform admin is until an operator is picked: their home is tenant zero', () => {
+    expect(platformAdmin({ tenantOverride: null })).toBe(true);
+  });
+
+  it('is left as soon as an operator is selected — X-Tenant-Id moves the request', () => {
+    expect(platformAdmin({ tenantOverride: AN_OPERATOR })).toBe(false);
+  });
+
+  it('counts picking the platform itself as being in it', () => {
+    expect(platformAdmin({ tenantOverride: TENANT_ZERO_ID })).toBe(true);
+  });
+
+  it('ignores the selection when this deployment does not send the header at all', () => {
+    // The backend then reads every request in the caller's home, whatever the switcher shows.
+    expect(platformAdmin({ tenantOverride: AN_OPERATOR, headerEnabled: false })).toBe(true);
+  });
+
+  it('puts every other role in the operator it signed into, whose header is ignored anyway', () => {
+    expect(
+      worksInTenantZero({
+        role: 'SUPER_ADMIN',
+        homeTenantId: AN_OPERATOR,
+        tenantOverride: TENANT_ZERO_ID,
+        headerEnabled: true,
+      }),
+    ).toBe(false);
+  });
+
+  it('does not assume the platform for a session too old to carry a tenant claim', () => {
+    // Guessing "platform" there would hide a control the backend would have allowed. The server
+    // refuses what it must; a console that hid it on a guess would leave no way to find out.
+    expect(
+      worksInTenantZero({
+        role: 'SUPER_ADMIN',
+        homeTenantId: undefined,
+        tenantOverride: null,
+        headerEnabled: true,
+      }),
+    ).toBe(false);
   });
 });
 

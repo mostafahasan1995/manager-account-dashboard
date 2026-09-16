@@ -21,18 +21,20 @@ const envelope = (data: unknown, status = 200) =>
 
 describe('TenantDetailPanel', () => {
   it('shows the Ichancy and Telegram wiring for the selected tenant', async () => {
+    // An OPERATOR: the Telegram and Ichancy panels this reads are not rendered for tenant zero,
+    // because the backend refuses a new bot token and an Ichancy edit for the platform.
     renderPlain(
-      <TenantDetailPanel tenantId={TENANT_IDS.zero} onClose={vi.fn()} onEdit={vi.fn()} />,
+      <TenantDetailPanel tenantId={TENANT_IDS.second} onClose={vi.fn()} onEdit={vi.fn()} />,
       platformAdmin,
     );
 
     expect(await screen.findByText('https://agent.ichancy.example')).toBeInTheDocument();
-    expect(screen.getByText('agent_main')).toBeInTheDocument();
-    expect(screen.getByText('10045')).toBeInTheDocument();
-    expect(screen.getByText('-1001234567890')).toBeInTheDocument();
-    expect(screen.getByText('@main_cashier_bot')).toBeInTheDocument();
-    expect(screen.getByText('500,000.00 NSP')).toBeInTheDocument();
-    expect(screen.getByText('30 minutes')).toBeInTheDocument();
+    expect(screen.getByText('agent_north')).toBeInTheDocument();
+    expect(screen.getByText('10099')).toBeInTheDocument();
+    expect(screen.getByText('-1001111111111')).toBeInTheDocument();
+    expect(screen.getByText('@northern_cashier_bot')).toBeInTheDocument();
+    expect(screen.getByText('380,000.00 NSP')).toBeInTheDocument();
+    expect(screen.getByText('45 minutes')).toBeInTheDocument();
   });
 
   it('reports the webhook as configured without pretending to show the token', async () => {
@@ -133,6 +135,31 @@ describe('TenantDetailPanel', () => {
     expect(document.querySelector('[data-step="staff-group"]')).toBeNull();
     expect(document.querySelector('[data-step="feed-group"]')).toBeNull();
     expect(screen.queryByText('لا توجد مجموعة موظفين بعد')).not.toBeInTheDocument();
+  });
+
+  it('offers the platform no Suspend, and keeps what the backend still allows', async () => {
+    platformAsTheBackendAnswersIt();
+
+    renderPlain(
+      <TenantDetailPanel tenantId={TENANT_IDS.zero} onClose={vi.fn()} onEdit={vi.fn()} />,
+      platformAdmin,
+    );
+
+    expect(await screen.findByText('path token generated')).toBeInTheDocument();
+    // Suspending tenant zero is refused: it would lock every platform admin out of sign-in.
+    expect(screen.queryByRole('button', { name: 'Suspend' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Activate' })).not.toBeInTheDocument();
+    // Not a blanket hiding of the footer — editing its settings is not refused.
+    expect(screen.getByRole('button', { name: /edit settings/i })).toBeInTheDocument();
+  });
+
+  it('still offers Suspend for an operator', async () => {
+    renderPlain(
+      <TenantDetailPanel tenantId={TENANT_IDS.second} onClose={vi.fn()} onEdit={vi.fn()} />,
+      platformAdmin,
+    );
+
+    expect(await screen.findByRole('button', { name: 'Suspend' })).toBeInTheDocument();
   });
 
   it('shows the API failure rather than an empty panel', async () => {

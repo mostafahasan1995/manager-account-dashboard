@@ -62,12 +62,19 @@ export interface AuthOverrides {
   signIn?: AuthState['signIn'];
   signOut?: AuthState['signOut'];
   tenantId?: string | null;
+  /** The tenant the session signed into (its `tenantId` claim). Absent, as on an older session. */
+  homeTenantId?: string;
 }
 
 export function createTestAuth(overrides: AuthOverrides = {}): AuthState {
   const role = overrides.role ?? 'SUPER_ADMIN';
   const isAuthenticated = overrides.isAuthenticated ?? true;
-  const session = isAuthenticated ? createTestSession(role) : null;
+  const session = isAuthenticated
+    ? {
+        ...createTestSession(role),
+        ...(overrides.homeTenantId === undefined ? {} : { tenantId: overrides.homeTenantId }),
+      }
+    : null;
   const tenantId = overrides.tenantId ?? null;
 
   return {

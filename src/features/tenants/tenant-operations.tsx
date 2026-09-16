@@ -6,6 +6,7 @@ import { Can } from '@/components/common/can';
 import { ConfirmDialog } from '@/components/common/confirm-dialog';
 import { DetailList, DetailRow } from '@/components/common/page-header';
 import { CardSkeleton, ErrorState } from '@/components/common/states';
+import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { errorMessage } from '@/lib/api/errors';
@@ -19,6 +20,7 @@ import {
 import { formatCount } from '@/lib/format';
 import { useT } from '@/lib/i18n/use-translation';
 import type { Tenant } from '@/types';
+import { isPlatformTenant } from '@/types/tenant';
 
 import { tenantMessages } from './messages';
 import type { TenantOperatorActions } from './tenant-actions';
@@ -44,6 +46,14 @@ import { TenantTelegramPanel } from './tenant-telegram-panel';
  * changes because somebody on this screen changed it, so it refetches after each action and when
  * asked — never on a timer that would sign in to Ichancy every thirty seconds for as long as the
  * panel stays open.
+ *
+ * ── WHY TENANT ZERO GETS ONE SENTENCE INSTEAD OF THE PANELS ───────────────────────────────────
+ * Tenant zero is the platform itself. Its stored bot token and Ichancy agent are placeholders, so the
+ * backend refuses replacing its bot token, editing its Ichancy agent and importing its players (422
+ * TENANT_PLATFORM_LOCKED), and registering or removing its webhook and pushing its menus can only fail
+ * (422 TENANT_BOT_UNAVAILABLE). Its health reports a bot that cannot be used and an agent not checked.
+ * The Telegram, Ichancy and import panels would be red alarms with buttons that cannot work, so they
+ * are left out and one neutral sentence says why. The checklist and the counts stay.
  */
 export function TenantOperations({ tenant }: { tenant: Tenant }) {
   return (
@@ -66,6 +76,7 @@ function TenantOperationsBody({ tenant }: { tenant: Tenant }) {
 
   const health = query.data;
   const name = tenant.displayName;
+  const platform = isPlatformTenant(tenant);
 
   const runRegister = () => {
     register.mutate(
@@ -194,21 +205,31 @@ function TenantOperationsBody({ tenant }: { tenant: Tenant }) {
 
       {health === undefined ? null : (
         <div className="space-y-4">
-          <TenantChatHealthAlerts tenant={tenant} chats={health.chats} />
+          {platform ? (
+            <Alert tone="neutral" title={t('tenants.platform.opsTitle')}>
+              {t('tenants.platform.opsBody')}
+            </Alert>
+          ) : (
+            <TenantChatHealthAlerts tenant={tenant} chats={health.chats} />
+          )}
           <TenantSetupChecklist
             tenant={tenant}
             health={health}
             actions={actions}
             commandsSet={setup.data?.commandsSet ?? null}
           />
-          <TenantTelegramPanel
-            tenant={tenant}
-            bot={health.bot}
-            actions={actions}
-            commandsResult={setup.data ?? null}
-          />
-          <TenantIchancyPanel tenant={tenant} ichancy={health.ichancy} actions={actions} />
-          <TenantImportPlayersCard summary={importPlayers.data ?? null} actions={actions} />
+          {platform ? null : (
+            <>
+              <TenantTelegramPanel
+                tenant={tenant}
+                bot={health.bot}
+                actions={actions}
+                commandsResult={setup.data ?? null}
+              />
+              <TenantIchancyPanel tenant={tenant} ichancy={health.ichancy} actions={actions} />
+              <TenantImportPlayersCard summary={importPlayers.data ?? null} actions={actions} />
+            </>
+          )}
 
           <Card>
             <CardHeader>

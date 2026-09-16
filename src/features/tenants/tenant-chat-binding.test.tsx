@@ -287,14 +287,13 @@ describe('a link that is out', () => {
 });
 
 describe('tenant zero, the platform', () => {
-  it('has no staff or feed group step, because every bind for it is refused', async () => {
+  it('has no group step, because every bind and every removal for it is refused', async () => {
     renderPlain(
       <TenantOperations tenant={{ ...home, adminChatId: null, feedChatId: null }} />,
       platformAdmin,
     );
 
     expect(await screen.findByText('Setup checklist')).toBeInTheDocument();
-    expect(document.querySelector('[data-step="webhook"]')).not.toBeNull();
     expect(document.querySelector('[data-step="staff-group"]')).toBeNull();
     expect(document.querySelector('[data-step="feed-group"]')).toBeNull();
     expect(
@@ -308,7 +307,9 @@ describe('Ichancy in fake mode on the operator panel', () => {
   it('says no real connection was made, instead of reporting the agent as answering', async () => {
     db.ichancyFake = true;
 
-    renderPlain(<TenantOperations tenant={{ ...home, ichancyFake: true }} />, platformAdmin);
+    // An operator: the platform's Ichancy panel is not rendered at all, because every edit and
+    // every check the backend offers for tenant zero is refused.
+    renderPlain(<TenantOperations tenant={{ ...northern, ichancyFake: true }} />, platformAdmin);
 
     expect(await screen.findByText('Ichancy is in fake mode')).toBeInTheDocument();
     expect(screen.getByText(/No real connection to Ichancy was made/)).toBeInTheDocument();
@@ -335,7 +336,7 @@ describe('Ichancy in fake mode on the operator panel', () => {
   it('reads in Arabic', async () => {
     db.ichancyFake = true;
 
-    renderPlain(<TenantOperations tenant={home} />, { ...platformAdmin, locale: 'ar' });
+    renderPlain(<TenantOperations tenant={northern} />, { ...platformAdmin, locale: 'ar' });
 
     expect(await screen.findByText('Ichancy في الوضع الوهمي')).toBeInTheDocument();
   });

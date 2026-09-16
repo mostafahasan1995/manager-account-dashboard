@@ -1,4 +1,5 @@
 import type { AdminRole } from '@/types/enums';
+import { TENANT_ZERO_ID } from '@/types/tenant';
 
 /**
  * What each role may do, transcribed from the backend's own role constants.
@@ -182,6 +183,28 @@ export function mayGrantRole(
   if (!can(actorRole, 'admins.write')) return false;
   if (role !== 'PLATFORM_ADMIN') return true;
   return actorRole === 'PLATFORM_ADMIN' && tenantOverride === null;
+}
+
+/**
+ * Whether the backend answers this console's requests for tenant zero, the platform.
+ *
+ * The backend reads a request for the caller's HOME tenant unless `X-Tenant-Id` moves it, and it
+ * honours that header only for a PLATFORM_ADMIN — whose home is always tenant zero — and only when
+ * this deployment sends it (`headerEnabled`). So a platform admin is in tenant zero until an operator
+ * is picked; anyone else is in whatever tenant they signed into (`homeTenantId`, absent on a session
+ * older than the tenant claim, which is then not assumed to be tenant zero).
+ */
+export function worksInTenantZero(input: {
+  role: AdminRole | null | undefined;
+  homeTenantId: string | undefined;
+  tenantOverride: string | null;
+  headerEnabled: boolean;
+}): boolean {
+  if (input.role === 'PLATFORM_ADMIN') {
+    const override = input.headerEnabled ? input.tenantOverride : null;
+    return override === null || override === TENANT_ZERO_ID;
+  }
+  return input.homeTenantId === TENANT_ZERO_ID;
 }
 
 /** Everything this role can do, for the "your access" panel on the profile screen. */

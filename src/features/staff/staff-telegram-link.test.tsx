@@ -3,8 +3,9 @@ import { screen, waitFor, within } from '@testing-library/react';
 import { toast } from 'sonner';
 import { describe, expect, it, vi } from 'vitest';
 
+import { config } from '@/config';
 import { db, redeemStaffLinkCode } from '@/mocks/db';
-import { ADMIN_IDS } from '@/mocks/fixtures';
+import { ADMIN_IDS, TENANT_IDS } from '@/mocks/fixtures';
 import { renderWithProviders } from '@/test/utils';
 import type { AdminRole } from '@/types/enums';
 
@@ -17,13 +18,27 @@ vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
  * exact instruction, the moment the bot takes it, and who may link or unlink at all.
  */
 
-const renderDetail = (adminId: string, role: AdminRole, locale?: 'ar') =>
-  renderWithProviders(<StaffDetailPage />, {
+/**
+ * `tenantId` is the operator the console is working IN, which is what decides whether a code can be
+ * issued at all: a platform admin with nothing selected is in tenant zero, where every code is
+ * refused. It only reaches the backend when this deployment sends `X-Tenant-Id`, so the flag is
+ * part of the question and is spied on here rather than left at its compiled default.
+ */
+const renderDetail = (
+  adminId: string,
+  role: AdminRole,
+  options: { locale?: 'ar'; tenantId?: string; tenantHeaderEnabled?: boolean } = {},
+) => {
+  vi.spyOn(config, 'tenantHeaderEnabled', 'get').mockReturnValue(
+    options.tenantHeaderEnabled ?? true,
+  );
+  return renderWithProviders(<StaffDetailPage />, {
     route: `/staff/${adminId}`,
     routePath: '/staff/$adminId',
-    auth: { role },
-    ...(locale === undefined ? {} : { locale }),
+    auth: { role, ...(options.tenantId === undefined ? {} : { tenantId: options.tenantId }) },
+    ...(options.locale === undefined ? {} : { locale: options.locale }),
   });
+};
 
 const CODE_PATTERN = /^[A-Z2-9]{4}-[A-Z2-9]{4}$/;
 
@@ -40,7 +55,13 @@ const heldCodes = (queryClient: QueryClient) =>
 
 describe('StaffTelegramLink', () => {
   it('shows a platform admin the code, the exact command and the bot, then notices the link', async () => {
-    const { user } = renderDetail(ADMIN_IDS.noTelegram, 'PLATFORM_ADMIN');
+    // With an operator selected, because in tenant zero the backend refuses every code and there
+    // would be no button to click. WHICH operator's bot the code names is settled in the mock's own
+    // tests: a component test's token carries no role, so the mock cannot honour X-Tenant-Id and
+    // resolves the bot to the home tenant.
+    const { user } = renderDetail(ADMIN_IDS.noTelegram, 'PLATFORM_ADMIN', {
+      tenantId: TENANT_IDS.second,
+    });
 
     expect(await screen.findByText('Not linked')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Link Telegram' }));
@@ -96,7 +117,9 @@ describe('StaffTelegramLink', () => {
   });
 
   it('shows the refusal when the account cannot be linked', async () => {
-    const { user } = renderDetail(ADMIN_IDS.deactivated, 'PLATFORM_ADMIN');
+    const { user } = renderDetail(ADMIN_IDS.deactivated, 'PLATFORM_ADMIN', {
+      tenantId: TENANT_IDS.second,
+    });
     // The fixture's deactivated reviewer carries an old Telegram id; unlinked here to reach the button.
     const row = db.admins.find((admin) => admin.id === ADMIN_IDS.deactivated)!;
     row.telegramLinked = false;
@@ -122,7 +145,7 @@ describe('StaffTelegramLink', () => {
       displayName: 'Main operation agent',
     });
 
-    renderDetail(AGENT_PRINCIPAL_ID, 'PLATFORM_ADMIN');
+    renderDetail(AGENT_PRINCIPAL_ID, 'PLATFORM_ADMIN', { tenantId: TENANT_IDS.second });
 
     expect(await screen.findByText('Not linked')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Link Telegram' })).not.toBeInTheDocument();
@@ -144,7 +167,9 @@ describe('StaffTelegramLink', () => {
   });
 
   it('drops the code from memory when the page goes away, not five minutes later', async () => {
-    const { user, queryClient, unmount } = renderDetail(ADMIN_IDS.noTelegram, 'PLATFORM_ADMIN');
+    const { user, queryClient, unmount } = renderDetail(ADMIN_IDS.noTelegram, 'PLATFORM_ADMIN', {
+      tenantId: TENANT_IDS.second,
+    });
 
     await user.click(await screen.findByRole('button', { name: 'Link Telegram' }));
     const dialog = within(
@@ -161,10 +186,65 @@ describe('StaffTelegramLink', () => {
   });
 
   it('reads in Arabic', async () => {
-    const { user } = renderDetail(ADMIN_IDS.noTelegram, 'PLATFORM_ADMIN', 'ar');
+    const { user } = renderDetail(ADMIN_IDS.noTelegram, 'PLATFORM_ADMIN', {
+      locale: 'ar',
+      tenantId: TENANT_IDS.second,
+    });
 
     await user.click(await screen.findByRole('button', { name: 'ربط تلغرام' }));
 
     expect(await screen.findByText('2. أرسل هذا حرفياً، في رسالة جديدة:')).toBeInTheDocument();
+  });
+});
+
+/**
+ * The platform has no bot, so the backend refuses a code for EVERY row while the console is working
+ * in tenant zero (422 ADMIN_TELEGRAM_LINK_NOT_ALLOWED, reason PLATFORM) — decided before it even
+ * reads the account. An unlink there is NOT refused, so that button stays exactly as it is.
+ */
+describe('StaffTelegramLink in tenant zero', () => {
+  it('offers no Link, and says why rather than leaving the row looking broken', async () => {
+    renderDetail(ADMIN_IDS.noTelegram, 'PLATFORM_ADMIN');
+
+    expect(await screen.findByText('Not linked')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Link Telegram' })).not.toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'The platform has no bot and no staff group, so its accounts are not linked to Telegram.',
+      ),
+    ).toBeInTheDocument();
+    // The operator sentence would be a dead end here: it names a fix that does not exist.
+    expect(
+      screen.queryByText('Their taps in the staff group are refused until this account is linked.'),
+    ).not.toBeInTheDocument();
+  });
+
+  it('keeps Unlink, because the backend does not refuse that for the platform', async () => {
+    renderDetail(ADMIN_IDS.reviewer, 'PLATFORM_ADMIN');
+
+    expect(await screen.findByText('Linked')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Unlink' })).toBeInTheDocument();
+  });
+
+  it('hides Link with an operator picked too, when no tenant header is sent', async () => {
+    // The backend then reads every request in the caller's home — tenant zero — and refuses the
+    // code whatever the switcher is showing.
+    renderDetail(ADMIN_IDS.noTelegram, 'PLATFORM_ADMIN', {
+      tenantId: TENANT_IDS.second,
+      tenantHeaderEnabled: false,
+    });
+
+    expect(await screen.findByText('Not linked')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Link Telegram' })).not.toBeInTheDocument();
+  });
+
+  it('says why in Arabic', async () => {
+    renderDetail(ADMIN_IDS.noTelegram, 'PLATFORM_ADMIN', { locale: 'ar' });
+
+    expect(
+      await screen.findByText(
+        'المنصة ليس لها بوت ولا مجموعة موظفين، لذلك لا تُربط حساباتها بتلغرام.',
+      ),
+    ).toBeInTheDocument();
   });
 });

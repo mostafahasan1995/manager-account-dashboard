@@ -284,10 +284,23 @@ describe('replacing an operator bot', () => {
 
 describe('bot setup', () => {
   it('reports how many commands were pushed and to which scopes', async () => {
-    const result = await tenantsApi.setupBot(TENANT_IDS.zero);
+    const result = await tenantsApi.setupBot(TENANT_IDS.second);
 
     expect(result.commandsSet).toBeGreaterThan(0);
     expect(result.scopes).toContain('all_private_chats');
+  });
+
+  /**
+   * Tenant zero is refused by these three because there is no bot to call — a different code from
+   * the TENANT_PLATFORM_LOCKED its id-checked routes answer, and the reason the console offers
+   * neither the webhook nor the menu step for the platform.
+   */
+  it.each([
+    ['pushing the menus', () => tenantsApi.setupBot(TENANT_IDS.zero)],
+    ['registering the webhook', () => tenantsApi.registerWebhook(TENANT_IDS.zero)],
+    ['removing the webhook', () => tenantsApi.removeWebhook(TENANT_IDS.zero)],
+  ])('refuses %s for the platform with 422 TENANT_BOT_UNAVAILABLE', async (_what, call) => {
+    await expect(call()).rejects.toMatchObject({ status: 422, code: 'TENANT_BOT_UNAVAILABLE' });
   });
 
   it('answers 404 for an operator that does not exist', async () => {

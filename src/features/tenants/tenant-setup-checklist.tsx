@@ -34,10 +34,14 @@ import { TenantChatBinding } from './tenant-chat-binding';
  * An operator with no feed group is fully set up. Counting it as a missing step would keep "every step
  * is done" out of reach forever, and teach people to ignore the count.
  *
- * ── WHY TENANT ZERO HAS NEITHER GROUP STEP ────────────────────────────────────────────────────────
- * Tenant zero is the platform itself, not an operator. It has no staff or feed group, and the backend
- * refuses every link, bind and removal for it (422 TENANT_PLATFORM_LOCKED), so both steps would offer
- * buttons that can only fail. They are left out; the panel's chat section says why, in one line.
+ * ── WHY TENANT ZERO HAS ONLY TWO STEPS ────────────────────────────────────────────────────────────
+ * Tenant zero is the platform itself, not an operator: no groups, no bot, no Ichancy agent. The
+ * backend refuses every group link, bind and removal, a new bot token and an Ichancy edit for it (422
+ * TENANT_PLATFORM_LOCKED), and registering its webhook or pushing its menus can only fail (422
+ * TENANT_BOT_UNAVAILABLE: its stored token is a placeholder, never a bot). Each of those steps would
+ * be a todo nobody can ever tick, with a button that always fails, so they are left out; the panel
+ * says why in one sentence above the list. What is left is the two steps that are real for it: an
+ * admin who can sign in, and "activated" — which it already is.
  */
 export function TenantSetupChecklist({
   tenant,
@@ -176,7 +180,9 @@ export function TenantSetupChecklist({
       action: null,
     },
   ];
-  const steps = platform ? allSteps.filter((step) => !GROUP_STEP_KEYS.has(step.key)) : allSteps;
+  const steps = platform
+    ? allSteps.filter((step) => !NOT_THE_PLATFORMS_STEPS.has(step.key))
+    : allSteps;
 
   const remaining = steps.filter((step) => step.state === 'todo').length;
 
@@ -201,8 +207,15 @@ export function TenantSetupChecklist({
   );
 }
 
-/** The steps an operator has and the platform does not. */
-const GROUP_STEP_KEYS: ReadonlySet<string> = new Set(['staff-group', 'feed-group']);
+/** The steps an operator has and the platform does not: each is refused, or can only fail, for it. */
+const NOT_THE_PLATFORMS_STEPS: ReadonlySet<string> = new Set([
+  'bot-token',
+  'webhook',
+  'staff-group',
+  'feed-group',
+  'commands',
+  'agent',
+]);
 
 type StepState = 'done' | 'todo' | 'unknown' | 'optional';
 

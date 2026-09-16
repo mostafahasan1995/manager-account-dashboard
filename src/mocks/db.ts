@@ -693,16 +693,15 @@ export function importPlayers(limit: number): PlayerImportSummary {
 /**
  * `POST /v1/admin/tenants/:id/import-players`, from the platform side.
  *
- * The home operator's rows are the ones this db actually holds, so its import is the real one
- * above. Another operator's directory is served as a slice of the same rows (see `forTenant` in
- * handlers.ts), so its import only moves the count — and an operator whose agent does not answer
- * REPORTS that in `error` rather than throwing, which is the contract: the rows written before an
- * outage stay written, and the summary says how far it got.
+ * Tenant zero never reaches here: it has no Ichancy agent and the route refuses it (see the handler).
+ * An operator's directory is served as a slice of the same rows (see `forTenant` in handlers.ts), so
+ * its import only moves the count — and an operator whose agent does not answer REPORTS that in
+ * `error` rather than throwing, which is the contract: the rows written before an outage stay
+ * written, and the summary says how far it got.
  */
 export function importPlayersForTenant(tenant: Tenant): PlayerImportSummary {
   // The platform route always says which mode answered; the operator-side route does not.
   const ichancyFake = db.ichancyFake;
-  if (tenant.id === TENANT_IDS.zero) return { ...importPlayers(2000), ichancyFake };
 
   const startedAt = nowIso();
   const ops = operatorOps(tenant.id);
@@ -1302,6 +1301,34 @@ export const STAFF_GROUP_REMOVAL_REFUSED_MESSAGE =
 export const TENANT_PLATFORM_LOCKED_MESSAGE =
   'Tenant zero is the platform itself, not an operator, and has no staff or feed group.';
 
+/** The backend's refusal to suspend tenant zero, verbatim (tenant-admin.service.ts). */
+export const PLATFORM_SUSPEND_LOCKED_MESSAGE =
+  'Tenant zero is the platform itself, not an operator. Suspending it would lock every platform admin out of sign-in, so it cannot be suspended.';
+
+/** The backend's refusal to replace tenant zero's bot token, verbatim (tenant-telegram.service.ts). */
+export const PLATFORM_BOT_LOCKED_MESSAGE =
+  'Tenant zero is the platform itself, not an operator, and has no Telegram bot to replace.';
+
+/** The backend's refusal of an Ichancy edit or import on tenant zero, verbatim. */
+export const PLATFORM_HAS_NO_AGENT_MESSAGE =
+  'Tenant zero is the platform, not an operator: it has no Ichancy agent.';
+
+/** The backend's PLATFORM refusal of a link code while working in tenant zero, verbatim. */
+export const PLATFORM_LINK_MESSAGE =
+  'The platform itself has no bot, so its accounts cannot be linked to Telegram. Link a staff account of an operator instead.';
+
+/**
+ * What the webhook and command-menu routes answer for tenant zero.
+ *
+ * NOT a TENANT_PLATFORM_LOCKED: those routes have no id check at all. They go through the operator's
+ * bot, and tenant zero's stored token is a placeholder, so the registry refuses to build a bot and
+ * `telegramFailure` maps that to 422 TENANT_BOT_UNAVAILABLE — proved for `POST /:id/webhook` in the
+ * backend's tenant-provisioning.int.spec.ts. The sentence is the shape telegram-failure.ts builds:
+ * "This operator's bot cannot be used to <action>: <why>", with the registry's own reason.
+ */
+export const platformBotUnavailableMessage = (action: string): string =>
+  `This operator's bot cannot be used to ${action}: the bot token of the platform tenant has not been set; set it from the dashboard`;
+
 /** The backend's AGENT_PRINCIPAL refusal of a link code or an unlink, verbatim. */
 export const AGENT_PRINCIPAL_LINK_MESSAGE =
   "This is the operator's agent account, which cannot be linked to Telegram. Create a staff account for the person and link that.";
@@ -1466,13 +1493,18 @@ function boundChatHealth(tenantId: string, chatId: string | null): BoundChatHeal
 
 // ── Linking a staff account to Telegram ────────────────────────────────────────────────────────
 
-/** `POST /v1/admin/admins/:id/telegram-link-code`, after the caller's refusals. Revokes the last code. */
-export function issueStaffLinkCode(admin: AdminUser): StaffTelegramLinkCode {
+/**
+ * `POST /v1/admin/admins/:id/telegram-link-code`, after the caller's refusals. Revokes the last code.
+ * `botUsername` is the bot of the operator the request is for, which is the one that takes the code.
+ */
+export function issueStaffLinkCode(
+  admin: AdminUser,
+  botUsername: string | null,
+): StaffTelegramLinkCode {
   const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   const code = `${randomToken(4, alphabet)}-${randomToken(4, alphabet)}`;
   const expiresAt = new Date(Date.now() + STAFF_LINK_CODE_TTL_SECONDS * 1_000).toISOString();
   db.staffLinkCodes[admin.id] = { code, expiresAt };
-  const botUsername = homeTenant()?.botUsername ?? null;
   return {
     adminUserId: admin.id,
     code,

@@ -13,9 +13,12 @@ import { TenantStatusActions } from './tenant-status-actions';
 
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
-const activeTenant = mockTenants[0]!;
+/** An OPERATOR that is serving. Not tenant zero, which is the platform and cannot be suspended. */
+const activeTenant = mockTenants[1]!;
 /** Suspended, and — like every operator created since 2026-09-15 — with no staff group yet. */
 const suspendedTenant = mockTenants[2]!;
+/** Tenant zero: the platform itself. */
+const platformTenant = mockTenants[0]!;
 const platformAdmin = { auth: { role: 'PLATFORM_ADMIN' as const } };
 
 /** The pilot operator once its staff group is bound, in the mock database and as the panel sees it. */
@@ -44,10 +47,10 @@ describe('TenantStatusActions', () => {
     const confirm = await screen.findByRole('button', { name: 'Suspend tenant' });
     expect(confirm).toBeDisabled();
 
-    await user.type(screen.getByLabelText('Type tenant-zero to confirm'), 'tenant-zer');
+    await user.type(screen.getByLabelText('Type northern-branch to confirm'), 'northern-branc');
     expect(confirm).toBeDisabled();
 
-    await user.type(screen.getByLabelText('Type tenant-zero to confirm'), 'o');
+    await user.type(screen.getByLabelText('Type northern-branch to confirm'), 'h');
     expect(confirm).toBeEnabled();
   });
 
@@ -64,12 +67,12 @@ describe('TenantStatusActions', () => {
     const { user } = renderPlain(<TenantStatusActions tenant={activeTenant} />, platformAdmin);
 
     await user.click(screen.getByRole('button', { name: 'Suspend' }));
-    await user.type(screen.getByLabelText('Type tenant-zero to confirm'), 'tenant-zero');
+    await user.type(screen.getByLabelText('Type northern-branch to confirm'), 'northern-branch');
     await user.click(screen.getByRole('button', { name: 'Suspend tenant' }));
 
     await waitFor(() => {
       expect(toast.success).toHaveBeenCalledWith(
-        'Main operation is suspended',
+        'Northern branch is suspended',
         expect.objectContaining({ description: expect.stringContaining('stopped answering') }),
       );
     });
@@ -171,5 +174,37 @@ describe('TenantStatusActions', () => {
 
     expect(screen.queryByRole('button', { name: 'Suspend' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Activate' })).not.toBeInTheDocument();
+  });
+
+  /**
+   * Tenant zero is the platform. Suspending it is refused (422 TENANT_PLATFORM_LOCKED — it would
+   * lock every platform admin out of sign-in), so the button is not offered. Activating it is NOT
+   * refused, which is why the rule is written as "no Suspend" rather than "no status buttons".
+   */
+  describe('tenant zero, the platform', () => {
+    it('offers no Suspend, because the backend refuses it', () => {
+      renderPlain(<TenantStatusActions tenant={platformTenant} />, platformAdmin);
+
+      expect(screen.queryByRole('button', { name: 'Suspend' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Activate' })).not.toBeInTheDocument();
+    });
+
+    it('would still offer Activate if it ever stopped serving, which is not refused', () => {
+      // The API has never answered this, and if it did, hiding the one call that still works would
+      // leave a platform nobody could start again.
+      renderPlain(
+        <TenantStatusActions tenant={{ ...platformTenant, status: 'SUSPENDED' }} />,
+        platformAdmin,
+      );
+
+      expect(screen.getByRole('button', { name: 'Activate' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Suspend' })).not.toBeInTheDocument();
+    });
+
+    it('leaves an operator its Suspend', () => {
+      renderPlain(<TenantStatusActions tenant={activeTenant} />, platformAdmin);
+
+      expect(screen.getByRole('button', { name: 'Suspend' })).toBeInTheDocument();
+    });
   });
 });

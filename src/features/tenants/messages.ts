@@ -520,6 +520,9 @@ export const tenantMessages = defineMessages({
     'tenants.bind.newLink': 'Get a new link',
     'tenants.platform.noGroups':
       'The platform itself has no staff group or feed group: those belong to each operator.',
+    'tenants.platform.opsTitle': 'Nothing to set up for the platform',
+    'tenants.platform.opsBody':
+      'Tenant zero is the platform itself, not an operator. It has no Telegram bot and no Ichancy agent, so there is no webhook to register, no command menu to push, no bot token to replace, no agent to check and no players to import. Those belong to each operator.',
     'tenants.bind.pickerToggle': 'Pick from groups the bot is in',
     'tenants.bind.pickerHide': 'Hide the list',
     'tenants.bind.pickerTitle': 'Groups this operator’s bot is in',
@@ -1099,6 +1102,9 @@ export const tenantMessages = defineMessages({
     'tenants.bind.newLink': 'اطلب رابطاً جديداً',
     'tenants.platform.noGroups':
       'المنصة نفسها ليس لها مجموعة موظفين ولا مجموعة إشعارات: هاتان المجموعتان تخصّان كل مشغّل.',
+    'tenants.platform.opsTitle': 'لا يوجد ما يُعدّ للمنصة',
+    'tenants.platform.opsBody':
+      'المستأجر صفر هو المنصة نفسها وليس مشغّلاً. ليس له بوت Telegram ولا وكيل Ichancy، لذلك لا يوجد webhook يُسجَّل ولا قائمة أوامر تُرسَل ولا توكن بوت يُستبدل ولا وكيل يُفحص ولا لاعبون يُستوردون. هذه كلها لكل مشغّل.',
     'tenants.bind.pickerToggle': 'اختر من المجموعات التي فيها البوت',
     'tenants.bind.pickerHide': 'إخفاء القائمة',
     'tenants.bind.pickerTitle': 'المجموعات التي فيها بوت هذا المشغّل',

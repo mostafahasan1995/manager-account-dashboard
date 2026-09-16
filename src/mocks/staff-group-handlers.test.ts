@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
+import { config } from '@/config';
 import { configureApiClient } from '@/lib/api/client';
 import { adminsApi, reconciliationApi, tenantsApi } from '@/lib/api/endpoints';
 import { isApiError, type ApiError } from '@/lib/api/errors';
@@ -7,6 +8,10 @@ import { isApiError, type ApiError } from '@/lib/api/errors';
 import {
   AGENT_PRINCIPAL_LINK_MESSAGE,
   ICHANCY_FAKE_MODE_MESSAGE,
+  PLATFORM_BOT_LOCKED_MESSAGE,
+  PLATFORM_HAS_NO_AGENT_MESSAGE,
+  PLATFORM_LINK_MESSAGE,
+  PLATFORM_SUSPEND_LOCKED_MESSAGE,
   STAFF_GROUP_REQUIRED_MESSAGE,
   TENANT_PLATFORM_LOCKED_MESSAGE,
   completeBindLink,
@@ -224,6 +229,49 @@ describe('tenant zero, the platform', () => {
     expect(error.message).toBe(TENANT_PLATFORM_LOCKED_MESSAGE);
     expect(zero()).toEqual(before);
   });
+
+  /**
+   * The rest of what the platform cannot be put through, each with the backend's own sentence. The
+   * console hides every one of these controls for tenant zero, and this is what it is hiding.
+   */
+  it('refuses its suspension, its bot token, its Ichancy agent and its player import', async () => {
+    const refusals: [string, () => Promise<unknown>, string][] = [
+      ['suspending it', () => tenantsApi.suspend(TENANT_IDS.zero), PLATFORM_SUSPEND_LOCKED_MESSAGE],
+      [
+        'replacing its bot token',
+        () => tenantsApi.updateBot(TENANT_IDS.zero, { botToken: A_REAL_LOOKING_BOT_TOKEN }),
+        PLATFORM_BOT_LOCKED_MESSAGE,
+      ],
+      [
+        'editing its Ichancy agent',
+        () => tenantsApi.updateIchancy(TENANT_IDS.zero, { ichancyAgentId: '10500' }),
+        PLATFORM_HAS_NO_AGENT_MESSAGE,
+      ],
+      [
+        'importing its players',
+        () => tenantsApi.importPlayers(TENANT_IDS.zero),
+        PLATFORM_HAS_NO_AGENT_MESSAGE,
+      ],
+    ];
+
+    for (const [what, call, message] of refusals) {
+      const error = await caught(call());
+
+      expect(error.status, what).toBe(422);
+      expect(error.code, what).toBe('TENANT_PLATFORM_LOCKED');
+      expect(error.message, what).toBe(message);
+    }
+    expect(zero().status).toBe('ACTIVE');
+  });
+
+  /**
+   * Not everything is refused, and the console must not hide what is not. Activation is answered
+   * for an operator that is already serving, and the chat directory is readable.
+   */
+  it('still activates it and still lists its chats', async () => {
+    expect((await tenantsApi.activate(TENANT_IDS.zero)).status).toBe('ACTIVE');
+    expect((await tenantsApi.chats(TENANT_IDS.zero)).length).toBeGreaterThan(0);
+  });
 });
 
 describe('the "Add bot to group" link', () => {
@@ -356,6 +404,41 @@ describe('linking a staff account to Telegram', () => {
     expect(error.status).toBe(422);
     expect(error.code).toBe('ADMIN_TELEGRAM_LINK_NOT_ALLOWED');
     expect(error.details).toMatchObject({ reason: 'INACTIVE' });
+  });
+
+  it('refuses a code for every row while the caller is working in tenant zero', async () => {
+    // The platform has no bot, so the backend answers this before it even reads the row — which is
+    // why the console offers no "Link Telegram" at all while it is working there.
+    configureApiClient({ getToken: () => 'mock:PLATFORM_ADMIN:token' });
+
+    const error = await caught(adminsApi.issueTelegramLinkCode(ADMIN_IDS.noTelegram));
+
+    expect(error.status).toBe(422);
+    expect(error.code).toBe('ADMIN_TELEGRAM_LINK_NOT_ALLOWED');
+    expect(error.message).toBe(PLATFORM_LINK_MESSAGE);
+    expect(error.details).toMatchObject({ reason: 'PLATFORM' });
+  });
+
+  it('names the bot of the operator the request is pointed at, not the caller’s home', async () => {
+    // The code is redeemed in THAT operator's bot, so that is the bot the console must name. The
+    // backend reads it off the effective tenant; X-Tenant-Id is honoured only for a platform admin,
+    // and only while this deployment sends the header at all.
+    vi.spyOn(config, 'tenantHeaderEnabled', 'get').mockReturnValue(true);
+    configureApiClient({
+      getToken: () => 'mock:PLATFORM_ADMIN:token',
+      getTenantId: () => TENANT_IDS.second,
+    });
+
+    const code = await adminsApi.issueTelegramLinkCode(ADMIN_IDS.noTelegram);
+
+    expect(code.botUsername).toBe('northern_cashier_bot');
+    expect(code.botUrl).toBe('https://t.me/northern_cashier_bot');
+  });
+
+  it('does NOT refuse an unlink there, which is why the console keeps that button', async () => {
+    configureApiClient({ getToken: () => 'mock:PLATFORM_ADMIN:token' });
+
+    expect((await adminsApi.unlinkTelegram(ADMIN_IDS.reviewer)).telegramLinked).toBe(false);
   });
 
   it('refuses a super admin a code for somebody else, and lets them remove a link', async () => {

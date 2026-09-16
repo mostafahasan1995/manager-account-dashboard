@@ -928,8 +928,30 @@ Tenant zero (`00000000-0000-0000-0000-000000000000`) is the platform itself, not
 ACTIVE with `adminChatId` and `feedChatId` null. Issuing a link, binding (`PUT`, or `PATCH /:id` with a
 changed chat) and removing a group are all refused for it with 422 `TENANT_PLATFORM_LOCKED`, "Tenant
 zero is the platform itself, not an operator, and has no staff or feed group.", checked after 404 and
-before `TENANT_CLOSED`. `GET /:id/telegram/chats` is not refused. The console keys on the id: tenant
-zero gets no missing-staff-group warning and no group steps, only a line saying it has no groups.
+before `TENANT_CLOSED`. `GET /:id/telegram/chats` is not refused.
+
+**Everything else tenant zero refuses, and the little it does not.** Four more routes answer 422
+`TENANT_PLATFORM_LOCKED`, each with its own sentence: `POST /:id/suspend` (suspending it "would lock
+every platform admin out of sign-in"), `PATCH /:id/bot` (no bot to replace), `PATCH /:id/ichancy` and
+`POST /:id/import-players` (both: "Tenant zero is the platform, not an operator: it has no Ichancy
+agent."). `POST` and `DELETE /:id/webhook` and `POST /:id/bot-setup` are refused as well, but with
+422 `TENANT_BOT_UNAVAILABLE` and not by an id check at all: they go through the operator's bot, and
+tenant zero's stored token is a placeholder. NOT refused, and so never hidden by the console:
+`POST /:id/activate` (an operator already serving is answered as it is, 200), `GET /:id/health` (its
+`ichancy` comes back not checked, carrying the no-agent sentence), `GET /:id/telegram/chats`,
+`PATCH /:id` itself, and every route that manages platform staff.
+
+The console keys on the id. Tenant zero gets no missing-staff-group warning and no group steps, and
+also no bot-token, webhook, command-menu or agent step, no Telegram, Ichancy or import panel, and no
+Suspend button — one neutral sentence in place of the panels, and one line saying it has no groups.
+Its checklist is the two steps that are real for it: an admin who can sign in, and "activated". The
+counts, the health re-read and Edit settings stay, because the backend answers those.
+
+Staff Telegram links follow the same rule from the other side: while the console is working in tenant
+zero, `POST /v1/admin/admins/:id/telegram-link-code` is refused for **every** row with 422
+`ADMIN_TELEGRAM_LINK_NOT_ALLOWED` and `details.reason: PLATFORM` — decided before the account is read
+— so "Link Telegram" is not offered there and the row says the platform has no bot instead.
+`DELETE /v1/admin/admins/:id/telegram-link` is NOT refused for it, so "Unlink" stays.
 
 **The primary path — "Add bot to staff group".** `POST /:id/telegram/bind-links { purpose }` answers
 

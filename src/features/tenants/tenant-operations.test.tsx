@@ -14,7 +14,8 @@ import { TenantOperations } from './tenant-operations';
 
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
-const homeTenant = mockTenants[0]!;
+/** Tenant zero: the platform itself, not an operator. */
+const platformTenant = mockTenants[0]!;
 const northernTenant = mockTenants[1]!;
 /** Created, never finished: no webhook, an Ichancy agent that does not answer, no bot username. */
 const stalledTenant = mockTenants[2]!;
@@ -165,7 +166,7 @@ describe('TenantOperations', () => {
 
   describe('the command menus', () => {
     it('reports how many commands were set', async () => {
-      const { user } = renderPlain(<TenantOperations tenant={homeTenant} />, platformAdmin);
+      const { user } = renderPlain(<TenantOperations tenant={northernTenant} />, platformAdmin);
 
       await user.click((await screen.findAllByRole('button', { name: 'Push command menus' }))[0]!);
 
@@ -180,7 +181,7 @@ describe('TenantOperations', () => {
 
   describe('a shared Ichancy agent', () => {
     it('stays quiet when this operator has the agent to itself', async () => {
-      renderPlain(<TenantOperations tenant={homeTenant} />, platformAdmin);
+      renderPlain(<TenantOperations tenant={northernTenant} />, platformAdmin);
 
       expect(
         await screen.findByText(/no other operator is pointed at this ichancy agent/i),
@@ -189,12 +190,12 @@ describe('TenantOperations', () => {
     });
 
     it('names the operators sharing the session when there are any', async () => {
-      healthWith(homeTenant, (health) => ({
+      healthWith(northernTenant, (health) => ({
         ...health,
         ichancy: { ...health.ichancy, sharesAgentWith: ['northern-branch', 'pilot-operator'] },
       }));
 
-      renderPlain(<TenantOperations tenant={homeTenant} />, platformAdmin);
+      renderPlain(<TenantOperations tenant={northernTenant} />, platformAdmin);
 
       const notice = await screen.findByText('This Ichancy agent is shared with 2 other operators');
       expect(notice).toBeInTheDocument();
@@ -209,7 +210,7 @@ describe('TenantOperations', () => {
 
   describe('editing the Ichancy credentials', () => {
     it('surfaces the refusal to move an agent id under live players, as the API worded it', async () => {
-      const { user } = renderPlain(<TenantOperations tenant={homeTenant} />, platformAdmin);
+      const { user } = renderPlain(<TenantOperations tenant={northernTenant} />, platformAdmin);
 
       await user.click(await screen.findByRole('button', { name: 'Edit credentials' }));
 
@@ -229,7 +230,7 @@ describe('TenantOperations', () => {
     });
 
     it('warns about the agent id before anybody types in it', async () => {
-      const { user } = renderPlain(<TenantOperations tenant={homeTenant} />, platformAdmin);
+      const { user } = renderPlain(<TenantOperations tenant={northernTenant} />, platformAdmin);
 
       await user.click(await screen.findByRole('button', { name: 'Edit credentials' }));
 
@@ -242,7 +243,7 @@ describe('TenantOperations', () => {
 
   describe('replacing the bot token', () => {
     it('refuses a token that is not shaped like one, without asking Telegram', async () => {
-      const { user } = renderPlain(<TenantOperations tenant={homeTenant} />, platformAdmin);
+      const { user } = renderPlain(<TenantOperations tenant={northernTenant} />, platformAdmin);
 
       await user.click(await screen.findByRole('button', { name: 'Replace bot token' }));
       await user.type(await screen.findByLabelText('Bot token'), 'not-a-token');
@@ -258,7 +259,7 @@ describe('TenantOperations', () => {
         ),
       );
 
-      const { user } = renderPlain(<TenantOperations tenant={homeTenant} />, platformAdmin);
+      const { user } = renderPlain(<TenantOperations tenant={northernTenant} />, platformAdmin);
 
       await user.click(await screen.findByRole('button', { name: 'Replace bot token' }));
       await user.type(
@@ -274,7 +275,7 @@ describe('TenantOperations', () => {
     });
 
     it('warns that the new bot receives nothing until its webhook is registered', async () => {
-      const { user } = renderPlain(<TenantOperations tenant={homeTenant} />, platformAdmin);
+      const { user } = renderPlain(<TenantOperations tenant={northernTenant} />, platformAdmin);
 
       await user.click(await screen.findByRole('button', { name: 'Replace bot token' }));
 
@@ -310,7 +311,7 @@ describe('TenantOperations', () => {
         }),
       );
 
-      const { user } = renderPlain(<TenantOperations tenant={homeTenant} />, platformAdmin);
+      const { user } = renderPlain(<TenantOperations tenant={northernTenant} />, platformAdmin);
 
       expect(await screen.findByText('Telegram did not answer in 15s.')).toBeInTheDocument();
       await user.click(screen.getByRole('button', { name: /try again/i }));
@@ -323,7 +324,7 @@ describe('TenantOperations', () => {
 
   describe('roles', () => {
     it('shows nothing at all to a role that cannot manage operators', async () => {
-      renderPlain(<TenantOperations tenant={homeTenant} />, { auth: { role: 'SUPER_ADMIN' } });
+      renderPlain(<TenantOperations tenant={northernTenant} />, { auth: { role: 'SUPER_ADMIN' } });
 
       await waitFor(() => {
         expect(screen.queryByText('Setup and health')).not.toBeInTheDocument();
@@ -390,7 +391,7 @@ describe('TenantOperations', () => {
           failure(409, 'IMPORT_ALREADY_RUNNING', 'An import is already running for this operator.'),
         ),
       );
-      const { user } = renderPlain(<TenantOperations tenant={homeTenant} />, platformAdmin);
+      const { user } = renderPlain(<TenantOperations tenant={northernTenant} />, platformAdmin);
 
       await user.click(await screen.findByRole('button', { name: 'Import players from Ichancy' }));
 
@@ -403,6 +404,82 @@ describe('TenantOperations', () => {
         );
       });
       expect(screen.getByText('Not run in this session.')).toBeInTheDocument();
+    });
+  });
+
+  /**
+   * Tenant zero is the platform, not an operator. Everything on this panel except the checklist and
+   * the counts is an action the backend refuses for it — a new bot token, an Ichancy edit and a
+   * player import with 422 TENANT_PLATFORM_LOCKED, the webhook pair and the command menus with 422
+   * TENANT_BOT_UNAVAILABLE. Panels full of buttons that can only fail are worse than one sentence.
+   */
+  describe('tenant zero, the platform', () => {
+    /** What the backend really answers for it: ACTIVE, no staff group, no feed group. */
+    const platform = { ...platformTenant, adminChatId: null, feedChatId: null };
+
+    it('replaces the operator panels with one neutral sentence', async () => {
+      renderPlain(<TenantOperations tenant={platform} />, platformAdmin);
+
+      expect(await screen.findByText('Nothing to set up for the platform')).toBeInTheDocument();
+      expect(
+        screen.getByText(/no webhook to register, no command menu to push/i),
+      ).toBeInTheDocument();
+      for (const label of [
+        'Register webhook',
+        'Unregister',
+        'Push command menus',
+        'Replace bot token',
+        'Edit credentials',
+        'Test connection',
+        'Import players from Ichancy',
+      ]) {
+        expect(screen.queryByRole('button', { name: label })).not.toBeInTheDocument();
+      }
+    });
+
+    it('keeps the two steps that are real for it, and drops the six that are not', async () => {
+      renderPlain(<TenantOperations tenant={platform} />, platformAdmin);
+
+      expect(await screen.findByText('Setup checklist')).toBeInTheDocument();
+      for (const step of [
+        'bot-token',
+        'webhook',
+        'staff-group',
+        'feed-group',
+        'commands',
+        'agent',
+      ]) {
+        expect(document.querySelector(`[data-step="${step}"]`)).toBeNull();
+      }
+      expect(document.querySelector('[data-step="admin"]')).not.toBeNull();
+      expect(document.querySelector('[data-step="active"]')).not.toBeNull();
+    });
+
+    it('still reads its health: the counts and Check again are not refused', async () => {
+      renderPlain(<TenantOperations tenant={platform} />, platformAdmin);
+
+      const counts = (await screen.findByText('What this operator holds')).closest(
+        'div',
+      )!.parentElement!;
+      expect(within(counts).getByText('1,284')).toBeInTheDocument();
+      expect(within(counts).getByText('9,417')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Check again' })).toBeInTheDocument();
+    });
+
+    it('leaves an operator every panel', async () => {
+      renderPlain(<TenantOperations tenant={northernTenant} />, platformAdmin);
+
+      expect(
+        await screen.findByRole('button', { name: 'Import players from Ichancy' }),
+      ).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Replace bot token' })).toBeInTheDocument();
+      expect(screen.queryByText('Nothing to set up for the platform')).not.toBeInTheDocument();
+    });
+
+    it('says it in Arabic', async () => {
+      renderPlain(<TenantOperations tenant={platform} />, { ...platformAdmin, locale: 'ar' });
+
+      expect(await screen.findByText('لا يوجد ما يُعدّ للمنصة')).toBeInTheDocument();
     });
   });
 

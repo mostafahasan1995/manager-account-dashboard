@@ -170,6 +170,8 @@ export const staffMessages = defineMessages({
       'Their Approve and Reject taps in the staff group count as theirs.',
     'staff.telegram.notLinkedHint':
       'Their taps in the staff group are refused until this account is linked.',
+    'staff.telegram.platformHint':
+      'The platform has no bot and no staff group, so its accounts are not linked to Telegram.',
     'staff.telegram.link': 'Link Telegram',
     'staff.telegram.unlink': 'Unlink',
     'staff.telegram.dialogTitle': 'Link {name} to Telegram',
@@ -345,6 +347,8 @@ export const staffMessages = defineMessages({
     'staff.telegram.notLinked': 'غير مربوط',
     'staff.telegram.linkedHint': 'ضغطاته على «موافقة» و«رفض» في مجموعة الموظفين تُحسب له.',
     'staff.telegram.notLinkedHint': 'تُرفض ضغطاته في مجموعة الموظفين حتى يُربط هذا الحساب.',
+    'staff.telegram.platformHint':
+      'المنصة ليس لها بوت ولا مجموعة موظفين، لذلك لا تُربط حساباتها بتلغرام.',
     'staff.telegram.link': 'ربط تلغرام',
     'staff.telegram.unlink': 'فك الربط',
     'staff.telegram.dialogTitle': 'ربط {name} بتلغرام',

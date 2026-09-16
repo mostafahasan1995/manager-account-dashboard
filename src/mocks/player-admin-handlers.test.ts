@@ -274,12 +274,13 @@ describe('importing the old players', () => {
 });
 
 describe('importing from the platform side', () => {
-  it('runs the same import for the home operator', async () => {
+  it('refuses the platform itself, which has no Ichancy agent to import from', async () => {
     asRole('PLATFORM_ADMIN');
-    const summary = await tenantsApi.importPlayers(TENANT_IDS.zero);
 
-    expect(summary.created).toBe(1);
-    expect(summary.error).toBeNull();
+    await expect(tenantsApi.importPlayers(TENANT_IDS.zero)).rejects.toMatchObject({
+      status: 422,
+      code: 'TENANT_PLATFORM_LOCKED',
+    });
   });
 
   it('moves another operator’s player count, and reports the agent that does not answer', async () => {
