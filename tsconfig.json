@@ -1,0 +1,57 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "types": ["vitest/globals", "@testing-library/jest-dom"],
+
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "erasableSyntaxOnly": true,
+
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "forceConsistentCasingInFileNames": true,
+
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  },
+  "include": [
+    "src",
+    "e2e",
+    "vite.config.ts",
+    "vitest.config.ts",
+    "playwright.config.ts",
+    "eslint.config.js"
+  ],
+
+  // ── THE SHAM CASH SESSION CARD, PARKED ──────────────────────────────────────────────────
+  // Kept on disk, deliberately out of the typecheck. It linked an operator by pasting their
+  // signed-in browser cookies; the backend replaced that mechanism with an API key
+  // (`useSetShamCashApi`), and the endpoints, hooks and response shape this card is written
+  // against no longer exist — `useSetShamCashSession`, a `linked` flag, an `expired` status.
+  // Restoring it to a compiling state would mean putting the session mechanism back on the
+  // server, and the migration that removed it also DROPPED the column the cookies lived in.
+  //
+  // Parked instead of deleted so the layout and copy survive and can be read. It is on no
+  // route and no screen imports it, so the running console cannot reach it.
+  //
+  // NAMED ONE BY ONE, never globbed: "**/shamcash-*" would swallow src/types/shamcash.ts,
+  // which the LIVE api card uses.
+  "exclude": [
+    "src/features/payment-methods/shamcash-card.tsx",
+    "src/features/payment-methods/shamcash-card.test.tsx"
+  ]
+}

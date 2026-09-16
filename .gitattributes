@@ -1,0 +1,35 @@
+# Line endings, settled in one place.
+#
+# WHY THIS FILE EXISTS: `.prettierrc` sets `endOfLine: "lf"`, and git's `core.autocrlf=true` — the
+# default on a Windows install — checks every file out as CRLF. So on Windows `npm run format:check`
+# reported all ~240 source files as misformatted while CI, checking out LF on Linux, reported none.
+# Neither was wrong; they were looking at different bytes. The repository's stored blobs were LF the
+# whole time.
+#
+# The cost of leaving it was worse than the noise: a check that always fails locally is a check
+# everybody learns to ignore, and it hid whether any file was ACTUALLY misformatted. It also put a
+# "LF will be replaced by CRLF" warning on every single git command.
+#
+# `eol=lf` makes the working tree match the repository on every platform, which is what prettier,
+# eslint and the diff all already assume.
+* text=auto eol=lf
+
+# Anything executed inside a Linux container, named explicitly even though the rule above already
+# covers it. These are the files where a CRLF is not a formatting nit but a container that will not
+# start: a shell script checked out as CRLF fails with "/bin/sh^M: not found", and nginx reads the
+# `\r` into its directive values. Stated here so that nobody narrowing the rule above breaks them.
+*.sh text eol=lf
+Dockerfile text eol=lf
+.dockerignore text eol=lf
+docker/** text eol=lf
+
+# Binaries, which must never be touched by any of the above.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.woff binary
+*.woff2 binary
+*.pdf binary
