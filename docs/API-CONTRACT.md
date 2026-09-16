@@ -968,6 +968,27 @@ in the group, and — for the staff group — queues review cards for deposits a
   one. The nonce is in `url` only: never logged, never in an audit row; treat the URL as a credential.
 - Opening a fresh link in the group that is ALREADY bound writes nothing, does not use the link up,
   and the bot replies "This group is already the staff group of <name>. Nothing changed."
+- **A link belongs to the first group that opens it.** Telegram posts `/start@<bot> <nonce>` as a
+  visible message, so every member of that group can read the nonce — and a link refused on chat
+  grounds, or opened in the group that is already bound, is not used up. The first chat to present a
+  live link is therefore recorded on it, and the same nonce presented from any other group is refused
+  with `LINK_OTHER_CHAT`: nothing is bound, nothing moves, and the link stays with the group it was
+  opened in. That group keeps everything it had — a retry once the bot is made an administrator, the
+  "already the staff group" reply, and its link if the group becomes a supergroup (the record moves
+  with the chat). Two groups racing for one unopened link cannot both have it. One case burns a link:
+  if the legitimate group's update never reaches the backend and a member who read the nonce presents
+  it from another group first, that other group takes the record, the real group is refused, and the
+  admin simply creates a new link — nothing binds and nothing moves.
+- `LINK_OTHER_CHAT` **never appears in an HTTP response**; no console call can produce it. It appears
+  in exactly two places. In the group that replayed the link, as the bot's reply:
+  "تم فتح رابط الربط هذا في مجموعة أخرى. أنشئ رابطاً جديداً من لوحة التحكم." / "This link was opened
+  in another group. Create a new one from the console." And in the operator's own audit log, on
+  `tenant.telegramChat.bindRefused`, under `after.$meta`:
+  `{ reason: "LINK_OTHER_CHAT", purpose, chatId, via: "startgroup", linkId, telegramUserId, detail: null }`,
+  where `chatId` is the group that replayed the link, not the group that owns it. The nonce is never
+  in the audit row. It joins the existing link refusals `LINK_EXPIRED`, `LINK_USED`, `LINK_REVOKED`
+  and `OPERATOR_CLOSED`, which are likewise group-reply-and-audit only — none of them is a
+  `TELEGRAM_CHAT_REJECTED` `details.reason`, and the console's reason table is unchanged.
 - A bind that fails verification leaves nothing bound and the bot explains in the group.
 - Refusals: 404 `TENANT_NOT_FOUND`, 422 `TENANT_PLATFORM_LOCKED` (tenant zero), 422 `TENANT_CLOSED`,
   422 `TENANT_BOT_UNAVAILABLE` (the bot has no known @username yet: replace its token).
