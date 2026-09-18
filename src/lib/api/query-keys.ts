@@ -215,6 +215,11 @@ export const healthKeys = {
   snapshot: () => [...healthKeys.all, 'snapshot'] as const,
 };
 
+export const egressKeys = {
+  all: ['egress'] as const,
+  status: () => [...egressKeys.all, 'status'] as const,
+};
+
 /**
  * The agent float. Its own root, deliberately OUTSIDE `reconciliationKeys`.
  *
