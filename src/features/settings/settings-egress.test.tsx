@@ -18,7 +18,11 @@ import { SettingsEgress } from './settings-egress';
 interface EgressFixture {
   evaluatedAt?: string;
   transport?: 'browser' | 'fetch';
-  publicIp?: { ip: string | null; source: 'fresh' | 'cached' | 'unreachable'; error: string | null };
+  publicIp?: {
+    ip: string | null;
+    source: 'fresh' | 'cached' | 'unreachable';
+    error: string | null;
+  };
   vpn?: {
     active: boolean;
     tunnelDefaultRoute: boolean;
@@ -94,7 +98,12 @@ describe('SettingsEgress', () => {
 
   it('reads off and direct when there is no tunnel and no proxy', async () => {
     egressReturns({
-      vpn: { active: false, tunnelDefaultRoute: false, interfaces: [], note: 'no tunnel interface is up' },
+      vpn: {
+        active: false,
+        tunnelDefaultRoute: false,
+        interfaces: [],
+        note: 'no tunnel interface is up',
+      },
       proxy: {
         configured: false,
         scheme: null,
