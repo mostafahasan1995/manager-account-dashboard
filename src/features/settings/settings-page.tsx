@@ -5,6 +5,7 @@ import { settingsMessages } from './messages';
 import { SettingsAccess } from './settings-access';
 import { SettingsAppearance } from './settings-appearance';
 import { SettingsConnection } from './settings-connection';
+import { SettingsEgress } from './settings-egress';
 import { SettingsMaintenance } from './settings-maintenance';
 import { SettingsProfile } from './settings-profile';
 
@@ -32,6 +33,7 @@ export function SettingsPage() {
         <div className="space-y-6">
           <SettingsAccess />
           <SettingsConnection />
+          <SettingsEgress />
         </div>
       </div>
 

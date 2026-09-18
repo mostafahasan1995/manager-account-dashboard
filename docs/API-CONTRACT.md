@@ -1608,6 +1608,36 @@ GET /health/live   -> { status, role, uptimeSeconds, timestamp }
 GET /health/ready  -> terminus { status: 'ok'|'error', info, error, details }
 ```
 
+### Egress & VPN (authenticated)
+
+The IP this backend leaves the internet from, and whether a VPN is carrying its default route. Read
+by the Settings screen's "Egress & VPN" card. Authenticated, unlike the health pair: the deployment's
+public IP and network shape are operational intelligence, not a liveness light.
+
+```
+GET /v1/system/egress-status -> {
+  evaluatedAt,
+  transport: 'browser' | 'fetch',
+  publicIp: { ip, source: 'fresh'|'cached'|'unreachable', error },
+  vpn: { active, tunnelDefaultRoute, interfaces: [{ name, kind }], note },
+  proxy: { configured, scheme, hostport, authenticated, route: 'direct'|'relay'|'inline'|'undici' }
+}
+```
+
+Three readings worth stating because the card turns them into words:
+
+- `publicIp.source` is `fresh` when the backend measured it just now, `cached` when it reused a
+  probe under 90s old, and `unreachable` when the probe itself failed (cached for 30s so a broken
+  box does not hammer the echo service). `ip` may be `null` only in the last case.
+- `vpn.active` is true only when a tunnel interface is UP **and** it holds the default route.
+  `tunnelDefaultRoute: false` with interfaces present is the "installed but not routing" state and
+  renders as "Up, not routing", not as active.
+- `proxy.route` says where Ichancy's egress actually goes: `direct` (no proxy), `undici` (fetch
+  transport through the proxy), `relay` (browser, credentialed → loopback relay) or `inline`
+  (browser, credentialless → passed to `chromium.launch`). Credentials are never in the payload.
+
+`hostport` is scheme-less `host:port`; the password is never returned, logged, or rendered.
+
 ---
 
 ## 5. The tenant claim — closed 2026-08-25

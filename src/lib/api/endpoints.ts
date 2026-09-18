@@ -77,6 +77,7 @@ import {
   agentFloatSchema,
   approvalLimitSchema,
   depositChainCheckSchema,
+  egressStatusSchema,
   floatCorrectionSchema,
   floatSyncResultSchema,
   ichancyAccountSchema,
@@ -169,6 +170,23 @@ export const healthApi = {
   /** Answers 503 with a real body when a dependency is down; that body is the useful part. */
   ready: () =>
     api.get(readinessSchema, '/health/ready', { anonymous: true, acceptErrorBody: true }),
+};
+
+// ── System / egress ────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Where this backend leaves the internet from, and whether a VPN is carrying its default route.
+ *
+ * Authenticated, unlike the health pair: it reveals the deployment's public IP and its network
+ * shape, which is operational intelligence rather than a liveness light. It touches no upstream
+ * money path — one cached ipify probe and two `/proc` reads — and answers even when the proxy is
+ * misconfigured, which is exactly when somebody is looking at it.
+ */
+export const systemApi = {
+  egressStatus: (signal?: AbortSignal) =>
+    api.get(egressStatusSchema, '/v1/system/egress-status', {
+      ...(signal === undefined ? {} : { signal }),
+    }),
 };
 
 // ── Deposits ───────────────────────────────────────────────────────────────────────────────────

@@ -605,6 +605,30 @@ export const handlers: HttpHandler[] = [
     }),
   ),
 
+  // A representative egress reading: a proxy configured for Ichancy, and a WireGuard tunnel holding
+  // the default route. Tests that need another shape (unreachable probe, no proxy, no tunnel)
+  // override this one with `server.use`.
+  http.get(url('/v1/system/egress-status'), () =>
+    ok({
+      evaluatedAt: nowIso(),
+      transport: 'browser',
+      publicIp: { ip: '203.0.113.42', source: 'fresh', error: null },
+      vpn: {
+        active: true,
+        tunnelDefaultRoute: true,
+        interfaces: [{ name: 'wg0', kind: 'wireguard' }],
+        note: 'a tunnel interface is the default route — egress is via the VPN',
+      },
+      proxy: {
+        configured: true,
+        scheme: 'socks5',
+        hostport: 'proxy.exit:1080',
+        authenticated: true,
+        route: 'relay',
+      },
+    }),
+  ),
+
   // ── Auth ─────────────────────────────────────────────────────────────────────────────────────
   /**
    * The console's only sign-in. Mirrors the real route: a username and a password, with the

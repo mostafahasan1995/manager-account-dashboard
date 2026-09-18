@@ -90,6 +90,7 @@ import {
   reportsApi,
   botMenuApi,
   withdrawalsApi,
+  systemApi,
 } from './endpoints';
 import { createLimiter } from '@/lib/concurrency';
 import { isAbortError } from '@/lib/utils';
@@ -99,6 +100,7 @@ import {
   agentFloatKeys,
   depositChainCheckKeys,
   depositKeys,
+  egressKeys,
   healthKeys,
   paymentMethodKeys,
   playerKeys,
@@ -1660,6 +1662,23 @@ export function useHealth() {
     },
     refetchInterval: HEALTH_POLL_MS,
     // The health strip is a status light. It must never make a screen look broken.
+    retry: false,
+  });
+}
+
+/**
+ * The deployment's own egress: its public IP, and whether a VPN is carrying the default route.
+ *
+ * Same "status light" contract as health — slow, `retry: false`, and never allowed to make the
+ * Settings screen look broken. The backend caches the ipify probe for 90s and answers through a
+ * memoized failure for 30s, so the 120s interval here costs at most one real echo request per tick
+ * per open tab, and often zero.
+ */
+export function useEgressStatus() {
+  return useQuery({
+    queryKey: egressKeys.status(),
+    queryFn: ({ signal }) => systemApi.egressStatus(signal),
+    refetchInterval: HEALTH_POLL_MS,
     retry: false,
   });
 }
